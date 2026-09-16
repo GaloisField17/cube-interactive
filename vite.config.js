@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  base: "/cube-interactive/",
   build: {
     rollupOptions: {
       output: {
