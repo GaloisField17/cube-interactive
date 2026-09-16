@@ -1,4 +1,4 @@
-import { Color, MathUtils } from "three";
+import { CanvasTexture, Color, MathUtils, Sprite, SpriteMaterial } from "three";
 import pausedRotationImage from "./assets/3x3cubePaused.png";
 import rotationAnimation from "./assets/3x3cubeSolveAnim.gif";
 import stoppedRotationImage from "./assets/3x3cubeStopped.png";
@@ -34,13 +34,13 @@ export function createUI({
   defaultSize,
   defaultGap,
   durationState,
-  rotateSlice,
-  rotateMove,
+  rotateSlice: rotateSliceFromCube,
+  rotateMove: rotateMoveFromCube,
   getRotationDefinition,
   resetCube,
-  resetCubeOrientation,
+  resetCubeOrientation: resetCubeOrientationFromCube,
   resetVisualRotations,
-  updateCubeDimensions,
+  updateCubeDimensions: updateCubeDimensionsFromCube,
   size: initialSize,
   gap: initialGap,
   normalizeAngle,
@@ -51,6 +51,33 @@ export function createUI({
 
   let size = initialSize;
   let gap = initialGap;
+  let labelsPanel = null;
+  let exportSvgButton = null;
+  let updateFaceletLabelTransforms = () => {};
+
+  function updateCubeDimensions(...args) {
+    updateCubeDimensionsFromCube(...args);
+    updateFaceletLabelTransforms();
+  }
+
+  function rotateSlice(...args) {
+    return Promise.resolve(rotateSliceFromCube(...args)).then((result) => {
+      updateFaceletLabelTransforms();
+      return result;
+    });
+  }
+
+  function rotateMove(...args) {
+    return Promise.resolve(rotateMoveFromCube(...args)).then((result) => {
+      updateFaceletLabelTransforms();
+      return result;
+    });
+  }
+
+  function resetCubeOrientation(...args) {
+    resetCubeOrientationFromCube(...args);
+    updateFaceletLabelTransforms();
+  }
 
   const controlsRoot = document.createElement("div");
 
@@ -1104,17 +1131,17 @@ export function createUI({
   buttonContainer.style.gap = "8px";
   buttonContainer.style.marginBottom = "10px";
 
-  const rotateButton = document.createElement("button");
+  const insertButton = document.createElement("button");
 
   let lastRotationEdit = "move";
 
-  rotateButton.type = "button";
-  rotateButton.textContent = "Rotate";
+  insertButton.type = "button";
+  insertButton.textContent = "Insert";
 
-  rotateButton.style.display = "none";
-  rotateButton.style.width = "100%";
-  rotateButton.style.padding = "8px";
-  rotateButton.style.cursor = "pointer";
+  insertButton.style.display = "none";
+  insertButton.style.width = "100%";
+  insertButton.style.padding = "8px";
+  insertButton.style.cursor = "pointer";
 
   // ============================================================
   // Duration
@@ -1738,7 +1765,6 @@ export function createUI({
   moveControlRow.style.marginBottom = "14px";
 
   moveControlRow.appendChild(moveLabel);
-  customControls.appendChild(moveControlRow);
 
   const moveSelect = document.createElement("select");
 
@@ -1801,8 +1827,6 @@ export function createUI({
 
   const directionLabel = createLabel("Rotation Angle (degrees)");
 
-  customControls.appendChild(directionLabel);
-
   const directionContainer = document.createElement("div");
 
   directionContainer.style.display = "flex";
@@ -1817,7 +1841,7 @@ export function createUI({
   directionSlider.type = "range";
   directionSlider.min = "-360";
   directionSlider.max = "360";
-  directionSlider.step = "1";
+  directionSlider.step = "0.1";
   directionSlider.value = "90";
 
   directionSlider.style.flex = "1";
@@ -1854,12 +1878,15 @@ export function createUI({
     lastRotationEdit = "move";
     updateRotateButtonState();
 
-    if (raw === "" || raw === "-") {
+    if (raw === "" || raw === "-" || raw === "." || raw === "-.") {
       return;
     }
 
-    if (!/^-?\d+$/.test(raw)) {
-      directionValue.value = raw.replace(/[^\d-]/g, "");
+    if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw)) {
+      directionValue.value = raw
+        .replace(/[^\d.-]/g, "")
+        .replace(/(?!^)-/g, "")
+        .replace(/(\..*)\./g, "$1");
       return;
     }
 
@@ -1890,8 +1917,6 @@ export function createUI({
   directionContainer.appendChild(directionSlider);
   directionContainer.appendChild(directionValue);
   directionContainer.appendChild(degreeSymbol);
-
-  customControls.appendChild(directionContainer);
 
   const customSequenceLabel = createLabel("Custom Sequence");
 
@@ -1926,8 +1951,6 @@ export function createUI({
 
   customSequenceInfoButton.appendChild(customSequenceInfoImage);
   customSequenceLabel.appendChild(customSequenceInfoButton);
-
-  customControls.appendChild(customSequenceLabel);
 
   const customSequenceInput = document.createElement("input");
 
@@ -2007,7 +2030,7 @@ export function createUI({
         const rotationAngle = getCustomRotationAngle(moveName, angle);
 
         return {
-          label: moveName,
+          label: getCustomMoveLabel(moveName, angle),
           run: (duration) => rotateSlice(moveName, rotationAngle, duration),
           inverse: (duration) =>
             rotateSlice(moveName, -rotationAngle, duration),
@@ -2050,8 +2073,8 @@ export function createUI({
       : "";
     const rotationLabel =
       lastRotationEdit === "move" && moveNotation
-        ? `Rotate ${moveNotation}`
-        : `Rotate ${lastRotationEdit}`;
+        ? `Insert ${moveNotation}`
+        : `Insert ${lastRotationEdit}`;
 
     customSequenceStatusImage.style.display = hasSequence ? "block" : "none";
     customSequenceStatusImage.src = !hasValidSequence
@@ -2064,14 +2087,14 @@ export function createUI({
       : lastRotationEdit === "move"
         ? "Valid sequence pending"
         : "Valid sequence";
-    rotateButton.disabled = isDisabled;
-    rotateButton.textContent = isDisabled
+    insertButton.disabled = isDisabled;
+    insertButton.textContent = isDisabled
       ? requiresMoveSelection
         ? "Select move or sequence"
         : "Invalid sequence"
       : rotationLabel;
-    rotateButton.style.opacity = isDisabled ? "0.5" : "1";
-    rotateButton.style.cursor = isDisabled ? "not-allowed" : "pointer";
+    insertButton.style.opacity = isDisabled ? "0.5" : "1";
+    insertButton.style.cursor = isDisabled ? "not-allowed" : "pointer";
   }
 
   customSequenceInput.addEventListener("input", validateCustomSequence);
@@ -2088,8 +2111,12 @@ export function createUI({
     updateRotateButtonState();
   });
 
+  customControls.appendChild(customSequenceLabel);
   customControls.appendChild(customSequenceInputRow);
-  customControls.appendChild(rotateButton);
+  customControls.appendChild(moveControlRow);
+  customControls.appendChild(directionLabel);
+  customControls.appendChild(directionContainer);
+  customControls.appendChild(insertButton);
   updateRotateButtonState();
 
   // ============================================================
@@ -2107,7 +2134,7 @@ export function createUI({
 
     fixedMoves.style.display = "block";
     customControls.style.display = "none";
-    rotateButton.style.display = "none";
+    insertButton.style.display = "none";
   });
 
   customRadio.addEventListener("change", () => {
@@ -2119,7 +2146,7 @@ export function createUI({
 
     fixedMoves.style.display = "none";
     customControls.style.display = "block";
-    rotateButton.style.display = "block";
+    insertButton.style.display = "block";
   });
 
   // ============================================================
@@ -2268,6 +2295,86 @@ export function createUI({
     return probe.style.color !== "";
   }
 
+  function getColorPickerValue(value) {
+    const color = new Color();
+
+    try {
+      color.set(value);
+      return `#${color.getHexString()}`;
+    } catch {
+      return "#000000";
+    }
+  }
+
+  function addColorPicker(preview, input, applyColor) {
+    const picker = document.createElement("input");
+
+    picker.type = "color";
+    picker.style.display = "none";
+    let initialColor = "";
+    let pickerOpen = false;
+    let pickerSelectionCommitted = false;
+
+    function openPicker() {
+      initialColor = input.value;
+      picker.value = getColorPickerValue(input.value);
+      pickerOpen = true;
+      pickerSelectionCommitted = false;
+      picker.click();
+    }
+
+    function previewPickedColor() {
+      input.value = picker.value;
+      applyColor();
+    }
+
+    function commitPickedColor() {
+      pickerSelectionCommitted = true;
+      pickerOpen = false;
+      previewPickedColor();
+    }
+
+    function restoreCancelledColor() {
+      if (!pickerOpen || pickerSelectionCommitted) {
+        return;
+      }
+
+      pickerOpen = false;
+      input.value = initialColor;
+      applyColor();
+    }
+
+    function handlePickerCancel() {
+      pickerOpen = false;
+      pickerSelectionCommitted = false;
+      input.value = initialColor;
+      applyColor();
+    }
+
+    preview.style.cursor = "pointer";
+    preview.setAttribute("role", "button");
+    preview.setAttribute("aria-label", "Choose color");
+    preview.tabIndex = 0;
+    preview.title = "Choose color";
+    preview.addEventListener("click", openPicker);
+    preview.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+
+      event.preventDefault();
+      openPicker();
+    });
+    picker.addEventListener("input", previewPickedColor);
+    picker.addEventListener("change", commitPickedColor);
+    picker.addEventListener("cancel", handlePickerCancel);
+    picker.addEventListener("blur", restoreCancelledColor);
+    window.addEventListener("focus", () => {
+      window.setTimeout(restoreCancelledColor, 0);
+    });
+    preview.appendChild(picker);
+  }
+
   function getFaceletPositionName(facelet) {
     const { x, y, z } = facelet.cubie.userData;
 
@@ -2293,8 +2400,8 @@ export function createUI({
         column: z,
         rowPositive: "U",
         rowNegative: "D",
-        columnPositive: "B",
-        columnNegative: "F",
+        columnPositive: "F",
+        columnNegative: "B",
       },
       L: {
         row: y,
@@ -2307,8 +2414,8 @@ export function createUI({
       U: {
         row: z,
         column: x,
-        rowPositive: "B",
-        rowNegative: "F",
+        rowPositive: "F",
+        rowNegative: "B",
         columnPositive: "R",
         columnNegative: "L",
       },
@@ -2340,6 +2447,88 @@ export function createUI({
 
     return position.join("");
   }
+
+  const faceletLabels = new Map();
+
+  function createFaceletLabel(facelet) {
+    const canvas = document.createElement("canvas");
+
+    canvas.width = 256;
+    canvas.height = 256;
+
+    const context = canvas.getContext("2d");
+
+    context.font = "bold 72px Arial";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.lineJoin = "round";
+    context.lineWidth = 10;
+    context.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    context.fillStyle = "#111";
+
+    const label = getFaceletPositionName(facelet);
+
+    context.strokeText(label, 128, 128);
+    context.fillText(label, 128, 128);
+
+    const texture = new CanvasTexture(canvas);
+    const material = new SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+    });
+    const sprite = new Sprite(material);
+
+    sprite.renderOrder = 10;
+    sprite.visible = false;
+    sprite.userData.canvas = canvas;
+    sprite.userData.labelText = label;
+    facelet.cubie.add(sprite);
+    faceletLabels.set(facelet, sprite);
+  }
+
+  function refreshFaceletLabel(facelet) {
+    const label = faceletLabels.get(facelet);
+
+    if (!label) {
+      return;
+    }
+
+    const cubieSize = Math.max(
+      0,
+      facelet.cubie.userData.size - facelet.cubie.userData.gap,
+    );
+    const normal = facelet.sticker.normal;
+    const offset = cubieSize / 2 + 0.006;
+
+    const labelText = getFaceletPositionName(facelet);
+
+    if (label.userData.labelText !== labelText) {
+      const context = label.userData.canvas.getContext("2d");
+
+      context.clearRect(0, 0, 256, 256);
+      context.strokeText(labelText, 128, 128);
+      context.fillText(labelText, 128, 128);
+      label.material.map.needsUpdate = true;
+      label.userData.labelText = labelText;
+    }
+
+    label.position.set(normal.x * offset, normal.y * offset, normal.z * offset);
+    label.scale.setScalar(cubieSize * 0.62);
+  }
+
+  function refreshFaceletLabels() {
+    for (const facelet of facelets) {
+      refreshFaceletLabel(facelet);
+    }
+  }
+
+  for (const facelet of facelets) {
+    createFaceletLabel(facelet);
+  }
+
+  updateFaceletLabelTransforms = refreshFaceletLabels;
 
   function createFaceletRow(facelet) {
     const row = document.createElement("div");
@@ -2409,6 +2598,7 @@ export function createUI({
 
     input.addEventListener("input", updateColor);
     input.addEventListener("change", updateColor);
+    addColorPicker(preview, input, updateColor);
 
     colorInputs.set(facelet.sticker, {
       input,
@@ -2522,6 +2712,7 @@ export function createUI({
 
     input.addEventListener("input", applyColor);
     input.addEventListener("change", applyColor);
+    addColorPicker(preview, input, applyColor);
 
     return controls;
   }
@@ -2776,6 +2967,7 @@ export function createUI({
 
   innerInput.addEventListener("input", applyInnerColor);
   innerInput.addEventListener("change", applyInnerColor);
+  addColorPicker(innerPreview, innerInput, applyInnerColor);
   updateInnerHeading();
 
   // ============================================================
@@ -2831,6 +3023,67 @@ export function createUI({
   });
 
   // ============================================================
+  // Labels panel
+  // ============================================================
+
+  labelsPanel = document.createElement("div");
+
+  labelsPanel.style.position = "absolute";
+  labelsPanel.style.top = "20px";
+  labelsPanel.style.right = "20px";
+  labelsPanel.style.width = "280px";
+  labelsPanel.style.padding = "16px";
+  labelsPanel.style.background = "rgba(255, 255, 255, 0.95)";
+  labelsPanel.style.borderRadius = "8px";
+  labelsPanel.style.boxShadow = "0 2px 10px rgba(0, 0, 0, 0.2)";
+  labelsPanel.style.fontFamily = "Arial, sans-serif";
+  labelsPanel.style.fontSize = "14px";
+  labelsPanel.style.boxSizing = "border-box";
+
+  const labelsHeader = document.createElement("div");
+
+  labelsHeader.style.fontSize = "18px";
+  labelsHeader.style.fontWeight = "bold";
+  labelsHeader.textContent = "Labels";
+
+  const showFaceletLabelsLabel = document.createElement("label");
+
+  showFaceletLabelsLabel.style.display = "flex";
+  showFaceletLabelsLabel.style.alignItems = "center";
+  showFaceletLabelsLabel.style.gap = "7px";
+  showFaceletLabelsLabel.style.marginTop = "12px";
+  showFaceletLabelsLabel.style.cursor = "pointer";
+
+  const showFaceletLabelsCheckbox = document.createElement("input");
+
+  showFaceletLabelsCheckbox.type = "checkbox";
+
+  const showFaceletLabelsText = document.createElement("span");
+
+  showFaceletLabelsText.textContent = "Show facelet labels";
+
+  showFaceletLabelsLabel.appendChild(showFaceletLabelsCheckbox);
+  showFaceletLabelsLabel.appendChild(showFaceletLabelsText);
+  labelsPanel.appendChild(labelsHeader);
+  labelsPanel.appendChild(showFaceletLabelsLabel);
+  controlsRoot.appendChild(labelsPanel);
+
+  function updateFaceletLabelVisibility() {
+    const isVisible = showFaceletLabelsCheckbox.checked;
+
+    refreshFaceletLabels();
+
+    for (const label of faceletLabels.values()) {
+      label.visible = isVisible;
+    }
+  }
+
+  showFaceletLabelsCheckbox.addEventListener(
+    "change",
+    updateFaceletLabelVisibility,
+  );
+
+  // ============================================================
   // Cube panel
   // ============================================================
 
@@ -2859,6 +3112,20 @@ export function createUI({
     cubePanel.style.right = "20px";
     colorsPanel.style.top = `${cubePanel.offsetTop + cubePanel.offsetHeight + 10}px`;
     colorsPanel.style.right = "20px";
+
+    if (labelsPanel) {
+      labelsPanel.style.top = `${
+        colorsPanel.offsetTop + colorsPanel.offsetHeight + 10
+      }px`;
+    }
+
+    if (exportSvgButton) {
+      exportSvgButton.style.top = `${
+        (labelsPanel ?? colorsPanel).offsetTop +
+        (labelsPanel ?? colorsPanel).offsetHeight +
+        10
+      }px`;
+    }
   }
 
   // ============================================================
@@ -3530,7 +3797,7 @@ export function createUI({
   // Rotate button
   // ============================================================
 
-  rotateButton.addEventListener("click", () => {
+  insertButton.addEventListener("click", () => {
     if (!moveType) {
       return;
     }
@@ -3667,7 +3934,7 @@ export function createUI({
 
     fixedMoves.style.display = "none";
     customControls.style.display = "none";
-    rotateButton.style.display = "none";
+    insertButton.style.display = "none";
   }
 
   function resetCubeInterface() {
@@ -3705,14 +3972,14 @@ export function createUI({
 
   controlsRoot.appendChild(resetCubeButton);
 
-  const exportSvgButton = document.createElement("button");
+  exportSvgButton = document.createElement("button");
 
   exportSvgButton.type = "button";
   exportSvgButton.textContent = "Export SVG";
-  exportSvgButton.style.position = "fixed";
-  exportSvgButton.style.bottom = "20px";
-  exportSvgButton.style.left = "20px";
-  exportSvgButton.style.width = "220px";
+  exportSvgButton.style.position = "absolute";
+  exportSvgButton.style.top = "20px";
+  exportSvgButton.style.right = "20px";
+  exportSvgButton.style.width = "280px";
   exportSvgButton.style.padding = "8px";
   exportSvgButton.style.cursor = "pointer";
 
@@ -3724,7 +3991,7 @@ export function createUI({
     }
   });
 
-  controlsRoot.appendChild(exportSvgButton);
+  controlsRoot.insertBefore(exportSvgButton, resetCubeButton);
 
   updateCubePanelPosition();
 }
