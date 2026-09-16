@@ -1,0 +1,20 @@
+{
+  "name": "cube-interactive",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test",
+    "check": "npm test && npm run build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "three": "^0.186.0"
+  }
+}

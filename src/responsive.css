@@ -1,0 +1,149 @@
+.cube-viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+@media (max-width: 900px) {
+  .cube-viewport {
+    height: var(--cube-viewport-height) !important;
+  }
+
+  .responsive-controls {
+    position: fixed;
+    top: calc(var(--cube-viewport-height) + 12px);
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+    padding-top: 112px;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-sizing: border-box;
+  }
+
+  .responsive-controls > div {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    min-width: 0;
+    max-width: none !important;
+    max-height: none !important;
+    flex: 0 0 auto;
+    border: 1px solid rgba(0, 0, 0, 0.2) !important;
+    box-sizing: border-box;
+  }
+
+  .responsive-controls > button {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+  }
+
+  .rotation-sequence {
+    position: fixed !important;
+    top: calc(var(--cube-viewport-height) + 12px) !important;
+    right: 12px !important;
+    left: 12px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: 48px !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    z-index: 20;
+  }
+
+  .rotation-copy-control,
+  .rotation-undo-control {
+    position: fixed !important;
+    top: calc(var(--cube-viewport-height) + 68px) !important;
+    right: 12px !important;
+    left: auto !important;
+    z-index: 20;
+  }
+
+  .rotation-copy-control {
+    right: 66px !important;
+  }
+
+  .rotation-control {
+    top: calc(var(--cube-viewport-height) + 68px) !important;
+    z-index: 20;
+  }
+
+  .rotation-control-start {
+    left: 12px !important;
+  }
+
+  .rotation-control-play {
+    left: 64px !important;
+  }
+
+  .rotation-control-stop {
+    left: 116px !important;
+  }
+
+  .rotation-control-end {
+    left: 168px !important;
+  }
+
+  .responsive-controls input:not([type="range"]):not([type="radio"]),
+  .responsive-controls select {
+    min-height: 40px;
+    font-size: 16px;
+    box-sizing: border-box;
+  }
+
+  .responsive-controls input[type="range"] {
+    min-height: 32px;
+  }
+
+  .responsive-controls input[type="radio"] {
+    min-height: 0;
+  }
+
+  .responsive-controls button {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .responsive-controls .compact-icon-button {
+    min-height: 22px;
+    font-size: 14px;
+  }
+
+  .responsive-controls [role="button"]:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 3px;
+  }
+}
+
+@media (max-width: 600px) {
+  .cube-viewport {
+    height: var(--cube-viewport-height) !important;
+  }
+
+  .responsive-controls {
+    top: calc(var(--cube-viewport-height) + 12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .responsive-controls *,
+  .rotation-sequence,
+  .rotation-sequence * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
