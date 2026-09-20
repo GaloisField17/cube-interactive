@@ -14,6 +14,10 @@ import {
 import {
   createFaceDefinitions,
   createSticker,
+  getFaceletLabel,
+  getSolvedPieceFaces,
+  getSolvedPieceKey,
+  getSolvedStickerName,
   MATERIAL_INDEX_BY_FACE,
 } from "../src/faceDefinitions.js";
 import { getCubeViewportHeight } from "../src/responsiveLayout.js";
@@ -90,4 +94,64 @@ test("face definitions preserve colors, normals, and material indices", () => {
   assert.equal(Object.isFrozen(faceDefinitions.F.normal), true);
   assert.notStrictEqual(sticker.normal, faceDefinitions.F.normal);
   assert.equal(MATERIAL_INDEX_BY_FACE.F, 4);
+});
+
+test("solved-state piece keys stay fixed to the original piece identity", () => {
+  assert.deepEqual(getSolvedPieceKey({ x: 0, y: 0, z: 0 }), {
+    x: 0,
+    y: 0,
+    z: 0,
+  });
+  assert.deepEqual(getSolvedPieceKey({ x: 0, y: 0, z: 1 }), {
+    x: 1,
+    y: 0,
+    z: 0,
+  });
+  assert.deepEqual(getSolvedPieceKey({ x: 1, y: 0, z: 0 }), {
+    x: 0,
+    y: 1,
+    z: 0,
+  });
+  assert.deepEqual(getSolvedPieceKey({ x: 0, y: 1, z: 0 }), {
+    x: 0,
+    y: 0,
+    z: 1,
+  });
+  assert.deepEqual(getSolvedPieceKey({ x: 1, y: 1, z: 1 }), {
+    x: 1,
+    y: 1,
+    z: 1,
+  });
+});
+
+test("solved-state piece faces identify cubie ownership", () => {
+  assert.deepEqual(getSolvedPieceFaces({ x: 0, y: 0, z: 0 }), []);
+  assert.deepEqual(getSolvedPieceFaces({ x: 0, y: 1, z: 0 }), ["U"]);
+  assert.deepEqual(getSolvedPieceFaces({ x: 1, y: 0, z: 1 }), ["F", "R"]);
+  assert.deepEqual(getSolvedPieceFaces({ x: -1, y: 1, z: -1 }), [
+    "U",
+    "B",
+    "L",
+  ]);
+});
+
+test("facelet labels start with their face and append owned cubie faces", () => {
+  assert.equal(getFaceletLabel("F", ["U", "F", "R"]), "FUR");
+  assert.equal(getFaceletLabel("U", ["U"]), "U");
+  assert.equal(getFaceletLabel("B", ["U", "B", "L"]), "BUL");
+});
+
+test("solved-state sticker names use face-relative notation", () => {
+  assert.equal(getSolvedStickerName("F", { x: -1, y: -1, z: 1 }), "FDL");
+  assert.equal(getSolvedStickerName("F", { x: 0, y: -1, z: 1 }), "FD");
+  assert.equal(getSolvedStickerName("F", { x: 1, y: -1, z: 1 }), "FDR");
+  assert.equal(getSolvedStickerName("F", { x: -1, y: 0, z: 1 }), "FL");
+  assert.equal(getSolvedStickerName("F", { x: 0, y: 0, z: 1 }), "F");
+  assert.equal(getSolvedStickerName("F", { x: 1, y: 0, z: 1 }), "FR");
+  assert.equal(getSolvedStickerName("F", { x: -1, y: 1, z: 1 }), "FUL");
+  assert.equal(getSolvedStickerName("F", { x: 0, y: 1, z: 1 }), "FU");
+  assert.equal(getSolvedStickerName("F", { x: 1, y: 1, z: 1 }), "FUR");
+  assert.equal(getSolvedStickerName("B", { x: -1, y: 1, z: -1 }), "BUL");
+  assert.equal(getSolvedStickerName("R", { x: 1, y: 1, z: 1 }), "RUF");
+  assert.equal(getSolvedStickerName("U", { x: 0, y: 1, z: 0 }), "U");
 });

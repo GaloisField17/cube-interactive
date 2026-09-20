@@ -9,6 +9,8 @@ import {
 import {
   createFaceDefinitions,
   createSticker,
+  getSolvedPieceFaces,
+  getSolvedPieceKey,
   MATERIAL_INDEX_BY_FACE,
 } from "./faceDefinitions.js";
 import "./responsive.css";
@@ -72,6 +74,12 @@ const cubies = [];
 
 const FACE_DEFINITIONS = createFaceDefinitions(colors);
 
+const core = {
+  pieceKey: { x: 0, y: 0, z: 0 },
+  faces: [],
+  type: "core",
+};
+
 // ============================================================
 // Create one cubie
 // ============================================================
@@ -101,23 +109,48 @@ function createCubie(x, y, z) {
   cubie.userData.originalX = x;
   cubie.userData.originalY = y;
   cubie.userData.originalZ = z;
+  cubie.userData.pieceKey = { ...getSolvedPieceKey({ x, y, z }) };
+  cubie.userData.originalPieceKey = { ...cubie.userData.pieceKey };
+  cubie.userData.faces = getSolvedPieceFaces({ x, y, z });
+  cubie.userData.defaultInnerColor = colors.inner;
+  cubie.userData.currentInnerColor = colors.inner;
   cubie.userData.innerColor = colors.inner;
+  cubie.userData.defaultSize = size;
+  cubie.userData.currentSize = size;
   cubie.userData.size = size;
+  cubie.userData.defaultGap = gap;
+  cubie.userData.currentGap = gap;
   cubie.userData.gap = gap;
+
+  if (x === 0 && y === 0 && z === 0) {
+    core.cubie = cubie;
+    core.pieceKey = { ...cubie.userData.pieceKey };
+    core.faces = cubie.userData.faces;
+    cubie.userData.type = "core";
+  } else {
+    cubie.userData.type = "cubie";
+  }
 
   // ----------------------------------------------------------
   // Physical stickers
   // ----------------------------------------------------------
 
-  cubie.userData.stickers = [];
+  cubie.userData.facelets = [];
+  cubie.userData.stickers = cubie.userData.facelets;
 
   const position = { x, y, z };
 
   for (const [face, definition] of Object.entries(FACE_DEFINITIONS)) {
     if (position[definition.axis] === definition.value) {
-      cubie.userData.stickers.push(createSticker(face, FACE_DEFINITIONS));
+      const facelet = createSticker(face, FACE_DEFINITIONS, position, {
+        ...cubie.userData.pieceKey,
+      });
+
+      cubie.userData.facelets.push(facelet);
     }
   }
+
+  cubie.userData.stickers = cubie.userData.facelets;
 
   updateCubieMaterials(cubie);
 
@@ -164,12 +197,15 @@ for (let x = -1; x <= 1; x++) {
 function updateCubieMaterials(cubie) {
   const materials = cubie.material;
 
+  const currentInnerColor =
+    cubie.userData.currentInnerColor ?? cubie.userData.innerColor;
+
   for (const material of materials) {
-    material.color.set(cubie.userData.innerColor);
+    material.color.set(currentInnerColor);
   }
 
-  for (const sticker of cubie.userData.stickers) {
-    const face = getFaceFromNormal(sticker.normal);
+  for (const facelet of cubie.userData.facelets) {
+    const face = getFaceFromNormal(facelet.normal);
 
     if (!face) {
       continue;
@@ -181,7 +217,7 @@ function updateCubieMaterials(cubie) {
       continue;
     }
 
-    materials[materialIndex].color.set(sticker.color);
+    materials[materialIndex].color.set(facelet.currentColor ?? facelet.color);
   }
 }
 
@@ -202,20 +238,42 @@ function rebuildFacelets() {
   facelets.length = 0;
 
   for (const cubie of cubies) {
-    for (const sticker of cubie.userData.stickers) {
-      const currentFace = getFaceFromNormal(sticker.normal);
+    for (const facelet of cubie.userData.facelets) {
+      const currentFace = getFaceFromNormal(facelet.normal);
 
       if (!currentFace) {
         continue;
       }
 
-      facelets.push({
-        name: `${sticker.face}`,
+      const faceletRecord = {
+        id: facelet.id,
+        name: facelet.label ?? facelet.name ?? `${facelet.face}`,
+        label: facelet.label ?? facelet.name ?? `${facelet.face}`,
         face: currentFace,
         cubie,
-        sticker,
+        facelet,
+        sticker: facelet,
+        solvedPosition: facelet.solvedPosition,
         materialIndex: MATERIAL_INDEX_BY_FACE[currentFace],
-      });
+      };
+
+      for (const property of [
+        "currentColor",
+        "defaultColor",
+        "color",
+        "normal",
+      ]) {
+        Object.defineProperty(faceletRecord, property, {
+          enumerable: true,
+          configurable: false,
+          get: () => facelet[property],
+          set: (value) => {
+            facelet[property] = value;
+          },
+        });
+      }
+
+      facelets.push(faceletRecord);
     }
   }
 }
@@ -251,8 +309,9 @@ function updateCubieLogicalState(cubie, axis, angle) {
   // Rotate every physical sticker orientation
   // ----------------------------------------------------------
 
-  for (const sticker of cubie.userData.stickers) {
-    sticker.normal = rotateVector(sticker.normal, axis, angle);
+  for (const facelet of cubie.userData.facelets) {
+    facelet.normal = rotateVector(facelet.normal, axis, angle);
+    facelet.sticker = facelet;
   }
 
   cubie.rotation.set(0, 0, 0);
@@ -598,10 +657,10 @@ function resetCube() {
     // Restore original sticker orientations/colors
     // --------------------------------------------------------
 
-    for (const sticker of cubie.userData.stickers) {
-      sticker.normal = cloneVector(FACE_DEFINITIONS[sticker.face].normal);
-
-      sticker.color = FACE_DEFINITIONS[sticker.face].color;
+    for (const facelet of cubie.userData.facelets) {
+      facelet.normal = cloneVector(FACE_DEFINITIONS[facelet.face].normal);
+      facelet.currentColor = FACE_DEFINITIONS[facelet.face].color;
+      facelet.color = FACE_DEFINITIONS[facelet.face].color;
     }
 
     cubie.userData.innerColor = colors.inner;
@@ -630,8 +689,8 @@ function resetCubeOrientation() {
 
     cubie.position.set(x * size, y * size, z * size);
 
-    for (const sticker of cubie.userData.stickers) {
-      sticker.normal = cloneVector(FACE_DEFINITIONS[sticker.face].normal);
+    for (const facelet of cubie.userData.facelets) {
+      facelet.normal = cloneVector(FACE_DEFINITIONS[facelet.face].normal);
     }
 
     cubie.rotation.set(0, 0, 0);
@@ -677,7 +736,11 @@ function updateCubeDimensions(
   for (const cubie of cubies) {
     const dimension = dimensions?.get(cubie) ?? { size, gap };
 
+    cubie.userData.defaultSize = dimension.size;
+    cubie.userData.currentSize = dimension.size;
     cubie.userData.size = dimension.size;
+    cubie.userData.defaultGap = dimension.gap;
+    cubie.userData.currentGap = dimension.gap;
     cubie.userData.gap = dimension.gap;
 
     cubie.geometry.dispose();

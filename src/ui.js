@@ -1,4 +1,19 @@
-import { CanvasTexture, Color, MathUtils, Sprite, SpriteMaterial } from "three";
+import {
+  ArrowHelper,
+  BufferGeometry,
+  CanvasTexture,
+  Color,
+  CylinderGeometry,
+  Group,
+  Line,
+  LineBasicMaterial,
+  MathUtils,
+  Mesh,
+  MeshBasicMaterial,
+  Sprite,
+  SpriteMaterial,
+  Vector3,
+} from "three";
 import pausedRotationImage from "./assets/3x3cubePaused.png";
 import rotationAnimation from "./assets/3x3cubeSolveAnim.gif";
 import stoppedRotationImage from "./assets/3x3cubeStopped.png";
@@ -21,6 +36,7 @@ import {
   default as copiedIcon,
   default as sequenceValidIcon,
 } from "./assets/yes.png";
+import { getFaceletLabel } from "./faceDefinitions.js";
 import { createSvgArchive } from "./svgExport.js";
 
 export function createUI({
@@ -51,13 +67,16 @@ export function createUI({
 
   let size = initialSize;
   let gap = initialGap;
+  let labelDepth = 0.25;
   let labelsPanel = null;
   let exportSvgButton = null;
   let updateFaceletLabelTransforms = () => {};
+  let updateAxisHelperScale = () => {};
 
   function updateCubeDimensions(...args) {
     updateCubeDimensionsFromCube(...args);
     updateFaceletLabelTransforms();
+    updateAxisHelperScale();
   }
 
   function rotateSlice(...args) {
@@ -137,6 +156,37 @@ export function createUI({
     button.addEventListener("mouseleave", () => {
       button.style.background = defaultBackground;
     });
+  }
+
+  function createResetButton(title, resetAction) {
+    const button = document.createElement("button");
+
+    button.className = "compact-icon-button";
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.style.width = "22px";
+    button.style.height = "22px";
+    button.style.padding = "2px";
+    button.style.boxSizing = "border-box";
+    button.style.cursor = "pointer";
+
+    const image = document.createElement("img");
+
+    image.src = resetIcon;
+    image.alt = "";
+    image.style.width = "100%";
+    image.style.height = "100%";
+    image.style.display = "block";
+    image.style.pointerEvents = "none";
+
+    button.appendChild(image);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      resetAction();
+    });
+
+    return button;
   }
 
   const rotationBlinkStyle = document.createElement("style");
@@ -259,33 +309,11 @@ export function createUI({
     gap: "6px",
   });
 
-  const resetButton = document.createElement("button");
+  const resetRotationButton = createResetButton("Reset rotation", () =>
+    resetRotationInterface(),
+  );
 
-  resetButton.className = "compact-icon-button";
-  resetButton.type = "button";
-  resetButton.title = "Reset rotation";
-  resetButton.setAttribute("aria-label", "Reset rotation");
-  resetButton.style.width = "22px";
-  resetButton.style.height = "22px";
-  resetButton.style.padding = "2px";
-  resetButton.style.boxSizing = "border-box";
-  resetButton.style.cursor = "pointer";
-
-  const resetButtonImage = document.createElement("img");
-
-  resetButtonImage.src = resetIcon;
-  resetButtonImage.alt = "";
-  resetButtonImage.style.width = "100%";
-  resetButtonImage.style.height = "100%";
-  resetButtonImage.style.display = "block";
-  resetButtonImage.style.pointerEvents = "none";
-
-  resetButton.appendChild(resetButtonImage);
-  resetButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    resetRotationInterface();
-  });
-  rotationTitleRow.appendChild(resetButton);
+  rotationTitleRow.appendChild(resetRotationButton);
   rotationTitleRow.appendChild(rotationTitle);
   rotationLeftColumn.appendChild(rotationTitleRow);
   rotationHeader.appendChild(rotationLeftColumn);
@@ -1035,15 +1063,68 @@ export function createUI({
     return `${moveName}'`;
   }
 
-  function getCustomMoveLabel(shortName, angle) {
-    const normalized = normalizeAngle(angle);
+  function getCustomMoveLabel(
+    shortName,
+    angle,
+    { preserveEnteredAngle = false } = {},
+  ) {
+    const normalized = preserveEnteredAngle
+      ? Math.trunc(angle * 1000) / 1000
+      : normalizeAngle(angle);
 
     if (normalized === 90) return shortName;
     if (normalized === -90) return `${shortName}'`;
     if (normalized === 180 || normalized === -180) return `${shortName}2`;
-    if (normalized !== 0) return `${shortName}(${normalized}°)`;
+    if (normalized !== 0) return `${shortName}[${normalized}°]`;
 
     return "";
+  }
+
+  function getCurrentFaceletColor(facelet) {
+    return (
+      facelet?.currentColor ?? facelet?.defaultColor ?? facelet?.color ?? ""
+    );
+  }
+
+  function getFaceletData(facelet) {
+    return facelet?.facelet ?? facelet;
+  }
+
+  function getCurrentFaceletRecord(facelet) {
+    const faceletData = getFaceletData(facelet);
+
+    return facelets.find(
+      (currentFacelet) => currentFacelet.facelet === faceletData,
+    );
+  }
+
+  function sortFaceletsBySolvedPosition(firstFacelet, secondFacelet) {
+    const firstPosition = getFaceletData(firstFacelet).solvedPosition;
+    const secondPosition = getFaceletData(secondFacelet).solvedPosition;
+    const face = firstFacelet.face;
+    const faceAxes = {
+      F: ["y", "x"],
+      B: ["y", "x"],
+      R: ["y", "z"],
+      L: ["y", "z"],
+      U: ["z", "x"],
+      D: ["z", "x"],
+    };
+    const [rowAxis, columnAxis] = faceAxes[face] ?? ["y", "x"];
+
+    return (
+      secondPosition[rowAxis] - firstPosition[rowAxis] ||
+      firstPosition[columnAxis] - secondPosition[columnAxis]
+    );
+  }
+
+  function getCurrentInnerColor(cubie) {
+    return (
+      cubie?.userData?.currentInnerColor ??
+      cubie?.userData?.defaultInnerColor ??
+      cubie?.userData?.innerColor ??
+      ""
+    );
   }
 
   function getCustomRotationAngle(moveName, angle) {
@@ -1210,7 +1291,7 @@ export function createUI({
       decimalIndex === -1 ? "" : raw.slice(decimalIndex + 1)
     )
       .replace(/[^\d]/g, "")
-      .slice(0, 1);
+      .slice(0, 3);
     const normalized = `${integerPart}${decimalIndex === -1 ? "" : `.${fractionalPart}`}`;
 
     if (raw === "") {
@@ -1233,9 +1314,7 @@ export function createUI({
 
   durationValue.addEventListener("blur", () => {
     const raw = Number(durationValue.value);
-    const duration = Number.isFinite(raw)
-      ? Math.max(Math.floor(raw * 10) / 10, 0)
-      : 1;
+    const duration = Number.isFinite(raw) ? Math.max(raw, 0) : 1;
 
     durationValue.value = String(duration);
     durationSlider.value = String(Math.min(duration, 5));
@@ -1890,7 +1969,27 @@ export function createUI({
       return;
     }
 
-    const angle = normalizeAngle(raw);
+    const decimalIndex = raw.indexOf(".");
+    const sign = raw.startsWith("-") ? "-" : "";
+    const unsignedRaw = sign ? raw.slice(1) : raw;
+    const unsignedDecimalIndex = unsignedRaw.indexOf(".");
+    const integerPart = (
+      unsignedDecimalIndex === -1
+        ? unsignedRaw
+        : unsignedRaw.slice(0, unsignedDecimalIndex)
+    ).replace(/[^\d]/g, "");
+    const fractionalPart = (
+      unsignedDecimalIndex === -1
+        ? ""
+        : unsignedRaw.slice(unsignedDecimalIndex + 1)
+    ).slice(0, 3);
+    const normalized = `${sign}${integerPart}${decimalIndex === -1 ? "" : `.${fractionalPart}`}`;
+
+    if (normalized !== raw) {
+      directionValue.value = normalized;
+    }
+
+    const angle = normalizeAngle(normalized);
 
     directionSlider.value = angle;
   });
@@ -1898,7 +1997,23 @@ export function createUI({
   directionValue.addEventListener("blur", () => {
     lastRotationEdit = "move";
 
-    const angle = normalizeAngle(directionValue.value);
+    const raw = directionValue.value;
+    const decimalIndex = raw.indexOf(".");
+    const sign = raw.startsWith("-") ? "-" : "";
+    const unsignedRaw = sign ? raw.slice(1) : raw;
+    const unsignedDecimalIndex = unsignedRaw.indexOf(".");
+    const integerPart = (
+      unsignedDecimalIndex === -1
+        ? unsignedRaw
+        : unsignedRaw.slice(0, unsignedDecimalIndex)
+    ).replace(/[^\d]/g, "");
+    const fractionalPart = (
+      unsignedDecimalIndex === -1
+        ? ""
+        : unsignedRaw.slice(unsignedDecimalIndex + 1)
+    ).slice(0, 3);
+    const normalized = `${sign}${integerPart}${decimalIndex === -1 ? "" : `.${fractionalPart}`}`;
+    const angle = normalizeAngle(normalized);
 
     directionValue.value = angle;
     directionSlider.value = angle;
@@ -1929,10 +2044,10 @@ export function createUI({
   customSequenceInfoButton.className = "compact-icon-button";
   customSequenceInfoButton.type = "button";
   customSequenceInfoButton.title =
-    "Enter moves separated by spaces, such as R U R' or F(33deg)";
+    "Enter moves separated by spaces, such as R U R' or F[33°]";
   customSequenceInfoButton.setAttribute(
     "aria-label",
-    "Enter moves separated by spaces, such as R U R' or F(33deg)",
+    "Enter moves separated by spaces, such as R U R' or F[33°]",
   );
   customSequenceInfoButton.style.width = "22px";
   customSequenceInfoButton.style.height = "22px";
@@ -1981,6 +2096,40 @@ export function createUI({
   customSequenceInputRow.appendChild(customSequenceInput);
   customSequenceInputRow.appendChild(customSequenceStatusImage);
 
+  const lowercaseWideMoveNames = {
+    u: "Uw",
+    d: "Dw",
+    r: "Rw",
+    l: "Lw",
+    f: "Fw",
+    b: "Bw",
+  };
+
+  function normalizeCustomMoveName(moveName) {
+    const match = moveName.match(/^([udrlfb])(['2]?)$/);
+
+    if (!match) {
+      return moveName;
+    }
+
+    return `${lowercaseWideMoveNames[match[1]]}${match[2]}`;
+  }
+
+  function parseCustomMove(value) {
+    const match = value.match(
+      /^(.+?)(?:\(([+-]?\d+(?:\.\d+)?)(?:degrees?|degs?|°)\)|\[([+-]?\d+(?:\.\d+)?)(?:degrees?|degs?|°)\])$/,
+    );
+
+    if (!match) {
+      return null;
+    }
+
+    return {
+      moveName: match[1],
+      angle: Number(match[2] ?? match[3]),
+    };
+  }
+
   function isValidCustomSequence(value) {
     const sequence = value.trim();
 
@@ -1989,17 +2138,21 @@ export function createUI({
     }
 
     return sequence.split(/\s+/).every((move) => {
-      if (getRotationDefinition(move)) {
+      const normalizedMove = normalizeCustomMoveName(move);
+
+      if (getRotationDefinition(normalizedMove)) {
         return true;
       }
 
-      const customMove = move.match(/^(.+)\(([+-]?\d+(?:\.\d+)?)deg\)$/);
+      const customMove = parseCustomMove(move);
 
       if (!customMove) {
         return false;
       }
 
-      return Boolean(getRotationDefinition(customMove[1]));
+      return Boolean(
+        getRotationDefinition(normalizeCustomMoveName(customMove.moveName)),
+      );
     });
   }
 
@@ -2008,33 +2161,43 @@ export function createUI({
       .trim()
       .split(/\s+/)
       .map((move) => {
-        if (getRotationDefinition(move)) {
-          const inverse = getInverseMoveName(move);
+        const normalizedMove = normalizeCustomMoveName(move);
+
+        if (getRotationDefinition(normalizedMove)) {
+          const inverse = getInverseMoveName(normalizedMove);
 
           return {
-            label: move,
-            run: (duration) => rotateMove(move, duration),
+            label: normalizedMove,
+            run: (duration) => rotateMove(normalizedMove, duration),
             inverse: (duration) => rotateMove(inverse, duration),
             inverseLabel: inverse,
           };
         }
 
-        const customMove = move.match(/^(.+)\(([+-]?\d+(?:\.\d+)?)deg\)$/);
+        const customMove = parseCustomMove(move);
 
-        if (!customMove || !getRotationDefinition(customMove[1])) {
+        const moveName = customMove
+          ? normalizeCustomMoveName(customMove.moveName)
+          : null;
+
+        if (!customMove || !getRotationDefinition(moveName)) {
           return null;
         }
 
-        const moveName = customMove[1];
-        const angle = Number(customMove[2]);
-        const rotationAngle = getCustomRotationAngle(moveName, angle);
+        const angle = customMove.angle;
+        const displayedAngle = Math.trunc(normalizeAngle(angle) * 1000) / 1000;
+        const rotationAngle = getCustomRotationAngle(moveName, displayedAngle);
 
         return {
-          label: getCustomMoveLabel(moveName, angle),
+          label: getCustomMoveLabel(moveName, displayedAngle, {
+            preserveEnteredAngle: true,
+          }),
           run: (duration) => rotateSlice(moveName, rotationAngle, duration),
           inverse: (duration) =>
             rotateSlice(moveName, -rotationAngle, duration),
-          inverseLabel: getCustomMoveLabel(moveName, -angle),
+          inverseLabel: getCustomMoveLabel(moveName, -displayedAngle, {
+            preserveEnteredAngle: true,
+          }),
         };
       });
   }
@@ -2050,7 +2213,7 @@ export function createUI({
     customSequenceInput.setCustomValidity(
       isValid
         ? ""
-        : "Use valid rotation moves separated by spaces, such as R U R' or F(33deg).",
+        : "Use valid rotation moves separated by spaces, such as R U R' or F[33°].",
     );
     customSequenceInput.setAttribute("aria-invalid", String(!isValid));
     customSequenceInput.style.borderColor = isValid ? "" : "#c00";
@@ -2190,13 +2353,27 @@ export function createUI({
   colorsTitle.style.fontSize = "18px";
   colorsTitle.style.fontWeight = "bold";
 
+  const colorsTitleRow = document.createElement("div");
+
+  colorsTitleRow.style.display = "flex";
+  colorsTitleRow.style.alignItems = "center";
+  colorsTitleRow.style.gap = "6px";
+
+  const resetColorsButton = createResetButton(
+    "Reset colors",
+    resetColorsInterface,
+  );
+
+  colorsTitleRow.appendChild(resetColorsButton);
+  colorsTitleRow.appendChild(colorsTitle);
+
   const colorsCollapseIcon = document.createElement("span");
 
   colorsCollapseIcon.textContent = "−";
   colorsCollapseIcon.style.fontSize = "20px";
   colorsCollapseIcon.style.lineHeight = "1";
 
-  colorsHeader.appendChild(colorsTitle);
+  colorsHeader.appendChild(colorsTitleRow);
   colorsHeader.appendChild(colorsCollapseIcon);
   colorsHeader.setAttribute("role", "button");
   colorsHeader.setAttribute("aria-expanded", "false");
@@ -2230,7 +2407,7 @@ export function createUI({
 
     colorsCollapseIcon.textContent = colorsCollapsed ? "+" : "−";
     colorsHeader.setAttribute("aria-expanded", String(!colorsCollapsed));
-    updateCubePanelPosition();
+    scheduleCubePanelPositionUpdate();
   }
 
   colorsHeader.addEventListener("click", toggleColorsPanel);
@@ -2242,22 +2419,6 @@ export function createUI({
     event.preventDefault();
     toggleColorsPanel();
   });
-
-  // ============================================================
-  // Default colors button
-  // ============================================================
-
-  const defaultColorsButton = document.createElement("button");
-
-  defaultColorsButton.type = "button";
-  defaultColorsButton.textContent = "Default colors";
-
-  defaultColorsButton.style.width = "100%";
-  defaultColorsButton.style.padding = "8px";
-  defaultColorsButton.style.marginBottom = "14px";
-  defaultColorsButton.style.cursor = "pointer";
-
-  colorsContent.appendChild(defaultColorsButton);
 
   // ============================================================
   // Facelet color editor
@@ -2306,7 +2467,7 @@ export function createUI({
     }
   }
 
-  function addColorPicker(preview, input, applyColor) {
+  function addColorPicker(preview, input, applyColor, getInitialColor) {
     const picker = document.createElement("input");
 
     picker.type = "color";
@@ -2317,7 +2478,9 @@ export function createUI({
 
     function openPicker() {
       initialColor = input.value;
-      picker.value = getColorPickerValue(input.value);
+      const pickerColor = input.value || getInitialColor?.() || "#000000";
+
+      picker.value = getColorPickerValue(pickerColor);
       pickerOpen = true;
       pickerSelectionCommitted = false;
       picker.click();
@@ -2376,6 +2539,19 @@ export function createUI({
   }
 
   function getFaceletPositionName(facelet) {
+    const faceletData = getFaceletData(facelet);
+
+    if (faceletData.visibilityKey === "outer") {
+      return getFaceletLabel(
+        faceletData.orientationKey,
+        facelet.cubie.userData.faces,
+      );
+    }
+
+    if (faceletData.name) {
+      return faceletData.name;
+    }
+
     const { x, y, z } = facelet.cubie.userData;
 
     const view = {
@@ -2448,9 +2624,14 @@ export function createUI({
     return position.join("");
   }
 
+  function getFaceletSection(facelet) {
+    return getFaceletPositionName(facelet).charAt(0);
+  }
+
   const faceletLabels = new Map();
 
   function createFaceletLabel(facelet) {
+    const faceletData = getFaceletData(facelet);
     const canvas = document.createElement("canvas");
 
     canvas.width = 256;
@@ -2484,12 +2665,31 @@ export function createUI({
     sprite.visible = false;
     sprite.userData.canvas = canvas;
     sprite.userData.labelText = label;
+    sprite.userData.labelColor = "#111";
+    sprite.userData.context = context;
     facelet.cubie.add(sprite);
-    faceletLabels.set(facelet, sprite);
+    faceletLabels.set(faceletData, sprite);
+  }
+
+  function updateFaceletLabelColor(facelet, color) {
+    const label = faceletLabels.get(getFaceletData(facelet));
+
+    if (!label) {
+      return;
+    }
+
+    const context = label.userData.context;
+
+    label.userData.labelColor = color;
+    context.clearRect(0, 0, 256, 256);
+    context.fillStyle = color;
+    context.strokeText(label.userData.labelText, 128, 128);
+    context.fillText(label.userData.labelText, 128, 128);
+    label.material.map.needsUpdate = true;
   }
 
   function refreshFaceletLabel(facelet) {
-    const label = faceletLabels.get(facelet);
+    const label = faceletLabels.get(getFaceletData(facelet));
 
     if (!label) {
       return;
@@ -2497,10 +2697,15 @@ export function createUI({
 
     const cubieSize = Math.max(
       0,
-      facelet.cubie.userData.size - facelet.cubie.userData.gap,
+      (facelet.cubie.userData.currentSize ??
+        facelet.cubie.userData.size ??
+        size) -
+        (facelet.cubie.userData.currentGap ??
+          facelet.cubie.userData.gap ??
+          gap),
     );
-    const normal = facelet.sticker.normal;
-    const offset = cubieSize / 2 + 0.006;
+    const normal = facelet.normal ?? getFaceletData(facelet)?.normal;
+    const offset = cubieSize / 2 + labelDepth;
 
     const labelText = getFaceletPositionName(facelet);
 
@@ -2550,7 +2755,7 @@ export function createUI({
 
     input.type = "text";
 
-    input.value = facelet.sticker.color;
+    input.value = getCurrentFaceletColor(facelet);
 
     input.style.flex = "1";
     input.style.minWidth = "0";
@@ -2580,27 +2785,32 @@ export function createUI({
 
       color.set(value);
 
-      facelet.sticker.color = value;
+      const faceletData = getFaceletData(facelet);
+      const currentFacelet = getCurrentFaceletRecord(facelet);
 
-      const materialIndex = facelet.materialIndex;
+      faceletData.currentColor = value;
+      faceletData.color = value;
+
+      const materialIndex = currentFacelet?.materialIndex;
 
       if (
         materialIndex !== undefined &&
-        facelet.cubie.material[materialIndex]
+        currentFacelet.cubie.material[materialIndex]
       ) {
-        facelet.cubie.material[materialIndex].color.set(value);
+        currentFacelet.cubie.material[materialIndex].color.set(value);
       }
 
       preview.style.backgroundImage = "none";
       preview.style.backgroundColor = value;
-      updateFaceColorControl(facelet.face);
+      updateFaceColorControl(getFaceletSection(facelet));
+      updateOuterFaceletsControl();
     }
 
     input.addEventListener("input", updateColor);
     input.addEventListener("change", updateColor);
     addColorPicker(preview, input, updateColor);
 
-    colorInputs.set(facelet.sticker, {
+    colorInputs.set(getFaceletData(facelet), {
       input,
       preview,
     });
@@ -2619,11 +2829,13 @@ export function createUI({
       return;
     }
 
-    const sectionFacelets = facelets.filter((facelet) => facelet.face === face);
+    const sectionFacelets = facelets.filter(
+      (facelet) => getFaceletSection(facelet) === face,
+    );
     const colors = sectionFacelets.map((facelet) => {
       const color = new Color();
 
-      color.set(facelet.sticker.color);
+      color.set(getCurrentFaceletColor(facelet));
       return color.getHex();
     });
 
@@ -2633,11 +2845,13 @@ export function createUI({
     if (isUniform) {
       const firstFacelet = sectionFacelets[0];
 
-      controls.input.value = firstFacelet ? firstFacelet.sticker.color : "";
+      controls.input.value = firstFacelet
+        ? getCurrentFaceletColor(firstFacelet)
+        : "";
       controls.input.placeholder = "";
       controls.preview.style.backgroundImage = "none";
       controls.preview.style.backgroundColor = firstFacelet
-        ? firstFacelet.sticker.color
+        ? getCurrentFaceletColor(firstFacelet)
         : "transparent";
     } else {
       controls.input.value = "";
@@ -2650,7 +2864,7 @@ export function createUI({
     }
   }
 
-  function createFaceColorControl(face, sectionFacelets) {
+  function createFaceColorControl(face) {
     const input = document.createElement("input");
 
     input.type = "text";
@@ -2686,10 +2900,18 @@ export function createUI({
 
       color.set(value);
 
-      for (const facelet of sectionFacelets) {
-        facelet.sticker.color = value;
+      const currentFacelets = facelets.filter(
+        (facelet) => getFaceletSection(facelet) === face,
+      );
 
-        const faceletControls = colorInputs.get(facelet.sticker);
+      for (const facelet of currentFacelets) {
+        const faceletData = getFaceletData(facelet);
+        const currentFacelet = getCurrentFaceletRecord(facelet);
+
+        faceletData.currentColor = value;
+        faceletData.color = value;
+
+        const faceletControls = colorInputs.get(faceletData);
 
         if (faceletControls) {
           faceletControls.input.value = value;
@@ -2697,28 +2919,144 @@ export function createUI({
           faceletControls.preview.style.backgroundColor = value;
         }
 
-        const materialIndex = facelet.materialIndex;
+        const materialIndex = currentFacelet?.materialIndex;
 
         if (
           materialIndex !== undefined &&
-          facelet.cubie.material[materialIndex]
+          currentFacelet.cubie.material[materialIndex]
         ) {
-          facelet.cubie.material[materialIndex].color.set(value);
+          currentFacelet.cubie.material[materialIndex].color.set(value);
         }
       }
 
       updateFaceColorControl(face);
+      updateOuterFaceletsControl();
     }
 
     input.addEventListener("input", applyColor);
     input.addEventListener("change", applyColor);
-    addColorPicker(preview, input, applyColor);
+    addColorPicker(preview, input, applyColor, () =>
+      getCurrentFaceletColor(
+        facelets.find((facelet) => getFaceletSection(facelet) === face),
+      ),
+    );
 
     return controls;
   }
 
+  const outerFaceletsHeading = document.createElement("div");
+
+  outerFaceletsHeading.style.display = "flex";
+  outerFaceletsHeading.style.alignItems = "center";
+  outerFaceletsHeading.style.gap = "6px";
+  outerFaceletsHeading.style.fontWeight = "bold";
+  outerFaceletsHeading.style.marginTop = "14px";
+  outerFaceletsHeading.style.marginBottom = "7px";
+
+  const outerFaceletsTitle = document.createElement("span");
+
+  outerFaceletsTitle.textContent = "Outer Facelets";
+
+  const outerFaceletsInput = document.createElement("input");
+
+  outerFaceletsInput.type = "text";
+  outerFaceletsInput.style.width = "70px";
+  outerFaceletsInput.style.padding = "3px";
+  outerFaceletsInput.style.boxSizing = "border-box";
+
+  const outerFaceletsPreview = document.createElement("span");
+
+  outerFaceletsPreview.style.width = "18px";
+  outerFaceletsPreview.style.height = "18px";
+  outerFaceletsPreview.style.borderRadius = "50%";
+  outerFaceletsPreview.style.border = "1px solid #999";
+  outerFaceletsPreview.style.flexShrink = "0";
+
+  function updateOuterFaceletsControl() {
+    const colors = facelets.map((facelet) => getCurrentFaceletColor(facelet));
+    const firstColor = colors[0];
+    const isUniform = colors.every((color) => color === firstColor);
+
+    if (isUniform) {
+      outerFaceletsInput.value = firstColor ?? "";
+      outerFaceletsInput.placeholder = "";
+      outerFaceletsPreview.style.backgroundImage = "none";
+      outerFaceletsPreview.style.backgroundColor = firstColor ?? "transparent";
+    } else {
+      outerFaceletsInput.value = "";
+      outerFaceletsInput.placeholder = "Mixed";
+      outerFaceletsPreview.style.backgroundColor = "transparent";
+      outerFaceletsPreview.style.backgroundImage = `url(${mixedColorIcon})`;
+      outerFaceletsPreview.style.backgroundSize = "contain";
+      outerFaceletsPreview.style.backgroundRepeat = "no-repeat";
+      outerFaceletsPreview.style.backgroundPosition = "center";
+    }
+  }
+
+  function applyOuterFaceletsColor() {
+    const value = outerFaceletsInput.value.trim();
+    const color = new Color();
+
+    if (!isValidColorValue(value)) {
+      if (value !== "") {
+        showInvalidColor(outerFaceletsPreview);
+      }
+      return;
+    }
+
+    color.set(value);
+
+    for (const facelet of facelets) {
+      const faceletData = getFaceletData(facelet);
+      const currentFacelet = getCurrentFaceletRecord(facelet);
+
+      faceletData.currentColor = value;
+      faceletData.color = value;
+
+      const controls = colorInputs.get(faceletData);
+
+      if (controls) {
+        controls.input.value = value;
+        controls.preview.style.backgroundImage = "none";
+        controls.preview.style.backgroundColor = value;
+      }
+
+      const materialIndex = currentFacelet?.materialIndex;
+
+      if (
+        materialIndex !== undefined &&
+        currentFacelet.cubie.material[materialIndex]
+      ) {
+        currentFacelet.cubie.material[materialIndex].color.set(value);
+      }
+    }
+
+    for (const [face] of faceletSections) {
+      updateFaceColorControl(face);
+    }
+
+    updateOuterFaceletsControl();
+  }
+
+  outerFaceletsInput.addEventListener("input", applyOuterFaceletsColor);
+  outerFaceletsInput.addEventListener("change", applyOuterFaceletsColor);
+  addColorPicker(
+    outerFaceletsPreview,
+    outerFaceletsInput,
+    applyOuterFaceletsColor,
+    () => (facelets[0] ? getCurrentFaceletColor(facelets[0]) : "#000000"),
+  );
+
+  outerFaceletsHeading.appendChild(outerFaceletsTitle);
+  outerFaceletsHeading.appendChild(outerFaceletsInput);
+  outerFaceletsHeading.appendChild(outerFaceletsPreview);
+  colorsContent.appendChild(outerFaceletsHeading);
+  updateOuterFaceletsControl();
+
   for (const [face, title] of faceletSections) {
-    const sectionFacelets = facelets.filter((facelet) => facelet.face === face);
+    const sectionFacelets = facelets
+      .filter((facelet) => getFaceletSection(facelet) === face)
+      .sort(sortFaceletsBySolvedPosition);
 
     const heading = document.createElement("div");
 
@@ -2733,7 +3071,7 @@ export function createUI({
 
     headingText.textContent = title;
 
-    const faceControls = createFaceColorControl(face, sectionFacelets);
+    const faceControls = createFaceColorControl(face);
 
     heading.appendChild(headingText);
     heading.appendChild(faceControls.input);
@@ -2805,6 +3143,7 @@ export function createUI({
   }
 
   function setCubieInnerColor(cubie, value) {
+    cubie.userData.currentInnerColor = value;
     cubie.userData.innerColor = value;
 
     for (const material of cubie.material) {
@@ -2816,9 +3155,9 @@ export function createUI({
         continue;
       }
 
-      facelet.cubie.material[facelet.materialIndex].color.set(
-        facelet.sticker.color,
-      );
+      const faceColor = getCurrentFaceletColor(facelet);
+
+      facelet.cubie.material[facelet.materialIndex].color.set(faceColor);
     }
   }
 
@@ -2840,7 +3179,7 @@ export function createUI({
     const input = document.createElement("input");
 
     input.type = "text";
-    input.value = cubie.userData.innerColor;
+    input.value = getCurrentInnerColor(cubie);
     input.style.flex = "1";
     input.style.minWidth = "0";
     input.style.padding = "4px";
@@ -2874,6 +3213,7 @@ export function createUI({
 
     input.addEventListener("input", updateInnerColor);
     input.addEventListener("change", updateInnerColor);
+    addColorPicker(preview, input, updateInnerColor);
 
     row.appendChild(name);
     row.appendChild(input);
@@ -2923,14 +3263,14 @@ export function createUI({
     const colors = cubies.map((cubie) => {
       const color = new Color();
 
-      color.set(cubie.userData.innerColor);
+      color.set(getCurrentInnerColor(cubie));
       return color.getHex();
     });
     const firstColor = colors[0];
     const isUniform = colors.every((color) => color === firstColor);
 
     if (isUniform) {
-      innerInput.value = cubies[0]?.userData.innerColor ?? "";
+      innerInput.value = cubies[0] ? getCurrentInnerColor(cubies[0]) : "";
       innerInput.placeholder = "";
       innerPreview.style.backgroundImage = "none";
       innerPreview.style.backgroundColor = innerInput.value;
@@ -2957,9 +3297,9 @@ export function createUI({
 
     for (const { cubie, input, preview } of innerColorControls) {
       setCubieInnerColor(cubie, value);
-      input.value = value;
+      input.value = getCurrentInnerColor(cubie);
       preview.style.backgroundImage = "none";
-      preview.style.backgroundColor = value;
+      preview.style.backgroundColor = getCurrentInnerColor(cubie);
     }
 
     updateInnerHeading();
@@ -2971,10 +3311,301 @@ export function createUI({
   updateInnerHeading();
 
   // ============================================================
+  // Facelet label color editor
+  // ============================================================
+
+  const defaultFaceletLabelColor = "#111";
+  const faceletLabelColorControls = new Map();
+  const faceletLabelFaceControls = new Map();
+
+  function getFaceletLabelColor(facelet) {
+    return (
+      faceletLabels.get(getFaceletData(facelet))?.userData.labelColor ??
+      defaultFaceletLabelColor
+    );
+  }
+
+  function updateFaceletLabelColorControl(facelet) {
+    const controls = faceletLabelColorControls.get(getFaceletData(facelet));
+
+    if (!controls) {
+      return;
+    }
+
+    controls.input.value = getFaceletLabelColor(facelet);
+    controls.preview.style.backgroundImage = "none";
+    controls.preview.style.backgroundColor = controls.input.value;
+  }
+
+  function updateFaceletLabelFaceControl(face) {
+    const controls = faceletLabelFaceControls.get(face);
+
+    if (!controls) {
+      return;
+    }
+
+    const sectionFacelets = facelets.filter(
+      (facelet) => getFaceletSection(facelet) === face,
+    );
+    const colors = sectionFacelets.map((facelet) =>
+      getFaceletLabelColor(facelet),
+    );
+    const firstColor = colors[0];
+    const isUniform = colors.every((color) => color === firstColor);
+
+    if (isUniform) {
+      controls.input.value = firstColor ?? defaultFaceletLabelColor;
+      controls.input.placeholder = "";
+      controls.preview.style.backgroundImage = "none";
+      controls.preview.style.backgroundColor = controls.input.value;
+    } else {
+      controls.input.value = "";
+      controls.input.placeholder = "Mixed";
+      controls.preview.style.backgroundColor = "transparent";
+      controls.preview.style.backgroundImage = `url(${mixedColorIcon})`;
+      controls.preview.style.backgroundSize = "contain";
+      controls.preview.style.backgroundRepeat = "no-repeat";
+      controls.preview.style.backgroundPosition = "center";
+    }
+  }
+
+  function updateFaceletLabelHeading() {
+    const colors = facelets.map((facelet) => getFaceletLabelColor(facelet));
+    const firstColor = colors[0];
+    const isUniform = colors.every((color) => color === firstColor);
+
+    if (isUniform) {
+      faceletLabelInput.value = firstColor ?? defaultFaceletLabelColor;
+      faceletLabelInput.placeholder = "";
+      faceletLabelPreview.style.backgroundImage = "none";
+      faceletLabelPreview.style.backgroundColor = faceletLabelInput.value;
+    } else {
+      faceletLabelInput.value = "";
+      faceletLabelInput.placeholder = "Mixed";
+      faceletLabelPreview.style.backgroundColor = "transparent";
+      faceletLabelPreview.style.backgroundImage = `url(${mixedColorIcon})`;
+      faceletLabelPreview.style.backgroundSize = "contain";
+      faceletLabelPreview.style.backgroundRepeat = "no-repeat";
+      faceletLabelPreview.style.backgroundPosition = "center";
+    }
+  }
+
+  function createFaceletLabelColorControls(facelet, name) {
+    const row = document.createElement("div");
+
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.gap = "6px";
+    row.style.marginBottom = "5px";
+
+    const nameElement = document.createElement("span");
+
+    nameElement.textContent = `${name}:`;
+    nameElement.style.width = "38px";
+    nameElement.style.flexShrink = "0";
+    nameElement.style.fontFamily = "monospace";
+
+    const input = document.createElement("input");
+
+    input.type = "text";
+    input.value = getFaceletLabelColor(facelet);
+    input.style.flex = "1";
+    input.style.minWidth = "0";
+    input.style.padding = "4px";
+    input.style.boxSizing = "border-box";
+
+    const preview = document.createElement("span");
+
+    preview.style.width = "18px";
+    preview.style.height = "18px";
+    preview.style.borderRadius = "50%";
+    preview.style.border = "1px solid #999";
+    preview.style.flexShrink = "0";
+    preview.style.backgroundColor = input.value;
+
+    function applyColor() {
+      const value = input.value.trim();
+
+      if (!isValidColorValue(value)) {
+        if (value !== "") {
+          showInvalidColor(preview);
+        }
+        return;
+      }
+
+      updateFaceletLabelColor(facelet, value);
+      preview.style.backgroundImage = "none";
+      preview.style.backgroundColor = value;
+      updateFaceletLabelFaceControl(getFaceletSection(facelet));
+      updateFaceletLabelHeading();
+    }
+
+    input.addEventListener("input", applyColor);
+    input.addEventListener("change", applyColor);
+    addColorPicker(preview, input, applyColor);
+
+    faceletLabelColorControls.set(getFaceletData(facelet), {
+      input,
+      preview,
+    });
+    row.appendChild(nameElement);
+    row.appendChild(input);
+    row.appendChild(preview);
+
+    return row;
+  }
+
+  const faceletLabelsHeading = document.createElement("div");
+
+  faceletLabelsHeading.style.display = "flex";
+  faceletLabelsHeading.style.alignItems = "center";
+  faceletLabelsHeading.style.gap = "6px";
+  faceletLabelsHeading.style.fontWeight = "bold";
+  faceletLabelsHeading.style.marginTop = "14px";
+  faceletLabelsHeading.style.marginBottom = "7px";
+
+  const faceletLabelsTitle = document.createElement("span");
+
+  faceletLabelsTitle.textContent = "Facelet labels";
+
+  const faceletLabelInput = document.createElement("input");
+
+  faceletLabelInput.type = "text";
+  faceletLabelInput.style.width = "70px";
+  faceletLabelInput.style.padding = "3px";
+  faceletLabelInput.style.boxSizing = "border-box";
+
+  const faceletLabelPreview = document.createElement("span");
+
+  faceletLabelPreview.style.width = "18px";
+  faceletLabelPreview.style.height = "18px";
+  faceletLabelPreview.style.borderRadius = "50%";
+  faceletLabelPreview.style.border = "1px solid #999";
+  faceletLabelPreview.style.flexShrink = "0";
+  faceletLabelPreview.style.backgroundColor = defaultFaceletLabelColor;
+
+  function applyAllFaceletLabelColor() {
+    const value = faceletLabelInput.value.trim();
+
+    if (!isValidColorValue(value)) {
+      if (value !== "") {
+        showInvalidColor(faceletLabelPreview);
+      }
+      return;
+    }
+
+    for (const facelet of facelets) {
+      updateFaceletLabelColor(facelet, value);
+      updateFaceletLabelColorControl(facelet);
+    }
+
+    faceletLabelPreview.style.backgroundImage = "none";
+    faceletLabelPreview.style.backgroundColor = value;
+
+    for (const face of faceletSections.map(([sectionFace]) => sectionFace)) {
+      updateFaceletLabelFaceControl(face);
+    }
+  }
+
+  faceletLabelInput.addEventListener("input", applyAllFaceletLabelColor);
+  faceletLabelInput.addEventListener("change", applyAllFaceletLabelColor);
+  addColorPicker(
+    faceletLabelPreview,
+    faceletLabelInput,
+    applyAllFaceletLabelColor,
+    () => defaultFaceletLabelColor,
+  );
+
+  faceletLabelsHeading.appendChild(faceletLabelsTitle);
+  faceletLabelsHeading.appendChild(faceletLabelInput);
+  faceletLabelsHeading.appendChild(faceletLabelPreview);
+  colorsContent.appendChild(faceletLabelsHeading);
+
+  for (const [face, title] of faceletSections) {
+    const sectionFacelets = facelets
+      .filter((facelet) => getFaceletSection(facelet) === face)
+      .sort(sortFaceletsBySolvedPosition);
+    const heading = document.createElement("div");
+
+    heading.style.display = "flex";
+    heading.style.alignItems = "center";
+    heading.style.gap = "6px";
+    heading.style.fontWeight = "bold";
+    heading.style.marginTop = "10px";
+    heading.style.marginBottom = "7px";
+
+    const headingText = document.createElement("span");
+
+    headingText.textContent = title;
+
+    const input = document.createElement("input");
+
+    input.type = "text";
+    input.style.width = "70px";
+    input.style.padding = "3px";
+    input.style.boxSizing = "border-box";
+
+    const preview = document.createElement("span");
+
+    preview.style.width = "18px";
+    preview.style.height = "18px";
+    preview.style.borderRadius = "50%";
+    preview.style.border = "1px solid #999";
+    preview.style.flexShrink = "0";
+
+    const controls = { input, preview };
+
+    faceletLabelFaceControls.set(face, controls);
+
+    function applyFaceletLabelFaceColor() {
+      const value = input.value.trim();
+
+      if (!isValidColorValue(value)) {
+        if (value !== "") {
+          showInvalidColor(preview);
+        }
+        return;
+      }
+
+      for (const facelet of sectionFacelets) {
+        updateFaceletLabelColor(facelet, value);
+        updateFaceletLabelColorControl(facelet);
+      }
+
+      updateFaceletLabelFaceControl(face);
+      updateFaceletLabelHeading();
+    }
+
+    input.addEventListener("input", applyFaceletLabelFaceColor);
+    input.addEventListener("change", applyFaceletLabelFaceColor);
+    addColorPicker(preview, input, applyFaceletLabelFaceColor, () =>
+      getFaceletLabelColor(sectionFacelets[0]),
+    );
+
+    heading.appendChild(headingText);
+    heading.appendChild(input);
+    heading.appendChild(preview);
+    colorsContent.appendChild(heading);
+
+    for (const facelet of sectionFacelets) {
+      colorsContent.appendChild(
+        createFaceletLabelColorControls(
+          facelet,
+          getFaceletPositionName(facelet),
+        ),
+      );
+    }
+
+    updateFaceletLabelFaceControl(face);
+  }
+
+  updateFaceletLabelHeading();
+
+  // ============================================================
   // Default colors
   // ============================================================
 
-  defaultColorsButton.addEventListener("click", () => {
+  function resetColorsInterface() {
     const faceColors = {
       U: defaultColors.top,
       D: defaultColors.bottom,
@@ -2991,7 +3622,10 @@ export function createUI({
         continue;
       }
 
-      facelet.sticker.color = color;
+      const faceletData = getFaceletData(facelet);
+
+      faceletData.currentColor = color;
+      faceletData.color = color;
 
       const materialIndex = facelet.materialIndex;
 
@@ -3002,7 +3636,7 @@ export function createUI({
         facelet.cubie.material[materialIndex].color.set(color);
       }
 
-      const controls = colorInputs.get(facelet.sticker);
+      const controls = colorInputs.get(getFaceletData(facelet));
 
       if (controls) {
         controls.input.value = color;
@@ -3010,6 +3644,7 @@ export function createUI({
       }
 
       updateFaceColorControl(facelet.face);
+      updateOuterFaceletsControl();
     }
 
     for (const { cubie, input, preview } of innerColorControls) {
@@ -3020,7 +3655,25 @@ export function createUI({
     }
 
     updateInnerHeading();
-  });
+
+    for (const facelet of facelets) {
+      updateFaceletLabelColor(facelet, defaultFaceletLabelColor);
+      updateFaceletLabelColorControl(facelet);
+    }
+
+    updateFaceletLabelHeading();
+
+    for (const [face] of faceletSections) {
+      updateFaceletLabelFaceControl(face);
+    }
+
+    axisDefinitions.forEach((axisDefinition, index) => {
+      updateAxisLabelColor(index, axisDefinition.color);
+      updateRotationArrowColor(index, axisDefinition.color);
+    });
+    axisLabelColorControls.forEach((control) => control.sync());
+    rotationArrowColorControls.forEach((control) => control.sync());
+  }
 
   // ============================================================
   // Labels panel
@@ -3042,9 +3695,54 @@ export function createUI({
 
   const labelsHeader = document.createElement("div");
 
+  labelsHeader.style.display = "flex";
+  labelsHeader.style.alignItems = "center";
+  labelsHeader.style.gap = "8px";
   labelsHeader.style.fontSize = "18px";
   labelsHeader.style.fontWeight = "bold";
-  labelsHeader.textContent = "Labels";
+
+  const labelsTitleRow = document.createElement("div");
+
+  labelsTitleRow.style.display = "flex";
+  labelsTitleRow.style.alignItems = "center";
+  labelsTitleRow.style.gap = "6px";
+
+  const resetLabelsButton = createResetButton("Reset labels", () => {
+    showFaceletLabelsCheckbox.checked = false;
+    showAxisLabelsCheckbox.checked = false;
+    axisGroup.visible = false;
+    showRotationArrowsCheckbox.checked = false;
+    rotationArrowGroup.visible = false;
+    rotationArrowDepthControl.style.display = "none";
+    rotationArrowDepth = 0.72;
+    rotationArrowDepthSlider.value = String(rotationArrowDepth);
+    rotationArrowDepthValue.value = String(rotationArrowDepth);
+    updateRotationArrowDepth();
+    axisLabelNameTitle.style.display = "none";
+    axisLabelModeContainer.style.display = "none";
+    selectAxisLabelMode("face");
+    axisDepthControl.style.display = "none";
+    axisDepth = 0;
+    axisDepthSlider.value = String(axisDepth);
+    axisDepthValue.value = String(axisDepth);
+    updateAxisDepth();
+    axisLabelDepthControl.style.display = "none";
+    axisLabelDepth = 0.25;
+    axisLabelDepthSlider.value = String(axisLabelDepth);
+    axisLabelDepthValue.value = String(axisLabelDepth);
+    updateAxisLabelDepth();
+    labelDepth = 0.25;
+    labelDepthSlider.value = String(labelDepth);
+    labelDepthValue.value = String(labelDepth);
+    updateFaceletLabelVisibility();
+  });
+
+  const labelsTitle = document.createElement("span");
+
+  labelsTitle.textContent = "Labels";
+  labelsTitleRow.appendChild(resetLabelsButton);
+  labelsTitleRow.appendChild(labelsTitle);
+  labelsHeader.appendChild(labelsTitleRow);
 
   const showFaceletLabelsLabel = document.createElement("label");
 
@@ -3064,24 +3762,995 @@ export function createUI({
 
   showFaceletLabelsLabel.appendChild(showFaceletLabelsCheckbox);
   showFaceletLabelsLabel.appendChild(showFaceletLabelsText);
+
+  const axisGroup = new Group();
+  const axisLength = 1;
+  let axisDepth = 0;
+  let rotationArrowDepth = 0.72;
+  let axisLabelDepth = 0.25;
+  let axisLabelMode = "face";
+  const defaultFaceColors = {
+    R: defaultColors.right,
+    L: defaultColors.left,
+    U: defaultColors.top,
+    D: defaultColors.bottom,
+    F: defaultColors.front,
+    B: defaultColors.back,
+  };
+  const axisDefinitions = [
+    {
+      direction: new Vector3(1, 0, 0),
+      label: { blank: "", coordinate: "+x", face: "R" },
+      color: defaultFaceColors.R,
+      depth: 0.25,
+    },
+    {
+      direction: new Vector3(-1, 0, 0),
+      label: { blank: "", coordinate: "-x", face: "L" },
+      color: defaultFaceColors.L,
+      depth: 0.25,
+    },
+    {
+      direction: new Vector3(0, 1, 0),
+      label: { blank: "", coordinate: "+y", face: "U" },
+      color: defaultFaceColors.U,
+      depth: 0.25,
+    },
+    {
+      direction: new Vector3(0, -1, 0),
+      label: { blank: "", coordinate: "-y", face: "D" },
+      color: defaultFaceColors.D,
+      depth: 0.25,
+    },
+    {
+      direction: new Vector3(0, 0, 1),
+      label: { blank: "", coordinate: "+z", face: "F" },
+      color: defaultFaceColors.F,
+      depth: 0.25,
+    },
+    {
+      direction: new Vector3(0, 0, -1),
+      label: { blank: "", coordinate: "-z", face: "B" },
+      color: defaultFaceColors.B,
+      depth: 0.25,
+    },
+  ];
+
+  function createAxisLabel(axisDefinition) {
+    const canvas = document.createElement("canvas");
+
+    canvas.width = 128;
+    canvas.height = 64;
+
+    const context = canvas.getContext("2d");
+
+    context.font = "bold 36px Arial";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillStyle = axisDefinition.color;
+    context.strokeStyle = "rgba(0, 0, 0, 0.9)";
+    context.lineWidth = 6;
+    const labelText = axisDefinition.label[axisLabelMode];
+
+    context.strokeText(labelText, 64, 32);
+    context.fillText(labelText, 64, 32);
+
+    const sprite = new Sprite(
+      new SpriteMaterial({
+        map: new CanvasTexture(canvas),
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+
+    sprite.scale.set(0.45, 0.225, 1);
+    sprite.userData.canvas = canvas;
+    sprite.userData.context = context;
+    sprite.userData.labelColor = axisDefinition.color;
+    sprite.userData.axisDefinition = axisDefinition;
+    sprite.userData.coordinateLabel = axisDefinition.label.coordinate;
+    sprite.userData.faceLabel = axisDefinition.label.face;
+    return sprite;
+  }
+
+  for (const axisDefinition of axisDefinitions) {
+    const guideline = new ArrowHelper(
+      axisDefinition.direction,
+      axisDefinition.direction.clone().multiplyScalar(axisDepth),
+      axisLength,
+      0x000000,
+      0.165,
+      0.095,
+    );
+    const guidelineLine = guideline.line;
+    const guidelineShaftLength = axisLength - 0.165;
+
+    guideline.remove(guidelineLine);
+    guideline.line = new Mesh(
+      new CylinderGeometry(0.008, 0.008, guidelineShaftLength, 12),
+      new MeshBasicMaterial({ color: 0x000000 }),
+    );
+    guideline.line.position.y = guidelineShaftLength / 2;
+    guideline.add(guideline.line);
+    const arrow = new ArrowHelper(
+      new Vector3(0, 1, 0),
+      new Vector3(),
+      axisLength,
+      axisDefinition.color,
+      0.16,
+      0.09,
+    );
+    const axisLabel = createAxisLabel(axisDefinition);
+
+    guideline.line.material.depthWrite = false;
+    guideline.cone.material.depthWrite = false;
+    guideline.add(arrow);
+    axisLabel.position
+      .copy(axisDefinition.direction)
+      .multiplyScalar(axisLength + axisDefinition.depth);
+    axisGroup.add(guideline, axisLabel);
+  }
+
+  axisGroup.visible = false;
+  scene.add(axisGroup);
+
+  const rotationArrowGroup = new Group();
+  const rotationArrowRadius = 0.58;
+  const rotationArrowColors = axisDefinitions.map(
+    (axisDefinition) => axisDefinition.color,
+  );
+
+  function createRotationArrow(axisDefinition, color) {
+    const direction = axisDefinition.direction;
+    let firstBasis;
+    let secondBasis;
+
+    if (Math.abs(direction.x) === 1) {
+      firstBasis = new Vector3(0, 1, 0);
+      secondBasis = new Vector3(0, 0, 1);
+    } else if (Math.abs(direction.y) === 1) {
+      firstBasis = new Vector3(1, 0, 0);
+      secondBasis = new Vector3(0, 0, 1);
+    } else {
+      firstBasis = new Vector3(1, 0, 0);
+      secondBasis = new Vector3(0, 1, 0);
+    }
+
+    const arrow = new Group();
+    arrow.userData.color = color;
+
+    function addCircularArrow(startAngle, endAngle, segments = 18) {
+      const points = [];
+
+      for (let index = 0; index <= segments; index += 1) {
+        const angle = startAngle + ((endAngle - startAngle) * index) / segments;
+        const point = firstBasis
+          .clone()
+          .multiplyScalar(Math.cos(angle) * rotationArrowRadius)
+          .add(
+            secondBasis
+              .clone()
+              .multiplyScalar(Math.sin(angle) * rotationArrowRadius),
+          );
+
+        points.push(point);
+      }
+
+      const line = new Line(
+        new BufferGeometry().setFromPoints(points),
+        new LineBasicMaterial({ color, depthTest: false }),
+      );
+      line.renderOrder = 20;
+
+      const arrowPosition = points.at(-1);
+      const previousPoint = points.at(-2);
+      const arrowDirection = arrowPosition
+        .clone()
+        .sub(previousPoint)
+        .normalize();
+      const arrowhead = new ArrowHelper(
+        arrowDirection,
+        arrowPosition,
+        0.2,
+        color,
+        0.12,
+        0.08,
+      );
+      arrowhead.renderOrder = 20;
+
+      arrow.add(line, arrowhead);
+    }
+
+    addCircularArrow(Math.PI * 0.82, Math.PI * 0.08);
+    addCircularArrow(-Math.PI * 0.18, -Math.PI * 0.92);
+
+    arrow.position
+      .copy(axisDefinition.direction)
+      .multiplyScalar(rotationArrowDepth);
+    return arrow;
+  }
+
+  axisDefinitions.forEach((axisDefinition, index) => {
+    rotationArrowGroup.add(
+      createRotationArrow(axisDefinition, rotationArrowColors[index]),
+    );
+  });
+
+  rotationArrowGroup.visible = false;
+  scene.add(rotationArrowGroup);
+
+  function updateRotationArrowDepth() {
+    for (const [index, axisDefinition] of axisDefinitions.entries()) {
+      rotationArrowGroup.children[index].position
+        .copy(axisDefinition.direction)
+        .multiplyScalar(rotationArrowDepth);
+    }
+  }
+
+  updateRotationArrowDepth();
+
+  updateAxisHelperScale = () => {
+    const scale = Math.max(size * 2.4, 1.5);
+
+    axisGroup.scale.setScalar(scale);
+    rotationArrowGroup.scale.setScalar(scale);
+  };
+  updateAxisHelperScale();
+
+  const axisLabelColorControls = new Map();
+  const rotationArrowColorControls = new Map();
+
+  function updateAxisLabelColor(index, color) {
+    const label = axisGroup.children[index * 2 + 1];
+
+    label.userData.labelColor = color;
+    label.userData.context.fillStyle = color;
+    label.userData.context.clearRect(0, 0, 128, 64);
+    label.userData.context.strokeText(
+      label.userData.axisDefinition.label[axisLabelMode],
+      64,
+      32,
+    );
+    label.userData.context.fillText(
+      label.userData.axisDefinition.label[axisLabelMode],
+      64,
+      32,
+    );
+    label.material.map.needsUpdate = true;
+  }
+
+  function updateRotationArrowColor(index, color) {
+    const arrow = rotationArrowGroup.children[index];
+
+    arrow.userData.color = color;
+    arrow.traverse((object) => {
+      if (object.material?.color) {
+        object.material.color.set(color);
+      }
+    });
+  }
+
+  function createAxisColorControl(title, getColor, applyColor) {
+    const heading = document.createElement("div");
+
+    heading.style.display = "flex";
+    heading.style.alignItems = "center";
+    heading.style.gap = "6px";
+    heading.style.fontWeight = "bold";
+    heading.style.marginTop = "10px";
+    heading.style.marginBottom = "7px";
+
+    const titleElement = document.createElement("span");
+
+    titleElement.textContent = title;
+
+    const input = document.createElement("input");
+
+    input.type = "text";
+    input.style.width = "70px";
+    input.style.padding = "3px";
+    input.style.boxSizing = "border-box";
+
+    const preview = document.createElement("span");
+
+    preview.style.width = "18px";
+    preview.style.height = "18px";
+    preview.style.borderRadius = "50%";
+    preview.style.border = "1px solid #999";
+    preview.style.flexShrink = "0";
+
+    function sync() {
+      const color = getColor();
+
+      if (color) {
+        input.value = color;
+        input.placeholder = "";
+        preview.style.backgroundImage = "none";
+        preview.style.backgroundColor = color;
+      } else {
+        input.value = "";
+        input.placeholder = "Mixed";
+        preview.style.backgroundColor = "transparent";
+        preview.style.backgroundImage = `url(${mixedColorIcon})`;
+        preview.style.backgroundSize = "contain";
+        preview.style.backgroundRepeat = "no-repeat";
+        preview.style.backgroundPosition = "center";
+      }
+    }
+
+    function apply() {
+      const value = input.value.trim();
+
+      if (!isValidColorValue(value)) {
+        if (value !== "") {
+          showInvalidColor(preview);
+        }
+        return;
+      }
+
+      applyColor(value);
+      sync();
+    }
+
+    input.addEventListener("input", apply);
+    input.addEventListener("change", apply);
+    addColorPicker(preview, input, apply, () => getColor() ?? "#111");
+
+    heading.appendChild(titleElement);
+    heading.appendChild(input);
+    heading.appendChild(preview);
+    colorsContent.appendChild(heading);
+
+    return { input, preview, sync };
+  }
+
+  function getUniformColor(getColor) {
+    const colors = axisDefinitions.map((_, index) => getColor(index));
+    const firstColor = colors[0];
+
+    return colors.every((color) => color === firstColor) ? firstColor : null;
+  }
+
+  const axisLabelColorHeading = createAxisColorControl(
+    "Axis labels",
+    () =>
+      getUniformColor(
+        (index) => axisGroup.children[index * 2 + 1].userData.labelColor,
+      ),
+    (color) => {
+      axisDefinitions.forEach((_, index) => updateAxisLabelColor(index, color));
+      axisLabelColorControls.forEach((control) => control.sync());
+    },
+  );
+
+  const rotationArrowColorHeading = createAxisColorControl(
+    "Rotation arrows",
+    () =>
+      getUniformColor(
+        (index) => rotationArrowGroup.children[index].userData.color,
+      ),
+    (color) => {
+      axisDefinitions.forEach((_, index) =>
+        updateRotationArrowColor(index, color),
+      );
+      rotationArrowColorControls.forEach((control) => control.sync());
+    },
+  );
+
+  axisLabelColorControls.set("all", axisLabelColorHeading);
+  rotationArrowColorControls.set("all", rotationArrowColorHeading);
+
+  axisDefinitions.forEach((axisDefinition, index) => {
+    const title = axisDefinition.label.face;
+
+    axisLabelColorControls.set(
+      index,
+      createAxisColorControl(
+        title,
+        () => axisGroup.children[index * 2 + 1].userData.labelColor,
+        (color) => {
+          updateAxisLabelColor(index, color);
+          axisLabelColorControls.get("all")?.sync();
+        },
+      ),
+    );
+
+    rotationArrowColorControls.set(
+      index,
+      createAxisColorControl(
+        title,
+        () => rotationArrowGroup.children[index].userData.color,
+        (color) => {
+          updateRotationArrowColor(index, color);
+          rotationArrowColorControls.get("all")?.sync();
+        },
+      ),
+    );
+  });
+
+  axisLabelColorControls.forEach((control) => control.sync());
+  rotationArrowColorControls.forEach((control) => control.sync());
+
+  const showAxisLabelsLabel = document.createElement("label");
+
+  showAxisLabelsLabel.style.display = "flex";
+  showAxisLabelsLabel.style.alignItems = "center";
+  showAxisLabelsLabel.style.gap = "7px";
+  showAxisLabelsLabel.style.marginTop = "12px";
+  showAxisLabelsLabel.style.cursor = "pointer";
+
+  const showAxisLabelsCheckbox = document.createElement("input");
+
+  showAxisLabelsCheckbox.type = "checkbox";
+
+  const showAxisLabelsText = document.createElement("span");
+
+  showAxisLabelsText.textContent = "Show axis arrows and labels";
+
+  showAxisLabelsLabel.appendChild(showAxisLabelsCheckbox);
+  showAxisLabelsLabel.appendChild(showAxisLabelsText);
+
+  const showRotationArrowsLabel = document.createElement("label");
+
+  showRotationArrowsLabel.style.display = "flex";
+  showRotationArrowsLabel.style.alignItems = "center";
+  showRotationArrowsLabel.style.gap = "7px";
+  showRotationArrowsLabel.style.marginTop = "10px";
+  showRotationArrowsLabel.style.cursor = "pointer";
+
+  const showRotationArrowsCheckbox = document.createElement("input");
+
+  showRotationArrowsCheckbox.type = "checkbox";
+
+  const showRotationArrowsText = document.createElement("span");
+
+  showRotationArrowsText.textContent = "Show rotation arrows";
+  showRotationArrowsLabel.appendChild(showRotationArrowsCheckbox);
+  showRotationArrowsLabel.appendChild(showRotationArrowsText);
+
+  const rotationArrowDepthControl = document.createElement("div");
+
+  rotationArrowDepthControl.style.display = "none";
+  rotationArrowDepthControl.style.marginTop = "10px";
+
+  const rotationArrowDepthLabel = document.createElement("label");
+
+  rotationArrowDepthLabel.textContent = "Rotation arrow depth";
+  rotationArrowDepthLabel.style.display = "block";
+  rotationArrowDepthLabel.style.marginBottom = "5px";
+
+  const rotationArrowDepthSlider = document.createElement("input");
+
+  rotationArrowDepthSlider.type = "range";
+  rotationArrowDepthSlider.min = "0";
+  rotationArrowDepthSlider.max = "1";
+  rotationArrowDepthSlider.step = "0.001";
+  rotationArrowDepthSlider.value = String(rotationArrowDepth);
+  rotationArrowDepthSlider.style.flex = "1";
+  rotationArrowDepthSlider.style.minWidth = "0";
+  rotationArrowDepthSlider.setAttribute("aria-label", "Rotation arrow depth");
+
+  const rotationArrowDepthValue = document.createElement("input");
+
+  rotationArrowDepthValue.type = "text";
+  rotationArrowDepthValue.value = String(rotationArrowDepth);
+  rotationArrowDepthValue.style.width = "55px";
+  rotationArrowDepthValue.style.boxSizing = "border-box";
+  rotationArrowDepthValue.style.textAlign = "center";
+  rotationArrowDepthValue.setAttribute(
+    "aria-label",
+    "Rotation arrow depth value",
+  );
+
+  const rotationArrowDepthRow = document.createElement("div");
+
+  rotationArrowDepthRow.style.display = "flex";
+  rotationArrowDepthRow.style.alignItems = "center";
+  rotationArrowDepthRow.style.gap = "8px";
+
+  rotationArrowDepthControl.appendChild(rotationArrowDepthLabel);
+  rotationArrowDepthRow.appendChild(rotationArrowDepthSlider);
+  rotationArrowDepthRow.appendChild(rotationArrowDepthValue);
+  rotationArrowDepthControl.appendChild(rotationArrowDepthRow);
+
+  const axisLabelNameTitle = document.createElement("div");
+
+  axisLabelNameTitle.textContent = "Label name";
+  axisLabelNameTitle.style.display = "none";
+  axisLabelNameTitle.style.marginTop = "10px";
+  axisLabelNameTitle.style.marginBottom = "5px";
+  axisLabelNameTitle.style.fontWeight = "bold";
+
+  const axisLabelModeContainer = document.createElement("div");
+
+  axisLabelModeContainer.style.display = "none";
+  axisLabelModeContainer.style.gap = "16px";
+
+  const blankLabel = document.createElement("label");
+
+  blankLabel.style.display = "flex";
+  blankLabel.style.alignItems = "center";
+  blankLabel.style.gap = "7px";
+  blankLabel.style.cursor = "pointer";
+
+  const blankCheckbox = document.createElement("input");
+
+  blankCheckbox.type = "checkbox";
+
+  const blankText = document.createElement("span");
+
+  blankText.textContent = "Blank";
+  blankLabel.appendChild(blankCheckbox);
+  blankLabel.appendChild(blankText);
+
+  const cartesianLabel = document.createElement("label");
+
+  cartesianLabel.style.display = "flex";
+  cartesianLabel.style.alignItems = "center";
+  cartesianLabel.style.gap = "7px";
+  cartesianLabel.style.cursor = "pointer";
+
+  const cartesianCheckbox = document.createElement("input");
+
+  cartesianCheckbox.type = "checkbox";
+  cartesianCheckbox.checked = false;
+
+  const cartesianText = document.createElement("span");
+
+  cartesianText.textContent = "Cartesian";
+  cartesianLabel.appendChild(cartesianCheckbox);
+  cartesianLabel.appendChild(cartesianText);
+
+  const faceLabel = document.createElement("label");
+
+  faceLabel.style.display = "flex";
+  faceLabel.style.alignItems = "center";
+  faceLabel.style.gap = "7px";
+  faceLabel.style.cursor = "pointer";
+
+  const faceCheckbox = document.createElement("input");
+
+  faceCheckbox.type = "checkbox";
+  faceCheckbox.checked = true;
+
+  const faceText = document.createElement("span");
+
+  faceText.textContent = "Face";
+  faceLabel.appendChild(faceCheckbox);
+  faceLabel.appendChild(faceText);
+  axisLabelModeContainer.appendChild(blankLabel);
+  axisLabelModeContainer.appendChild(cartesianLabel);
+  axisLabelModeContainer.appendChild(faceLabel);
+
+  const axisDepthControl = document.createElement("div");
+
+  axisDepthControl.style.display = "none";
+  axisDepthControl.style.marginTop = "10px";
+
+  const axisDepthLabel = document.createElement("label");
+
+  axisDepthLabel.textContent = "Axis arrow depth";
+  axisDepthLabel.style.display = "block";
+  axisDepthLabel.style.marginBottom = "5px";
+
+  const axisDepthSlider = document.createElement("input");
+
+  axisDepthSlider.type = "range";
+  axisDepthSlider.min = "0";
+  axisDepthSlider.max = "1";
+  axisDepthSlider.step = "0.001";
+  axisDepthSlider.value = String(axisDepth);
+  axisDepthSlider.style.flex = "1";
+  axisDepthSlider.style.minWidth = "0";
+  axisDepthSlider.setAttribute("aria-label", "Axis arrow depth");
+
+  const axisDepthValue = document.createElement("input");
+
+  axisDepthValue.type = "text";
+  axisDepthValue.value = String(axisDepth);
+  axisDepthValue.style.width = "55px";
+  axisDepthValue.style.boxSizing = "border-box";
+  axisDepthValue.style.textAlign = "center";
+  axisDepthValue.setAttribute("aria-label", "Axis arrow depth value");
+
+  const axisDepthRow = document.createElement("div");
+
+  axisDepthRow.style.display = "flex";
+  axisDepthRow.style.alignItems = "center";
+  axisDepthRow.style.gap = "8px";
+
+  axisDepthControl.appendChild(axisDepthLabel);
+  axisDepthRow.appendChild(axisDepthSlider);
+  axisDepthRow.appendChild(axisDepthValue);
+  axisDepthControl.appendChild(axisDepthRow);
+
+  const axisLabelDepthControl = document.createElement("div");
+
+  axisLabelDepthControl.style.display = "none";
+  axisLabelDepthControl.style.marginTop = "10px";
+
+  const axisLabelDepthLabel = document.createElement("label");
+
+  axisLabelDepthLabel.textContent = "Axis label depth";
+  axisLabelDepthLabel.style.display = "block";
+  axisLabelDepthLabel.style.marginBottom = "5px";
+
+  const axisLabelDepthSlider = document.createElement("input");
+
+  axisLabelDepthSlider.type = "range";
+  axisLabelDepthSlider.min = "0";
+  axisLabelDepthSlider.max = "1";
+  axisLabelDepthSlider.step = "0.001";
+  axisLabelDepthSlider.value = String(axisLabelDepth);
+  axisLabelDepthSlider.style.flex = "1";
+  axisLabelDepthSlider.style.minWidth = "0";
+  axisLabelDepthSlider.setAttribute("aria-label", "Axis label depth");
+
+  const axisLabelDepthValue = document.createElement("input");
+
+  axisLabelDepthValue.type = "text";
+  axisLabelDepthValue.value = String(axisLabelDepth);
+  axisLabelDepthValue.style.width = "55px";
+  axisLabelDepthValue.style.boxSizing = "border-box";
+  axisLabelDepthValue.style.textAlign = "center";
+  axisLabelDepthValue.setAttribute("aria-label", "Axis label depth value");
+
+  const axisLabelDepthRow = document.createElement("div");
+
+  axisLabelDepthRow.style.display = "flex";
+  axisLabelDepthRow.style.alignItems = "center";
+  axisLabelDepthRow.style.gap = "8px";
+
+  axisLabelDepthControl.appendChild(axisLabelDepthLabel);
+  axisLabelDepthRow.appendChild(axisLabelDepthSlider);
+  axisLabelDepthRow.appendChild(axisLabelDepthValue);
+  axisLabelDepthControl.appendChild(axisLabelDepthRow);
+
+  const labelDepthControl = document.createElement("div");
+
+  labelDepthControl.style.display = "none";
+  labelDepthControl.style.marginTop = "10px";
+
+  const labelDepthLabel = document.createElement("label");
+
+  labelDepthLabel.textContent = "Label depth";
+  labelDepthLabel.style.display = "block";
+  labelDepthLabel.style.marginBottom = "5px";
+
+  const labelDepthSlider = document.createElement("input");
+
+  labelDepthSlider.type = "range";
+  labelDepthSlider.min = "0";
+  labelDepthSlider.max = "1";
+  labelDepthSlider.step = "0.001";
+  labelDepthSlider.value = String(labelDepth);
+  labelDepthSlider.style.flex = "1";
+  labelDepthSlider.style.minWidth = "0";
+  labelDepthSlider.setAttribute("aria-label", "Label depth");
+
+  const labelDepthValue = document.createElement("input");
+
+  labelDepthValue.type = "text";
+  labelDepthValue.value = String(labelDepth);
+  labelDepthValue.style.width = "55px";
+  labelDepthValue.style.boxSizing = "border-box";
+  labelDepthValue.style.textAlign = "center";
+  labelDepthValue.setAttribute("aria-label", "Label depth value");
+
+  const labelDepthRow = document.createElement("div");
+
+  labelDepthRow.style.display = "flex";
+  labelDepthRow.style.alignItems = "center";
+  labelDepthRow.style.gap = "8px";
+
+  labelDepthControl.appendChild(labelDepthLabel);
+  labelDepthRow.appendChild(labelDepthSlider);
+  labelDepthRow.appendChild(labelDepthValue);
+  labelDepthControl.appendChild(labelDepthRow);
   labelsPanel.appendChild(labelsHeader);
   labelsPanel.appendChild(showFaceletLabelsLabel);
+  labelsPanel.appendChild(labelDepthControl);
+  labelsPanel.appendChild(showAxisLabelsLabel);
+  labelsPanel.appendChild(showRotationArrowsLabel);
+  labelsPanel.appendChild(rotationArrowDepthControl);
+  labelsPanel.appendChild(axisDepthControl);
+  labelsPanel.appendChild(axisLabelNameTitle);
+  labelsPanel.appendChild(axisLabelModeContainer);
+  labelsPanel.appendChild(axisLabelDepthControl);
   controlsRoot.appendChild(labelsPanel);
 
   function updateFaceletLabelVisibility() {
     const isVisible = showFaceletLabelsCheckbox.checked;
 
+    labelDepthControl.style.display = isVisible ? "block" : "none";
     refreshFaceletLabels();
 
     for (const label of faceletLabels.values()) {
       label.visible = isVisible;
     }
+
+    scheduleCubePanelPositionUpdate();
   }
 
   showFaceletLabelsCheckbox.addEventListener(
     "change",
     updateFaceletLabelVisibility,
   );
+
+  showAxisLabelsCheckbox.addEventListener("change", () => {
+    axisGroup.visible = showAxisLabelsCheckbox.checked;
+    axisLabelNameTitle.style.display = showAxisLabelsCheckbox.checked
+      ? "block"
+      : "none";
+    axisLabelModeContainer.style.display = showAxisLabelsCheckbox.checked
+      ? "flex"
+      : "none";
+    axisDepthControl.style.display = showAxisLabelsCheckbox.checked
+      ? "block"
+      : "none";
+    axisLabelDepthControl.style.display = showAxisLabelsCheckbox.checked
+      ? "block"
+      : "none";
+    scheduleCubePanelPositionUpdate();
+  });
+
+  showRotationArrowsCheckbox.addEventListener("change", () => {
+    rotationArrowGroup.visible = showRotationArrowsCheckbox.checked;
+    rotationArrowDepthControl.style.display = showRotationArrowsCheckbox.checked
+      ? "block"
+      : "none";
+    scheduleCubePanelPositionUpdate();
+  });
+
+  rotationArrowDepthSlider.addEventListener("input", () => {
+    rotationArrowDepth = Number(rotationArrowDepthSlider.value);
+    rotationArrowDepthValue.value = String(rotationArrowDepth);
+    updateRotationArrowDepth();
+  });
+
+  rotationArrowDepthValue.addEventListener("input", () => {
+    const raw = rotationArrowDepthValue.value;
+
+    if (raw === "" || raw === ".") {
+      return;
+    }
+
+    if (!/^\d*\.?\d+$/.test(raw)) {
+      rotationArrowDepthValue.value = raw
+        .replace(/[^\d.]/g, "")
+        .replace(/(\..*)\./g, "$1");
+      return;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isFinite(value) || value < 0) {
+      return;
+    }
+
+    rotationArrowDepth = value;
+    rotationArrowDepthSlider.value = String(Math.min(value, 1));
+    updateRotationArrowDepth();
+  });
+
+  rotationArrowDepthValue.addEventListener("blur", () => {
+    const value = Number(rotationArrowDepthValue.value);
+
+    rotationArrowDepth = Number.isFinite(value) ? Math.max(value, 0) : 0.72;
+    rotationArrowDepthValue.value = String(rotationArrowDepth);
+    rotationArrowDepthSlider.value = String(Math.min(rotationArrowDepth, 1));
+    updateRotationArrowDepth();
+  });
+
+  function updateAxisLabelText() {
+    for (let index = 1; index < axisGroup.children.length; index += 2) {
+      const axisLabel = axisGroup.children[index];
+      const axisDefinition = axisLabel.userData.axisDefinition;
+      const context = axisLabel.userData.context;
+      const labelText = axisDefinition.label[axisLabelMode];
+
+      context.clearRect(0, 0, 128, 64);
+      context.fillStyle = axisLabel.userData.labelColor;
+      context.strokeText(labelText, 64, 32);
+      context.fillText(labelText, 64, 32);
+      axisLabel.material.map.needsUpdate = true;
+    }
+  }
+
+  function selectAxisLabelMode(mode) {
+    axisLabelMode = mode;
+    blankCheckbox.checked = mode === "blank";
+    cartesianCheckbox.checked = mode === "coordinate";
+    faceCheckbox.checked = mode === "face";
+    updateAxisLabelText();
+  }
+
+  blankCheckbox.addEventListener("change", () => {
+    if (blankCheckbox.checked) {
+      selectAxisLabelMode("blank");
+    } else if (!cartesianCheckbox.checked && !faceCheckbox.checked) {
+      selectAxisLabelMode("face");
+    }
+  });
+
+  cartesianCheckbox.addEventListener("change", () => {
+    if (cartesianCheckbox.checked) {
+      selectAxisLabelMode("coordinate");
+    } else if (!blankCheckbox.checked && !faceCheckbox.checked) {
+      selectAxisLabelMode("face");
+    }
+  });
+
+  faceCheckbox.addEventListener("change", () => {
+    if (faceCheckbox.checked) {
+      selectAxisLabelMode("face");
+    } else if (!blankCheckbox.checked && !cartesianCheckbox.checked) {
+      selectAxisLabelMode("face");
+    }
+  });
+
+  function updateAxisDepth() {
+    let arrowIndex = 0;
+
+    for (const axisDefinition of axisDefinitions) {
+      const arrow = axisGroup.children[arrowIndex];
+
+      arrow.position.copy(axisDefinition.direction).multiplyScalar(axisDepth);
+      arrowIndex += 2;
+    }
+  }
+
+  axisDepthSlider.addEventListener("input", () => {
+    axisDepth = Number(axisDepthSlider.value);
+    axisDepthValue.value = String(axisDepth);
+    updateAxisDepth();
+  });
+
+  axisDepthValue.addEventListener("input", () => {
+    const raw = axisDepthValue.value;
+
+    if (raw === "" || raw === ".") {
+      return;
+    }
+
+    if (!/^\d*\.?\d+$/.test(raw)) {
+      axisDepthValue.value = raw
+        .replace(/[^\d.]/g, "")
+        .replace(/(\..*)\./g, "$1");
+      return;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isFinite(value) || value < 0) {
+      return;
+    }
+
+    axisDepth = value;
+    axisDepthSlider.value = String(Math.min(value, 1));
+    updateAxisDepth();
+  });
+
+  axisDepthValue.addEventListener("blur", () => {
+    const value = Number(axisDepthValue.value);
+
+    axisDepth = Number.isFinite(value) ? Math.max(value, 0) : 0;
+    axisDepthValue.value = String(axisDepth);
+    axisDepthSlider.value = String(Math.min(axisDepth, 1));
+    updateAxisDepth();
+  });
+
+  function updateAxisLabelDepth() {
+    for (const axisDefinition of axisDefinitions) {
+      axisDefinition.depth = axisLabelDepth;
+    }
+
+    let labelIndex = 0;
+
+    for (const axisDefinition of axisDefinitions) {
+      const axisLabel = axisGroup.children[labelIndex + 1];
+
+      axisLabel.position
+        .copy(axisDefinition.direction)
+        .multiplyScalar(axisLength + axisDefinition.depth);
+      labelIndex += 2;
+    }
+  }
+
+  axisLabelDepthSlider.addEventListener("input", () => {
+    axisLabelDepth = Number(axisLabelDepthSlider.value);
+    axisLabelDepthValue.value = String(axisLabelDepth);
+    updateAxisLabelDepth();
+  });
+
+  axisLabelDepthValue.addEventListener("input", () => {
+    const raw = axisLabelDepthValue.value;
+
+    if (raw === "" || raw === ".") {
+      return;
+    }
+
+    if (!/^\d*\.?\d+$/.test(raw)) {
+      axisLabelDepthValue.value = raw
+        .replace(/[^\d.]/g, "")
+        .replace(/(\..*)\./g, "$1");
+      return;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      return;
+    }
+
+    axisLabelDepth = value;
+    axisLabelDepthSlider.value = String(Math.min(value, 1));
+    updateAxisLabelDepth();
+  });
+
+  axisLabelDepthValue.addEventListener("blur", () => {
+    const value = Number(axisLabelDepthValue.value);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      axisLabelDepth = 0.25;
+      axisLabelDepthValue.value = String(axisLabelDepth);
+      axisLabelDepthSlider.value = String(axisLabelDepth);
+    } else {
+      axisLabelDepth = value;
+      axisLabelDepthValue.value = String(value);
+      axisLabelDepthSlider.value = String(Math.min(value, 1));
+    }
+
+    updateAxisLabelDepth();
+  });
+
+  labelDepthSlider.addEventListener("input", () => {
+    labelDepth = Number(labelDepthSlider.value);
+    labelDepthValue.value = String(labelDepth);
+    refreshFaceletLabels();
+  });
+
+  labelDepthValue.addEventListener("input", () => {
+    const raw = labelDepthValue.value;
+
+    if (raw === "" || raw === ".") {
+      return;
+    }
+
+    if (!/^\d*\.?\d+$/.test(raw)) {
+      labelDepthValue.value = raw
+        .replace(/[^\d.]/g, "")
+        .replace(/(\..*)\./g, "$1");
+      return;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      return;
+    }
+
+    labelDepth = value;
+    labelDepthSlider.value = String(Math.min(value, 1));
+    refreshFaceletLabels();
+  });
+
+  labelDepthValue.addEventListener("blur", () => {
+    const value = Number(labelDepthValue.value);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      labelDepth = 0.25;
+      labelDepthValue.value = String(labelDepth);
+      labelDepthSlider.value = String(labelDepth);
+    } else {
+      labelDepth = value;
+      labelDepthValue.value = String(value);
+      labelDepthSlider.value = String(Math.min(value, 1));
+    }
+
+    refreshFaceletLabels();
+  });
 
   // ============================================================
   // Cube panel
@@ -3105,6 +4774,21 @@ export function createUI({
 
   function updateCubePanelPosition() {
     if (window.innerWidth <= 900) {
+      cubePanel.style.top = "";
+      cubePanel.style.right = "";
+      colorsPanel.style.top = "";
+      colorsPanel.style.right = "";
+
+      if (labelsPanel) {
+        labelsPanel.style.top = "";
+        labelsPanel.style.right = "";
+      }
+
+      if (exportSvgButton) {
+        exportSvgButton.style.top = "";
+        exportSvgButton.style.right = "";
+      }
+
       return;
     }
 
@@ -3126,6 +4810,11 @@ export function createUI({
         10
       }px`;
     }
+  }
+
+  function scheduleCubePanelPositionUpdate() {
+    updateCubePanelPosition();
+    requestAnimationFrame(updateCubePanelPosition);
   }
 
   // ============================================================
@@ -3150,13 +4839,26 @@ export function createUI({
   cubeTitle.style.fontSize = "18px";
   cubeTitle.style.fontWeight = "bold";
 
+  const cubeTitleRow = document.createElement("div");
+
+  cubeTitleRow.style.display = "flex";
+  cubeTitleRow.style.alignItems = "center";
+  cubeTitleRow.style.gap = "6px";
+
+  const resetCubeButton = createResetButton("Reset cube settings", () => {
+    resetCubeInterface();
+  });
+
+  cubeTitleRow.appendChild(resetCubeButton);
+  cubeTitleRow.appendChild(cubeTitle);
+
   const cubeCollapseIcon = document.createElement("span");
 
   cubeCollapseIcon.textContent = "−";
   cubeCollapseIcon.style.fontSize = "20px";
   cubeCollapseIcon.style.lineHeight = "1";
 
-  cubeHeader.appendChild(cubeTitle);
+  cubeHeader.appendChild(cubeTitleRow);
   cubeHeader.appendChild(cubeCollapseIcon);
   cubePanel.appendChild(cubeHeader);
 
@@ -3206,7 +4908,7 @@ export function createUI({
     cubeContent.style.display = cubeCollapsed ? "none" : "block";
     cubeCollapseIcon.textContent = cubeCollapsed ? "+" : "−";
     cubeHeader.setAttribute("aria-expanded", String(!cubeCollapsed));
-    updateCubePanelPosition();
+    scheduleCubePanelPositionUpdate();
   }
 
   cubeHeader.addEventListener("click", toggleCubePanel);
@@ -3220,22 +4922,6 @@ export function createUI({
   });
 
   window.addEventListener("resize", updateCubePanelPosition);
-
-  // ============================================================
-  // Cube default button
-  // ============================================================
-
-  const cubeDefaultButton = document.createElement("button");
-
-  cubeDefaultButton.type = "button";
-  cubeDefaultButton.textContent = "Default";
-
-  cubeDefaultButton.style.width = "100%";
-  cubeDefaultButton.style.padding = "8px";
-  cubeDefaultButton.style.marginBottom = "16px";
-  cubeDefaultButton.style.cursor = "pointer";
-
-  cubeContent.appendChild(cubeDefaultButton);
 
   // ============================================================
   // Cube gap mode
@@ -3464,6 +5150,10 @@ export function createUI({
   customDimensionsHeader.style.gap = "6px";
   customDimensionsHeader.style.marginBottom = "6px";
   customDimensionsHeader.style.fontWeight = "bold";
+  customDimensionsHeader.style.position = "sticky";
+  customDimensionsHeader.style.top = "0";
+  customDimensionsHeader.style.zIndex = "1";
+  customDimensionsHeader.style.background = "rgba(255, 255, 255, 0.95)";
 
   for (const text of ["Cubie", "Size", "Gap"]) {
     const header = document.createElement("span");
@@ -3743,6 +5433,7 @@ export function createUI({
     sizeControls.setting.style.display = "block";
     gapControls.setting.style.display = "block";
     updateCubeDimensions(size, gap);
+    scheduleCubePanelPositionUpdate();
   });
 
   customGapRadio.addEventListener("change", () => {
@@ -3756,15 +5447,15 @@ export function createUI({
     cubeCollapsed = false;
     cubeContent.style.display = "block";
     cubeCollapseIcon.textContent = "−";
-    updateCubePanelPosition();
     updateCubeDimensions(size, gap, customDimensions);
+    scheduleCubePanelPositionUpdate();
   });
 
   // ============================================================
   // Cube default
   // ============================================================
 
-  cubeDefaultButton.addEventListener("click", () => {
+  function resetCubeInterface() {
     size = defaultSize;
     gap = defaultGap;
 
@@ -3791,7 +5482,7 @@ export function createUI({
     }
 
     updateCubeDimensions(size, gap);
-  });
+  }
 
   // ============================================================
   // Rotate button
@@ -3937,40 +5628,84 @@ export function createUI({
     insertButton.style.display = "none";
   }
 
-  function resetCubeInterface() {
+  function resetEverythingInterface() {
     resetCube();
-    cubeDefaultButton.click();
-    defaultColorsButton.click();
+    resetCubeInterface();
+    resetColorsInterface();
     resetRotationInterface();
+
+    rotationCollapsed = window.innerWidth <= 900;
+    rotationContent.style.display = rotationCollapsed ? "none" : "block";
+    updateRotationToggle();
+
+    showFaceletLabelsCheckbox.checked = false;
+    showAxisLabelsCheckbox.checked = false;
+    axisGroup.visible = false;
+    showRotationArrowsCheckbox.checked = false;
+    rotationArrowGroup.visible = false;
+    rotationArrowDepthControl.style.display = "none";
+    rotationArrowDepth = 0.72;
+    rotationArrowDepthSlider.value = String(rotationArrowDepth);
+    rotationArrowDepthValue.value = String(rotationArrowDepth);
+    updateRotationArrowDepth();
+    axisLabelNameTitle.style.display = "none";
+    axisLabelModeContainer.style.display = "none";
+    selectAxisLabelMode("face");
+    axisDepthControl.style.display = "none";
+    axisDepth = 0;
+    axisDepthSlider.value = String(axisDepth);
+    axisDepthValue.value = String(axisDepth);
+    updateAxisDepth();
+    axisLabelDepthControl.style.display = "none";
+    axisLabelDepth = 0.25;
+    axisLabelDepthSlider.value = String(axisLabelDepth);
+    axisLabelDepthValue.value = String(axisLabelDepth);
+    updateAxisLabelDepth();
+    labelDepth = 0.25;
+    labelDepthSlider.value = String(labelDepth);
+    labelDepthValue.value = String(labelDepth);
+    updateFaceletLabelVisibility();
 
     globalGapRadio.checked = true;
     customGapRadio.checked = false;
     customDimensionsContent.style.display = "none";
     sizeControls.setting.style.display = "block";
     gapControls.setting.style.display = "block";
+
+    colorsCollapsed = true;
+    colorsContent.style.display = "none";
+    colorsPanel.style.overflowY = "hidden";
+    colorsCollapseIcon.textContent = "+";
+    colorsHeader.setAttribute("aria-expanded", "false");
+
+    cubeCollapsed = true;
+    cubeContent.style.display = "none";
+    cubeCollapseIcon.textContent = "+";
+    cubeHeader.setAttribute("aria-expanded", "false");
+    scheduleCubePanelPositionUpdate();
   }
 
-  const resetCubeButton = document.createElement("button");
+  const resetEverythingButton = document.createElement("button");
 
-  resetCubeButton.type = "button";
-  resetCubeButton.textContent = "RESET CUBE";
-  resetCubeButton.style.position = "absolute";
-  resetCubeButton.style.top = "20px";
-  resetCubeButton.style.left = "20px";
-  resetCubeButton.style.height = "42px";
-  resetCubeButton.style.width = "220px";
-  resetCubeButton.style.padding = "8px";
-  resetCubeButton.style.cursor = "pointer";
-  resetCubeButton.style.background = "#f8d7da";
-  resetCubeButton.style.border = "1px solid #c94c59";
-  resetCubeButton.style.color = "#842029";
-  resetCubeButton.style.fontWeight = "bold";
-  resetCubeButton.style.boxSizing = "border-box";
-  addHoverEffect(resetCubeButton, "#f3c7cc");
+  resetEverythingButton.type = "button";
+  resetEverythingButton.textContent = "RESET EVERYTHING";
+  resetEverythingButton.style.position = "absolute";
+  resetEverythingButton.style.top = "20px";
+  resetEverythingButton.style.left = "20px";
+  resetEverythingButton.style.height = "42px";
+  resetEverythingButton.style.width = "220px";
+  resetEverythingButton.style.padding = "8px";
+  resetEverythingButton.style.cursor = "pointer";
+  resetEverythingButton.style.background = "#f8d7da";
+  resetEverythingButton.style.border = "1px solid #c94c59";
+  resetEverythingButton.style.color = "#842029";
+  resetEverythingButton.style.fontWeight = "bold";
+  resetEverythingButton.style.boxSizing = "border-box";
+  addHoverEffect(resetEverythingButton, "#f3c7cc");
 
-  resetCubeButton.addEventListener("click", resetCubeInterface);
+  resetEverythingButton.addEventListener("click", resetEverythingInterface);
 
-  controlsRoot.appendChild(resetCubeButton);
+  controlsRoot.appendChild(resetEverythingButton);
 
   exportSvgButton = document.createElement("button");
 
@@ -3991,7 +5726,7 @@ export function createUI({
     }
   });
 
-  controlsRoot.insertBefore(exportSvgButton, resetCubeButton);
+  controlsRoot.insertBefore(exportSvgButton, resetEverythingButton);
 
   updateCubePanelPosition();
 }
