@@ -1,17 +1,16 @@
 import {
   ArrowHelper,
-  BufferGeometry,
   CanvasTexture,
+  CatmullRomCurve3,
   Color,
   CylinderGeometry,
   Group,
-  Line,
-  LineBasicMaterial,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
   Sprite,
   SpriteMaterial,
+  TubeGeometry,
   Vector3,
 } from "three";
 import pausedRotationImage from "./assets/3x3cubePaused.png";
@@ -37,10 +36,28 @@ import {
   default as sequenceValidIcon,
 } from "./assets/yes.png";
 import { getFaceletLabel } from "./faceDefinitions.js";
+import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
+
+const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
+const UI_FONT_FAMILY = "Arial, sans-serif";
+const UI_FONT_SIZE = "14px";
+const UI_PANEL_BACKGROUND = "rgba(255, 255, 255, 0.95)";
+const UI_PANEL_BORDER_RADIUS = "8px";
+const UI_PANEL_BOX_SHADOW = "0 2px 10px rgba(0, 0, 0, 0.2)";
+const DEFAULT_LABEL_DEPTH = 0.25;
+const DEFAULT_AXIS_DEPTH = 0;
+const DEFAULT_ROTATION_ARROW_DEPTH = 0.72;
+const DEFAULT_ROTATION_ARROW_THICKNESS = 0.01;
+const DEFAULT_ROTATION_ARROW_RADIUS = 0.58;
+const NAVIGATION_DURATION = 0;
+const DEFAULT_APP_URL = "https://galoisfield17.github.io/cube-interactive/";
+const ALWAYS_VISIBLE = "always-visible";
+const HIDDEN_BEHIND_CUBE = "hidden-behind-cube";
 
 export function createUI({
   scene,
+  renderer,
   camera,
   controls,
   cubies,
@@ -57,6 +74,9 @@ export function createUI({
   resetCubeOrientation: resetCubeOrientationFromCube,
   resetVisualRotations,
   updateCubeDimensions: updateCubeDimensionsFromCube,
+  getCubeState,
+  getDefaultCubeState,
+  applyCubeState,
   size: initialSize,
   gap: initialGap,
   normalizeAngle,
@@ -67,11 +87,23 @@ export function createUI({
 
   let size = initialSize;
   let gap = initialGap;
-  let labelDepth = 0.25;
+  let labelDepth = DEFAULT_LABEL_DEPTH;
   let labelsPanel = null;
+  let setupPanel = null;
   let exportSvgButton = null;
+  let exportUrlButton = null;
+  let exportUrlCopying = false;
+  let exportUrlDirty = true;
   let updateFaceletLabelTransforms = () => {};
   let updateAxisHelperScale = () => {};
+
+  function markSetupChanged() {
+    exportUrlDirty = true;
+
+    if (exportUrlButton && !exportUrlCopying) {
+      exportUrlButton.disabled = false;
+    }
+  }
 
   function updateCubeDimensions(...args) {
     updateCubeDimensionsFromCube(...args);
@@ -102,6 +134,9 @@ export function createUI({
 
   controlsRoot.className = "responsive-controls";
   document.body.appendChild(controlsRoot);
+  document.addEventListener("input", markSetupChanged, true);
+  document.addEventListener("change", markSetupChanged, true);
+  controls.addEventListener("change", markSetupChanged);
 
   // ============================================================
   // Rotation panel
@@ -115,11 +150,11 @@ export function createUI({
     left: "20px",
     width: "220px",
     padding: "16px",
-    background: "rgba(255, 255, 255, 0.95)",
-    borderRadius: "8px",
-    boxShadow: "0 2px 10px rgba(0, 0, 0, 0.2)",
-    fontFamily: "Arial, sans-serif",
-    fontSize: "14px",
+    background: UI_PANEL_BACKGROUND,
+    borderRadius: UI_PANEL_BORDER_RADIUS,
+    boxShadow: UI_PANEL_BOX_SHADOW,
+    fontFamily: UI_FONT_FAMILY,
+    fontSize: UI_FONT_SIZE,
     boxSizing: "border-box",
   });
 
@@ -131,6 +166,22 @@ export function createUI({
 
   function setStyles(element, styles) {
     Object.assign(element.style, styles);
+  }
+
+  function styleUiTitle(
+    titleElement,
+    { container = titleElement, fontSize = "14px", marginBottom = "7px" } = {},
+  ) {
+    setStyles(titleElement, {
+      fontSize,
+      fontWeight: "600",
+      color: "#374151",
+    });
+    setStyles(container, {
+      paddingBottom: "6px",
+      borderBottom: "1px solid #d1d5db",
+      marginBottom,
+    });
   }
 
   function createLabel(text) {
@@ -184,6 +235,7 @@ export function createUI({
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       resetAction();
+      markSetupChanged();
     });
 
     return button;
@@ -226,10 +278,27 @@ export function createUI({
   document.head.appendChild(rotationBlinkStyle);
 
   const exportSvgArchive = createSvgArchive({
+    scene,
+    renderer,
     camera,
     cubies,
     getSize: () => size,
     getGap: () => gap,
+    getFaceletLabels: () => faceletLabels,
+    getAxisGroup: () => axisGroup,
+    getRotationArrowGroup: () => rotationArrowGroup,
+    getAxisLabelText: (label) => {
+      const axisDefinition = label.userData.axisDefinition;
+
+      return axisLabelMode === "custom"
+        ? axisDefinition?.label.custom
+        : axisDefinition?.label[axisLabelMode];
+    },
+    getRotationArrowThickness: () => rotationArrowThickness,
+    getFaceletLabelsVisibility: () => faceletLabelsVisibility,
+    getAxisLabelsVisibility: () => axisLabelsVisibility,
+    getAxisArrowsVisibility: () => axisArrowsVisibility,
+    getRotationArrowsVisibility: () => rotationArrowsVisibility,
   });
 
   // ============================================================
@@ -309,7 +378,7 @@ export function createUI({
     gap: "6px",
   });
 
-  const resetRotationButton = createResetButton("Reset rotation", () =>
+  const resetRotationButton = createResetButton("Reset Rotation", () =>
     resetRotationInterface(),
   );
 
@@ -334,10 +403,10 @@ export function createUI({
   const rotationToggleButton = document.createElement("button");
 
   rotationToggleButton.type = "button";
-  rotationToggleButton.title = "Collapse or expand rotation controls";
+  rotationToggleButton.title = "Collapse Or Expand Rotation Controls";
   rotationToggleButton.setAttribute(
     "aria-label",
-    "Collapse or expand rotation controls",
+    "Collapse Or Expand Rotation Controls",
   );
   rotationToggleButton.setAttribute("aria-controls", rotationContent.id);
   rotationToggleButton.style.display = "flex";
@@ -483,7 +552,7 @@ export function createUI({
   rotationText.style.top = "20px";
   rotationText.style.left = "248px";
   rotationText.setAttribute("role", "listbox");
-  rotationText.setAttribute("aria-label", "Rotation sequence");
+  rotationText.setAttribute("aria-label", "Rotation Sequence");
 
   const rotationStartTarget = document.createElement("span");
 
@@ -516,8 +585,8 @@ export function createUI({
 
   copyRotationButton.className = "rotation-copy-control";
   copyRotationButton.type = "button";
-  copyRotationButton.title = "Copy rotations to clipboard";
-  copyRotationButton.setAttribute("aria-label", "Copy rotations to clipboard");
+  copyRotationButton.title = "Copy Rotations To Clipboard";
+  copyRotationButton.setAttribute("aria-label", "Copy Rotations To Clipboard");
   copyRotationButton.style.display = "none";
   copyRotationButton.style.position = "absolute";
   copyRotationButton.style.top = "20px";
@@ -553,8 +622,8 @@ export function createUI({
 
   undoRotationButton.className = "rotation-undo-control";
   undoRotationButton.type = "button";
-  undoRotationButton.title = "Undo latest rotation";
-  undoRotationButton.setAttribute("aria-label", "Undo latest rotation");
+  undoRotationButton.title = "Undo Latest Rotation";
+  undoRotationButton.setAttribute("aria-label", "Undo Latest Rotation");
   undoRotationButton.style.display = "none";
   undoRotationButton.style.position = "absolute";
   undoRotationButton.style.top = "70px";
@@ -725,6 +794,7 @@ export function createUI({
   }
 
   function setCursorRotationEntry(entry) {
+    markSetupChanged();
     cursorRotationEntry = entry;
     updateRotationMediaControlState();
     highlightActiveRotation();
@@ -820,7 +890,10 @@ export function createUI({
     { record = true, display = true, animationEntry = null, onComplete } = {},
   ) {
     if (record) {
-      queuedRotationActions = [];
+      markSetupChanged();
+      if (pendingRotationEntries.length === 0) {
+        queuedRotationActions = [];
+      }
       durationState.stopAfterCurrent = false;
       rotationStopRequested = false;
     }
@@ -831,6 +904,17 @@ export function createUI({
     if (record) {
       action.entry = rotationEntry;
       rotationActions.push(action);
+    }
+
+    if (record && pendingRotationEntries.length > 0) {
+      queuedRotationActions.push(action);
+      copyIconImage.src = copyIcon;
+      if (display) {
+        showRotationStatus();
+      }
+      highlightActiveRotation();
+      updateRotationMediaControlState();
+      return Promise.resolve(false);
     }
 
     copyIconImage.src = copyIcon;
@@ -871,12 +955,14 @@ export function createUI({
         if (rotationStopRequested) {
           rotationPlaybackState = "stopped";
           setRotationStatus("stopped");
+          setPlayPauseIcon(false);
+        } else if (queuedRotationActions.length > 0) {
+          resumeQueuedRotations();
         } else if (queuedRotationActions.length === 0) {
           rotationPlaybackState = "idle";
           setRotationStatus("idle");
+          setPlayPauseIcon(false);
         }
-
-        setPlayPauseIcon(false);
       }
       highlightActiveRotation();
       updateRotationMediaControlState();
@@ -903,18 +989,14 @@ export function createUI({
       return;
     }
 
-    const actionsToPlay = queuedRotationActions;
-
-    queuedRotationActions = [];
+    const action = queuedRotationActions.shift();
     rotationStopRequested = false;
 
-    for (const action of actionsToPlay) {
-      queueRotationAction(action, {
-        record: false,
-        display: false,
-        animationEntry: action.entry,
-      });
-    }
+    queueRotationAction(action, {
+      record: false,
+      display: false,
+      animationEntry: action.entry,
+    });
   }
 
   function pauseRotationAnimation() {
@@ -960,26 +1042,32 @@ export function createUI({
     setRotationStatus("stopped");
   }
 
-  function stopRotationAndWait() {
+  async function stopRotationAndWait() {
     if (
       rotationPlaybackState === "idle" ||
       rotationPlaybackState === "stopped"
     ) {
-      return Promise.resolve();
+      return;
     }
 
+    const configuredDuration = durationState.value;
+
+    durationState.value = NAVIGATION_DURATION;
     stopRotationAfterCurrent();
 
     if (
       rotationPlaybackState === "stopped" &&
       pendingRotationEntries.length === 0
     ) {
-      return Promise.resolve();
+      durationState.value = configuredDuration;
+      return;
     }
 
-    return new Promise((resolve) => {
+    await new Promise((resolve) => {
       rotationStopWaiters.push(resolve);
     });
+
+    durationState.value = configuredDuration;
   }
 
   let rebuildGeneration = 0;
@@ -998,7 +1086,7 @@ export function createUI({
     const prefixLength = Math.max(cursorIndex + 1, 0);
     const rebuildDuration = {
       ...durationState,
-      value: 0,
+      value: NAVIGATION_DURATION,
       paused: false,
       pauseStartedAt: null,
     };
@@ -1029,6 +1117,47 @@ export function createUI({
 
     highlightActiveRotation();
     updateRotationMediaControlState();
+  }
+
+  async function ensureCursorAtEndForInsertion() {
+    if (pendingRotationEntries.length > 0) {
+      return;
+    }
+
+    const entries = getRotationEntries();
+
+    if (entries.length === 0) {
+      return;
+    }
+
+    const lastEntry = entries.at(-1);
+
+    if (
+      cursorRotationEntry === lastEntry &&
+      pendingRotationEntries.length === 0 &&
+      queuedRotationActions.length === 0 &&
+      (rotationPlaybackState === "idle" || rotationPlaybackState === "stopped")
+    ) {
+      return;
+    }
+
+    await stopRotationAndWait();
+
+    if (pendingRotationEntries.length > 0) {
+      return;
+    }
+
+    const finalEntries = getRotationEntries();
+    const finalEntry = finalEntries.at(-1);
+
+    if (!finalEntry || cursorRotationEntry === finalEntry) {
+      return;
+    }
+
+    cursorRotationEntry = finalEntry;
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+    await rebuildCubeToCursor();
   }
 
   function removeRotationEntry(entry) {
@@ -1149,6 +1278,8 @@ export function createUI({
     if (pendingRotationEntries.length > 0) {
       return;
     }
+
+    markSetupChanged();
 
     const latestAction = rotationActions.at(-1);
 
@@ -1344,8 +1475,8 @@ export function createUI({
 
   stopRotationButton.className = "rotation-control rotation-control-stop";
   stopRotationButton.type = "button";
-  stopRotationButton.title = "Stop rotation";
-  stopRotationButton.setAttribute("aria-label", "Stop rotation");
+  stopRotationButton.title = "Stop Rotation";
+  stopRotationButton.setAttribute("aria-label", "Stop Rotation");
   stopRotationButton.style.display = "block";
   stopRotationButton.style.position = "absolute";
   stopRotationButton.style.width = "48px";
@@ -1381,8 +1512,8 @@ export function createUI({
 
   toEndButton.className = "rotation-control rotation-control-end";
   toEndButton.type = "button";
-  toEndButton.title = "Go to end";
-  toEndButton.setAttribute("aria-label", "Go to end");
+  toEndButton.title = "Go To End";
+  toEndButton.setAttribute("aria-label", "Go To End");
   toEndButton.style.display = "block";
   toEndButton.style.position = "absolute";
   toEndButton.style.width = "48px";
@@ -1459,7 +1590,7 @@ export function createUI({
 
   const playPauseButton = createRotationControlButton(
     playIcon,
-    "Play or pause rotation",
+    "Play Or Pause Rotation",
   );
   playPauseButton.classList.add("rotation-control-play");
 
@@ -1471,7 +1602,7 @@ export function createUI({
     }
   });
 
-  const toStartButton = createRotationControlButton(toStartIcon, "Go to start");
+  const toStartButton = createRotationControlButton(toStartIcon, "Go To Start");
   toStartButton.classList.add("rotation-control-start");
 
   toStartButton.addEventListener("click", async () => {
@@ -1617,6 +1748,15 @@ export function createUI({
   // Execute standardized move
   // ============================================================
 
+  let rotationInsertionPromise = Promise.resolve();
+
+  function scheduleRotationInsertion(insertion) {
+    const nextInsertion = rotationInsertionPromise.then(insertion, insertion);
+
+    rotationInsertionPromise = nextInsertion.catch(() => {});
+    return nextInsertion;
+  }
+
   function executeMove(moveName) {
     const definition = getRotationDefinition(moveName);
 
@@ -1625,15 +1765,19 @@ export function createUI({
       return;
     }
 
-    const inverseMoveName = getInverseMoveName(moveName);
+    return scheduleRotationInsertion(async () => {
+      const inverseMoveName = getInverseMoveName(moveName);
 
-    queueRotationAction({
-      label: moveName,
-      run: (duration) => rotateMove(moveName, duration),
-      inverse: {
-        label: inverseMoveName,
-        run: (duration) => rotateMove(inverseMoveName, duration),
-      },
+      await ensureCursorAtEndForInsertion();
+
+      queueRotationAction({
+        label: moveName,
+        run: (duration) => rotateMove(moveName, duration),
+        inverse: {
+          label: inverseMoveName,
+          run: (duration) => rotateMove(inverseMoveName, duration),
+        },
+      });
     });
   }
 
@@ -1662,8 +1806,8 @@ export function createUI({
       for (const move of moves) {
         const button = createMoveButton(move);
 
-        button.addEventListener("click", () => {
-          executeMove(move);
+        button.addEventListener("click", async () => {
+          await executeMove(move);
         });
 
         row.appendChild(button);
@@ -1855,7 +1999,7 @@ export function createUI({
   const emptyMove = document.createElement("option");
 
   emptyMove.value = "";
-  emptyMove.textContent = "Select move";
+  emptyMove.textContent = "Select Move";
   emptyMove.disabled = true;
   emptyMove.selected = true;
 
@@ -2325,11 +2469,11 @@ export function createUI({
   colorsPanel.style.maxHeight = "calc(100vh - 40px)";
   colorsPanel.style.overflowY = "auto";
   colorsPanel.style.padding = "16px";
-  colorsPanel.style.background = "rgba(255, 255, 255, 0.95)";
-  colorsPanel.style.borderRadius = "8px";
-  colorsPanel.style.boxShadow = "0 2px 10px rgba(0, 0, 0, 0.2)";
-  colorsPanel.style.fontFamily = "Arial, sans-serif";
-  colorsPanel.style.fontSize = "14px";
+  colorsPanel.style.background = UI_PANEL_BACKGROUND;
+  colorsPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
+  colorsPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
+  colorsPanel.style.fontFamily = UI_FONT_FAMILY;
+  colorsPanel.style.fontSize = UI_FONT_SIZE;
   colorsPanel.style.boxSizing = "border-box";
 
   controlsRoot.appendChild(colorsPanel);
@@ -2349,7 +2493,6 @@ export function createUI({
   const colorsTitle = document.createElement("div");
 
   colorsTitle.textContent = "Colors";
-
   colorsTitle.style.fontSize = "18px";
   colorsTitle.style.fontWeight = "bold";
 
@@ -2360,7 +2503,7 @@ export function createUI({
   colorsTitleRow.style.gap = "6px";
 
   const resetColorsButton = createResetButton(
-    "Reset colors",
+    "Reset Colors",
     resetColorsInterface,
   );
 
@@ -2467,22 +2610,51 @@ export function createUI({
     }
   }
 
-  function addColorPicker(preview, input, applyColor, getInitialColor) {
+  function addColorPicker(
+    preview,
+    input,
+    applyColor,
+    getInitialColor,
+    getPickerState = null,
+    restorePickerState = null,
+  ) {
     const picker = document.createElement("input");
 
     picker.type = "color";
     picker.style.display = "none";
+    const hasRelatedEntries = Boolean(getPickerState && restorePickerState);
+    const getSavedPickerState = getPickerState ?? (() => input.value);
+    const restoreSavedPickerState =
+      restorePickerState ??
+      ((state) => {
+        input.value = state;
+        applyColor();
+      });
+    const undoButton = hasRelatedEntries
+      ? document.createElement("button")
+      : null;
     let initialColor = "";
+    let initialPickerState;
+    let pickerStartedMixed = false;
     let pickerOpen = false;
     let pickerSelectionCommitted = false;
+    let pickerCancellationRequested = false;
 
     function openPicker() {
       initialColor = input.value;
+      pickerStartedMixed = input.placeholder === "Mixed";
+      initialPickerState = pickerStartedMixed
+        ? getSavedPickerState()
+        : input.value;
       const pickerColor = input.value || getInitialColor?.() || "#000000";
 
       picker.value = getColorPickerValue(pickerColor);
       pickerOpen = true;
       pickerSelectionCommitted = false;
+      pickerCancellationRequested = false;
+      if (undoButton && pickerStartedMixed) {
+        undoButton.style.display = "block";
+      }
       picker.click();
     }
 
@@ -2492,9 +2664,14 @@ export function createUI({
     }
 
     function commitPickedColor() {
+      if (pickerCancellationRequested) {
+        return;
+      }
+
       pickerSelectionCommitted = true;
       pickerOpen = false;
-      previewPickedColor();
+      input.value = picker.value;
+      applyColor();
     }
 
     function restoreCancelledColor() {
@@ -2503,22 +2680,40 @@ export function createUI({
       }
 
       pickerOpen = false;
-      input.value = initialColor;
-      applyColor();
+      pickerCancellationRequested = true;
+      if (pickerStartedMixed) {
+        restoreSavedPickerState(initialPickerState);
+      } else {
+        input.value = initialColor;
+        applyColor();
+      }
+      if (undoButton) {
+        undoButton.style.display = "none";
+      }
     }
 
     function handlePickerCancel() {
       pickerOpen = false;
       pickerSelectionCommitted = false;
-      input.value = initialColor;
-      applyColor();
+      pickerCancellationRequested = true;
+      window.setTimeout(() => {
+        if (pickerStartedMixed) {
+          restoreSavedPickerState(initialPickerState);
+        } else {
+          input.value = initialColor;
+          applyColor();
+        }
+        if (undoButton) {
+          undoButton.style.display = "none";
+        }
+      }, 0);
     }
 
     preview.style.cursor = "pointer";
     preview.setAttribute("role", "button");
-    preview.setAttribute("aria-label", "Choose color");
+    preview.setAttribute("aria-label", "Choose Color");
     preview.tabIndex = 0;
-    preview.title = "Choose color";
+    preview.title = "Choose Color";
     preview.addEventListener("click", openPicker);
     preview.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") {
@@ -2531,10 +2726,45 @@ export function createUI({
     picker.addEventListener("input", previewPickedColor);
     picker.addEventListener("change", commitPickedColor);
     picker.addEventListener("cancel", handlePickerCancel);
-    picker.addEventListener("blur", restoreCancelledColor);
-    window.addEventListener("focus", () => {
+    picker.addEventListener("blur", () => {
       window.setTimeout(restoreCancelledColor, 0);
     });
+    if (undoButton) {
+      undoButton.type = "button";
+      undoButton.title = "Undo Color Change";
+      undoButton.setAttribute("aria-label", "Undo Color Change");
+      undoButton.style.display = "none";
+      undoButton.style.position = "absolute";
+      undoButton.style.left = "22px";
+      undoButton.style.top = "0";
+      undoButton.style.width = "18px";
+      undoButton.style.height = "18px";
+      undoButton.style.padding = "2px";
+      undoButton.style.boxSizing = "border-box";
+      undoButton.style.cursor = "pointer";
+
+      const undoImage = document.createElement("img");
+
+      undoImage.src = undoIcon;
+      undoImage.alt = "";
+      undoImage.style.display = "block";
+      undoImage.style.width = "100%";
+      undoImage.style.height = "100%";
+      undoImage.style.pointerEvents = "none";
+
+      undoButton.appendChild(undoImage);
+      undoButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        pickerOpen = false;
+        pickerSelectionCommitted = false;
+        pickerCancellationRequested = true;
+        restoreSavedPickerState(initialPickerState);
+        undoButton.style.display = "none";
+      });
+      preview.style.position = "relative";
+      preview.style.marginRight = "22px";
+      preview.appendChild(undoButton);
+    }
     preview.appendChild(picker);
   }
 
@@ -2629,6 +2859,45 @@ export function createUI({
   }
 
   const faceletLabels = new Map();
+
+  function getFaceletColorSnapshot(filter = () => true) {
+    return facelets
+      .filter(filter)
+      .map((facelet) => [facelet, getCurrentFaceletColor(facelet)]);
+  }
+
+  function restoreFaceletColorSnapshot(snapshot) {
+    for (const [facelet, value] of snapshot) {
+      const faceletData = getFaceletData(facelet);
+      const currentFacelet = getCurrentFaceletRecord(facelet);
+
+      faceletData.currentColor = value;
+      faceletData.color = value;
+
+      const controls = colorInputs.get(faceletData);
+
+      if (controls) {
+        controls.input.value = value;
+        controls.preview.style.backgroundImage = "none";
+        controls.preview.style.backgroundColor = value;
+      }
+
+      const materialIndex = currentFacelet?.materialIndex;
+
+      if (
+        materialIndex !== undefined &&
+        currentFacelet.cubie.material[materialIndex]
+      ) {
+        currentFacelet.cubie.material[materialIndex].color.set(value);
+      }
+    }
+
+    for (const [face] of faceletSections) {
+      updateFaceColorControl(face);
+    }
+
+    updateOuterFaceletsControl();
+  }
 
   function createFaceletLabel(facelet) {
     const faceletData = getFaceletData(facelet);
@@ -2935,27 +3204,116 @@ export function createUI({
 
     input.addEventListener("input", applyColor);
     input.addEventListener("change", applyColor);
-    addColorPicker(preview, input, applyColor, () =>
-      getCurrentFaceletColor(
-        facelets.find((facelet) => getFaceletSection(facelet) === face),
-      ),
+    addColorPicker(
+      preview,
+      input,
+      applyColor,
+      () =>
+        getCurrentFaceletColor(
+          facelets.find((facelet) => getFaceletSection(facelet) === face),
+        ),
+      () =>
+        getFaceletColorSnapshot(
+          (facelet) => getFaceletSection(facelet) === face,
+        ),
+      restoreFaceletColorSnapshot,
     );
 
     return controls;
   }
 
-  const outerFaceletsHeading = document.createElement("div");
+  function createCollapsibleSection({
+    title,
+    titleControls = [],
+    initiallyExpanded = true,
+    headerStyles = {},
+    titleStyles = {},
+    contentStyles = {},
+    getContentId,
+  }) {
+    const section = document.createElement("div");
+    const header = document.createElement("div");
+    const titleRow = document.createElement("div");
+    const titleLabel = document.createElement("span");
+    const content = document.createElement("div");
+    const collapseIcon = document.createElement("span");
 
-  outerFaceletsHeading.style.display = "flex";
-  outerFaceletsHeading.style.alignItems = "center";
-  outerFaceletsHeading.style.gap = "6px";
-  outerFaceletsHeading.style.fontWeight = "bold";
-  outerFaceletsHeading.style.marginTop = "14px";
-  outerFaceletsHeading.style.marginBottom = "7px";
+    let collapsed = !initiallyExpanded;
 
-  const outerFaceletsTitle = document.createElement("span");
+    header.style.display = "flex";
+    header.style.alignItems = "center";
+    header.style.justifyContent = "space-between";
+    header.style.gap = "6px";
+    header.style.cursor = "pointer";
+    header.style.userSelect = "none";
+    Object.assign(header.style, headerStyles);
 
-  outerFaceletsTitle.textContent = "Outer Facelets";
+    titleRow.style.display = "flex";
+    titleRow.style.alignItems = "center";
+    titleRow.style.gap = "6px";
+    titleRow.style.flex = "1";
+    titleRow.style.minWidth = "0";
+    Object.assign(titleRow.style, titleStyles);
+
+    titleLabel.textContent = title;
+    styleUiTitle(titleLabel, { container: header });
+
+    collapseIcon.textContent = "−";
+    collapseIcon.style.fontSize = "20px";
+    collapseIcon.style.lineHeight = "1";
+    collapseIcon.style.flexShrink = "0";
+
+    titleRow.appendChild(titleLabel);
+    for (const control of titleControls) {
+      control.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      control.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      control.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+      });
+      titleRow.appendChild(control);
+    }
+
+    header.appendChild(titleRow);
+    header.appendChild(collapseIcon);
+    header.setAttribute("role", "button");
+    header.setAttribute("tabindex", "0");
+
+    content.id = getContentId();
+    header.setAttribute("aria-controls", content.id);
+    Object.assign(content.style, contentStyles);
+    section.appendChild(header);
+    section.appendChild(content);
+
+    function updateCollapseState() {
+      content.style.display = collapsed ? "none" : "block";
+      collapseIcon.textContent = collapsed ? "+" : "−";
+      header.setAttribute("aria-expanded", String(!collapsed));
+    }
+
+    function toggleCollapse() {
+      collapsed = !collapsed;
+      updateCollapseState();
+      scheduleCubePanelPositionUpdate();
+    }
+
+    header.addEventListener("click", toggleCollapse);
+    header.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+
+      event.preventDefault();
+      toggleCollapse();
+    });
+
+    updateCollapseState();
+
+    return { section, header, titleRow, content, toggleCollapse, collapseIcon };
+  }
 
   const outerFaceletsInput = document.createElement("input");
 
@@ -3045,13 +3403,27 @@ export function createUI({
     outerFaceletsInput,
     applyOuterFaceletsColor,
     () => (facelets[0] ? getCurrentFaceletColor(facelets[0]) : "#000000"),
+    () => getFaceletColorSnapshot(),
+    restoreFaceletColorSnapshot,
   );
 
-  outerFaceletsHeading.appendChild(outerFaceletsTitle);
-  outerFaceletsHeading.appendChild(outerFaceletsInput);
-  outerFaceletsHeading.appendChild(outerFaceletsPreview);
-  colorsContent.appendChild(outerFaceletsHeading);
+  const outerFaceletsSection = createCollapsibleSection({
+    title: "Outer Facelets",
+    titleControls: [outerFaceletsInput, outerFaceletsPreview],
+    headerStyles: {
+      marginTop: "14px",
+      marginBottom: "7px",
+      fontWeight: "bold",
+      textAlign: "left",
+    },
+    contentStyles: { marginTop: "0" },
+    getContentId: () => "outer-facelets-panel-content",
+  });
+
+  colorsContent.appendChild(outerFaceletsSection.section);
   updateOuterFaceletsControl();
+
+  const outerFaceletsEntries = outerFaceletsSection.content;
 
   for (const [face, title] of faceletSections) {
     const sectionFacelets = facelets
@@ -3063,23 +3435,23 @@ export function createUI({
     heading.style.display = "flex";
     heading.style.alignItems = "center";
     heading.style.gap = "6px";
-    heading.style.fontWeight = "bold";
     heading.style.marginTop = "10px";
     heading.style.marginBottom = "7px";
 
     const headingText = document.createElement("span");
 
     headingText.textContent = title;
+    styleUiTitle(headingText, { container: heading });
 
     const faceControls = createFaceColorControl(face);
 
     heading.appendChild(headingText);
     heading.appendChild(faceControls.input);
     heading.appendChild(faceControls.preview);
-    colorsContent.appendChild(heading);
+    outerFaceletsEntries.appendChild(heading);
 
     for (const facelet of sectionFacelets) {
-      colorsContent.appendChild(createFaceletRow(facelet));
+      outerFaceletsEntries.appendChild(createFaceletRow(facelet));
     }
 
     updateFaceColorControl(face);
@@ -3088,19 +3460,6 @@ export function createUI({
   // ============================================================
   // Inner cubie color editor
   // ============================================================
-
-  const innerHeading = document.createElement("div");
-
-  innerHeading.style.display = "flex";
-  innerHeading.style.alignItems = "center";
-  innerHeading.style.gap = "6px";
-  innerHeading.style.fontWeight = "bold";
-  innerHeading.style.marginTop = "14px";
-  innerHeading.style.marginBottom = "7px";
-
-  const innerTitle = document.createElement("span");
-
-  innerTitle.textContent = "Inner";
 
   const innerInput = document.createElement("input");
 
@@ -3118,10 +3477,19 @@ export function createUI({
   innerPreview.style.flexShrink = "0";
   innerPreview.style.backgroundColor = defaultColors.inner;
 
-  innerHeading.appendChild(innerTitle);
-  innerHeading.appendChild(innerInput);
-  innerHeading.appendChild(innerPreview);
-  colorsContent.appendChild(innerHeading);
+  const innerSection = createCollapsibleSection({
+    title: "Inner",
+    titleControls: [innerInput, innerPreview],
+    headerStyles: {
+      marginTop: "14px",
+      marginBottom: "7px",
+      fontWeight: "bold",
+    },
+    contentStyles: { marginTop: "0" },
+    getContentId: () => "inner-panel-content",
+  });
+
+  colorsContent.appendChild(innerSection.section);
 
   function getCubiePositionName(cubie) {
     const { x, y, z } = cubie.userData;
@@ -3254,7 +3622,7 @@ export function createUI({
   const innerColorControls = sortedInnerCubies.map((cubie) => {
     const controls = createInnerColorRow(cubie);
 
-    colorsContent.appendChild(controls.row);
+    innerSection.content.appendChild(controls.row);
 
     return { cubie, ...controls };
   });
@@ -3307,7 +3675,26 @@ export function createUI({
 
   innerInput.addEventListener("input", applyInnerColor);
   innerInput.addEventListener("change", applyInnerColor);
-  addColorPicker(innerPreview, innerInput, applyInnerColor);
+  addColorPicker(
+    innerPreview,
+    innerInput,
+    applyInnerColor,
+    undefined,
+    () => cubies.map((cubie) => [cubie, getCurrentInnerColor(cubie)]),
+    (snapshot) => {
+      for (const [cubie, value] of snapshot) {
+        setCubieInnerColor(cubie, value);
+      }
+
+      for (const { cubie, input, preview } of innerColorControls) {
+        input.value = getCurrentInnerColor(cubie);
+        preview.style.backgroundImage = "none";
+        preview.style.backgroundColor = getCurrentInnerColor(cubie);
+      }
+
+      updateInnerHeading();
+    },
+  );
   updateInnerHeading();
 
   // ============================================================
@@ -3400,8 +3787,8 @@ export function createUI({
 
     const nameElement = document.createElement("span");
 
-    nameElement.textContent = `${name}:`;
-    nameElement.style.width = "38px";
+    nameElement.textContent = `Label ${name}:`;
+    nameElement.style.width = "95px";
     nameElement.style.flexShrink = "0";
     nameElement.style.fontFamily = "monospace";
 
@@ -3455,19 +3842,6 @@ export function createUI({
     return row;
   }
 
-  const faceletLabelsHeading = document.createElement("div");
-
-  faceletLabelsHeading.style.display = "flex";
-  faceletLabelsHeading.style.alignItems = "center";
-  faceletLabelsHeading.style.gap = "6px";
-  faceletLabelsHeading.style.fontWeight = "bold";
-  faceletLabelsHeading.style.marginTop = "14px";
-  faceletLabelsHeading.style.marginBottom = "7px";
-
-  const faceletLabelsTitle = document.createElement("span");
-
-  faceletLabelsTitle.textContent = "Facelet labels";
-
   const faceletLabelInput = document.createElement("input");
 
   faceletLabelInput.type = "text";
@@ -3514,12 +3888,34 @@ export function createUI({
     faceletLabelInput,
     applyAllFaceletLabelColor,
     () => defaultFaceletLabelColor,
+    () => facelets.map((facelet) => [facelet, getFaceletLabelColor(facelet)]),
+    (snapshot) => {
+      for (const [facelet, color] of snapshot) {
+        updateFaceletLabelColor(facelet, color);
+        updateFaceletLabelColorControl(facelet);
+      }
+
+      for (const [face] of faceletSections) {
+        updateFaceletLabelFaceControl(face);
+      }
+
+      updateFaceletLabelHeading();
+    },
   );
 
-  faceletLabelsHeading.appendChild(faceletLabelsTitle);
-  faceletLabelsHeading.appendChild(faceletLabelInput);
-  faceletLabelsHeading.appendChild(faceletLabelPreview);
-  colorsContent.appendChild(faceletLabelsHeading);
+  const faceletLabelsSection = createCollapsibleSection({
+    title: "Facelet Labels",
+    titleControls: [faceletLabelInput, faceletLabelPreview],
+    headerStyles: {
+      marginTop: "14px",
+      marginBottom: "7px",
+      fontWeight: "bold",
+    },
+    contentStyles: { marginTop: "0" },
+    getContentId: () => "facelet-labels-panel-content",
+  });
+
+  colorsContent.appendChild(faceletLabelsSection.section);
 
   for (const [face, title] of faceletSections) {
     const sectionFacelets = facelets
@@ -3537,6 +3933,7 @@ export function createUI({
     const headingText = document.createElement("span");
 
     headingText.textContent = title;
+    styleUiTitle(headingText, { container: heading });
 
     const input = document.createElement("input");
 
@@ -3578,17 +3975,34 @@ export function createUI({
 
     input.addEventListener("input", applyFaceletLabelFaceColor);
     input.addEventListener("change", applyFaceletLabelFaceColor);
-    addColorPicker(preview, input, applyFaceletLabelFaceColor, () =>
-      getFaceletLabelColor(sectionFacelets[0]),
+    addColorPicker(
+      preview,
+      input,
+      applyFaceletLabelFaceColor,
+      () => getFaceletLabelColor(sectionFacelets[0]),
+      () =>
+        sectionFacelets.map((facelet) => [
+          facelet,
+          getFaceletLabelColor(facelet),
+        ]),
+      (snapshot) => {
+        for (const [facelet, color] of snapshot) {
+          updateFaceletLabelColor(facelet, color);
+          updateFaceletLabelColorControl(facelet);
+        }
+
+        updateFaceletLabelFaceControl(face);
+        updateFaceletLabelHeading();
+      },
     );
 
     heading.appendChild(headingText);
     heading.appendChild(input);
     heading.appendChild(preview);
-    colorsContent.appendChild(heading);
+    faceletLabelsSection.content.appendChild(heading);
 
     for (const facelet of sectionFacelets) {
-      colorsContent.appendChild(
+      faceletLabelsSection.content.appendChild(
         createFaceletLabelColorControls(
           facelet,
           getFaceletPositionName(facelet),
@@ -3686,18 +4100,21 @@ export function createUI({
   labelsPanel.style.right = "20px";
   labelsPanel.style.width = "280px";
   labelsPanel.style.padding = "16px";
-  labelsPanel.style.background = "rgba(255, 255, 255, 0.95)";
-  labelsPanel.style.borderRadius = "8px";
-  labelsPanel.style.boxShadow = "0 2px 10px rgba(0, 0, 0, 0.2)";
-  labelsPanel.style.fontFamily = "Arial, sans-serif";
-  labelsPanel.style.fontSize = "14px";
+  labelsPanel.style.background = UI_PANEL_BACKGROUND;
+  labelsPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
+  labelsPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
+  labelsPanel.style.fontFamily = UI_FONT_FAMILY;
+  labelsPanel.style.fontSize = UI_FONT_SIZE;
   labelsPanel.style.boxSizing = "border-box";
 
   const labelsHeader = document.createElement("div");
 
   labelsHeader.style.display = "flex";
   labelsHeader.style.alignItems = "center";
+  labelsHeader.style.justifyContent = "space-between";
   labelsHeader.style.gap = "8px";
+  labelsHeader.style.cursor = "pointer";
+  labelsHeader.style.userSelect = "none";
   labelsHeader.style.fontSize = "18px";
   labelsHeader.style.fontWeight = "bold";
 
@@ -3707,31 +4124,77 @@ export function createUI({
   labelsTitleRow.style.alignItems = "center";
   labelsTitleRow.style.gap = "6px";
 
-  const resetLabelsButton = createResetButton("Reset labels", () => {
+  const resetLabelsButton = createResetButton("Reset Labels", () => {
     showFaceletLabelsCheckbox.checked = false;
     showAxisLabelsCheckbox.checked = false;
+    showAxisArrowsCheckbox.checked = false;
     axisGroup.visible = false;
+    axisLabelVisibilityControl.style.display = "none";
+    setAllAxisLabelVisibility(false);
+    axisArrowVisibilityControl.style.display = "none";
+    setAllAxisArrowVisibility(false);
+    faceletLabelsVisibility = ALWAYS_VISIBLE;
+    faceletLabelsVisibilityControl.setVisibilityMode(faceletLabelsVisibility);
+    faceletLabelsVisibilityControl.style.display = "none";
+    axisLabelsVisibility = ALWAYS_VISIBLE;
+    axisLabelsVisibilityControl.setVisibilityMode(axisLabelsVisibility);
+    axisLabelsVisibilityControl.style.display = "none";
+    axisArrowsVisibility = HIDDEN_BEHIND_CUBE;
+    axisArrowsVisibilityControl.setVisibilityMode(axisArrowsVisibility);
+    axisArrowsVisibilityControl.style.display = "none";
+    rotationArrowsVisibility = ALWAYS_VISIBLE;
+    rotationArrowsVisibilityControl.setVisibilityMode(rotationArrowsVisibility);
+    rotationArrowsVisibilityControl.style.display = "none";
+    updateFaceletLabelsVisibilityMode();
+    updateAxisLabelsVisibilityMode();
+    updateAxisArrowsVisibilityMode();
+    updateRotationArrowsVisibilityMode();
     showRotationArrowsCheckbox.checked = false;
     rotationArrowGroup.visible = false;
+    rotationArrowVisibilityControl.style.display = "none";
+    rotationArrowRadiusControl.style.display = "none";
+    setAllRotationArrowVisibility(true);
     rotationArrowDepthControl.style.display = "none";
-    rotationArrowDepth = 0.72;
+    rotationArrowThicknessControl.style.display = "none";
+    rotationArrowDepth = DEFAULT_ROTATION_ARROW_DEPTH;
     rotationArrowDepthSlider.value = String(rotationArrowDepth);
     rotationArrowDepthValue.value = String(rotationArrowDepth);
     updateRotationArrowDepth();
+    rotationArrowThickness = DEFAULT_ROTATION_ARROW_THICKNESS;
+    rotationArrowThicknessSlider.value = String(rotationArrowThickness);
+    rotationArrowThicknessValue.value = String(rotationArrowThickness);
+    updateRotationArrowThickness();
+    rotationArrowRadius = DEFAULT_ROTATION_ARROW_RADIUS;
+    rotationArrowRadiusSlider.value = String(rotationArrowRadius);
+    rotationArrowRadiusValue.value = String(rotationArrowRadius);
+    updateRotationArrowRadius();
+    rotationArrowDirection = "clockwise";
+    rotationArrowDirectionSelect.value = rotationArrowDirection;
+    updateRotationArrowDirection();
     axisLabelNameTitle.style.display = "none";
     axisLabelModeContainer.style.display = "none";
     selectAxisLabelMode("face");
+    for (const [face, input] of axisLabelCustomInputs) {
+      input.value = face;
+      const axisDefinition = axisDefinitions.find(
+        (definition) => definition.label.face === face,
+      );
+
+      if (axisDefinition) {
+        axisDefinition.label.custom = face;
+      }
+    }
     axisDepthControl.style.display = "none";
-    axisDepth = 0;
+    axisDepth = DEFAULT_AXIS_DEPTH;
     axisDepthSlider.value = String(axisDepth);
     axisDepthValue.value = String(axisDepth);
     updateAxisDepth();
     axisLabelDepthControl.style.display = "none";
-    axisLabelDepth = 0.25;
+    axisLabelDepth = DEFAULT_LABEL_DEPTH;
     axisLabelDepthSlider.value = String(axisLabelDepth);
     axisLabelDepthValue.value = String(axisLabelDepth);
     updateAxisLabelDepth();
-    labelDepth = 0.25;
+    labelDepth = DEFAULT_LABEL_DEPTH;
     labelDepthSlider.value = String(labelDepth);
     labelDepthValue.value = String(labelDepth);
     updateFaceletLabelVisibility();
@@ -3743,6 +4206,49 @@ export function createUI({
   labelsTitleRow.appendChild(resetLabelsButton);
   labelsTitleRow.appendChild(labelsTitle);
   labelsHeader.appendChild(labelsTitleRow);
+
+  const labelsCollapseIcon = document.createElement("span");
+
+  labelsCollapseIcon.textContent = "+";
+  labelsCollapseIcon.style.fontSize = "20px";
+  labelsCollapseIcon.style.lineHeight = "1";
+  labelsHeader.appendChild(labelsCollapseIcon);
+
+  labelsHeader.setAttribute("role", "button");
+  labelsHeader.setAttribute("aria-expanded", "false");
+  labelsHeader.tabIndex = 0;
+
+  const labelsContent = document.createElement("div");
+
+  labelsContent.id = "labels-panel-content";
+  labelsContent.style.marginTop = "12px";
+
+  let labelsCollapsed = true;
+  labelsContent.style.display = "none";
+
+  function toggleLabelsPanel() {
+    labelsCollapsed = !labelsCollapsed;
+
+    if (!labelsCollapsed) {
+      collapseOtherPanels("labels");
+    }
+
+    labelsContent.style.display = labelsCollapsed ? "none" : "block";
+    labelsCollapseIcon.textContent = labelsCollapsed ? "+" : "−";
+    labelsHeader.setAttribute("aria-expanded", String(!labelsCollapsed));
+    scheduleCubePanelPositionUpdate();
+  }
+
+  labelsHeader.setAttribute("aria-controls", labelsContent.id);
+  labelsHeader.addEventListener("click", toggleLabelsPanel);
+  labelsHeader.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    toggleLabelsPanel();
+  });
 
   const showFaceletLabelsLabel = document.createElement("label");
 
@@ -3758,16 +4264,27 @@ export function createUI({
 
   const showFaceletLabelsText = document.createElement("span");
 
-  showFaceletLabelsText.textContent = "Show facelet labels";
+  showFaceletLabelsText.textContent = "Show Facelet Labels";
+  styleUiTitle(showFaceletLabelsText, {
+    container: showFaceletLabelsLabel,
+    marginBottom: "0",
+  });
 
   showFaceletLabelsLabel.appendChild(showFaceletLabelsCheckbox);
   showFaceletLabelsLabel.appendChild(showFaceletLabelsText);
 
   const axisGroup = new Group();
   const axisLength = 1;
-  let axisDepth = 0;
-  let rotationArrowDepth = 0.72;
-  let axisLabelDepth = 0.25;
+  let axisDepth = DEFAULT_AXIS_DEPTH;
+  let rotationArrowDepth = DEFAULT_ROTATION_ARROW_DEPTH;
+  let rotationArrowThickness = DEFAULT_ROTATION_ARROW_THICKNESS;
+  let rotationArrowRadius = DEFAULT_ROTATION_ARROW_RADIUS;
+  let rotationArrowDirection = "clockwise";
+  let faceletLabelsVisibility = ALWAYS_VISIBLE;
+  let axisLabelsVisibility = ALWAYS_VISIBLE;
+  let axisArrowsVisibility = HIDDEN_BEHIND_CUBE;
+  let rotationArrowsVisibility = ALWAYS_VISIBLE;
+  let axisLabelDepth = DEFAULT_LABEL_DEPTH;
   let axisLabelMode = "face";
   const defaultFaceColors = {
     R: defaultColors.right,
@@ -3780,60 +4297,77 @@ export function createUI({
   const axisDefinitions = [
     {
       direction: new Vector3(1, 0, 0),
-      label: { blank: "", coordinate: "+x", face: "R" },
+      label: { custom: "R", coordinate: "+x", face: "R" },
       color: defaultFaceColors.R,
-      depth: 0.25,
+      depth: DEFAULT_LABEL_DEPTH,
     },
     {
       direction: new Vector3(-1, 0, 0),
-      label: { blank: "", coordinate: "-x", face: "L" },
+      label: { custom: "L", coordinate: "-x", face: "L" },
       color: defaultFaceColors.L,
-      depth: 0.25,
+      depth: DEFAULT_LABEL_DEPTH,
     },
     {
       direction: new Vector3(0, 1, 0),
-      label: { blank: "", coordinate: "+y", face: "U" },
+      label: { custom: "U", coordinate: "+y", face: "U" },
       color: defaultFaceColors.U,
-      depth: 0.25,
+      depth: DEFAULT_LABEL_DEPTH,
     },
     {
       direction: new Vector3(0, -1, 0),
-      label: { blank: "", coordinate: "-y", face: "D" },
+      label: { custom: "D", coordinate: "-y", face: "D" },
       color: defaultFaceColors.D,
-      depth: 0.25,
+      depth: DEFAULT_LABEL_DEPTH,
     },
     {
       direction: new Vector3(0, 0, 1),
-      label: { blank: "", coordinate: "+z", face: "F" },
+      label: { custom: "F", coordinate: "+z", face: "F" },
       color: defaultFaceColors.F,
-      depth: 0.25,
+      depth: DEFAULT_LABEL_DEPTH,
     },
     {
       direction: new Vector3(0, 0, -1),
-      label: { blank: "", coordinate: "-z", face: "B" },
+      label: { custom: "B", coordinate: "-z", face: "B" },
       color: defaultFaceColors.B,
-      depth: 0.25,
+      depth: DEFAULT_LABEL_DEPTH,
     },
   ];
 
+  function getAxisLabelText(axisDefinition) {
+    return axisLabelMode === "custom"
+      ? axisDefinition.label.custom
+      : axisDefinition.label[axisLabelMode];
+  }
+
   function createAxisLabel(axisDefinition) {
     const canvas = document.createElement("canvas");
+    const canvasScale = 8;
 
-    canvas.width = 128;
-    canvas.height = 64;
+    canvas.width = 128 * canvasScale;
+    canvas.height = 64 * canvasScale;
 
     const context = canvas.getContext("2d");
 
-    context.font = "bold 36px Arial";
+    context.font = `bold ${36 * canvasScale}px Arial`;
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillStyle = axisDefinition.color;
     context.strokeStyle = "rgba(0, 0, 0, 0.9)";
-    context.lineWidth = 6;
-    const labelText = axisDefinition.label[axisLabelMode];
+    context.lineWidth = 6 * canvasScale;
+    context.lineJoin = "round";
+    context.lineCap = "round";
+    const labelText = getAxisLabelText(axisDefinition);
 
-    context.strokeText(labelText, 64, 32);
-    context.fillText(labelText, 64, 32);
+    context.strokeText(
+      labelText,
+      (128 / 2) * canvasScale,
+      (64 / 2) * canvasScale,
+    );
+    context.fillText(
+      labelText,
+      (128 / 2) * canvasScale,
+      (64 / 2) * canvasScale,
+    );
 
     const sprite = new Sprite(
       new SpriteMaterial({
@@ -3886,6 +4420,8 @@ export function createUI({
     guideline.line.material.depthWrite = false;
     guideline.cone.material.depthWrite = false;
     guideline.add(arrow);
+    guideline.visible = false;
+    axisLabel.visible = false;
     axisLabel.position
       .copy(axisDefinition.direction)
       .multiplyScalar(axisLength + axisDefinition.depth);
@@ -3896,10 +4432,10 @@ export function createUI({
   scene.add(axisGroup);
 
   const rotationArrowGroup = new Group();
-  const rotationArrowRadius = 0.58;
   const rotationArrowColors = axisDefinitions.map(
     (axisDefinition) => axisDefinition.color,
   );
+  const rotationArrowVisibility = axisDefinitions.map(() => true);
 
   function createRotationArrow(axisDefinition, color) {
     const direction = axisDefinition.direction;
@@ -3917,8 +4453,14 @@ export function createUI({
       secondBasis = new Vector3(0, 1, 0);
     }
 
+    if (firstBasis.clone().cross(secondBasis).dot(direction) < 0) {
+      secondBasis.negate();
+    }
+
     const arrow = new Group();
     arrow.userData.color = color;
+    arrow.userData.index = axisDefinitions.indexOf(axisDefinition);
+    const angleDirection = rotationArrowDirection === "clockwise" ? -1 : 1;
 
     function addCircularArrow(startAngle, endAngle, segments = 18) {
       const points = [];
@@ -3937,9 +4479,19 @@ export function createUI({
         points.push(point);
       }
 
-      const line = new Line(
-        new BufferGeometry().setFromPoints(points),
-        new LineBasicMaterial({ color, depthTest: false }),
+      const line = new Mesh(
+        new TubeGeometry(
+          new CatmullRomCurve3(points, false, "centripetal"),
+          segments,
+          rotationArrowThickness / 2,
+          8,
+          false,
+        ),
+        new MeshBasicMaterial({
+          color,
+          depthTest: false,
+          depthWrite: false,
+        }),
       );
       line.renderOrder = 20;
 
@@ -3952,18 +4504,21 @@ export function createUI({
       const arrowhead = new ArrowHelper(
         arrowDirection,
         arrowPosition,
-        0.2,
+        rotationArrowThickness * 10,
         color,
-        0.12,
-        0.08,
+        rotationArrowThickness * 6,
+        rotationArrowThickness * 4,
       );
       arrowhead.renderOrder = 20;
 
       arrow.add(line, arrowhead);
     }
 
-    addCircularArrow(Math.PI * 0.82, Math.PI * 0.08);
-    addCircularArrow(-Math.PI * 0.18, -Math.PI * 0.92);
+    addCircularArrow(Math.PI * 0.82, Math.PI * (0.82 + angleDirection * 0.74));
+    addCircularArrow(
+      -Math.PI * 0.18,
+      Math.PI * (-0.18 + angleDirection * 0.74),
+    );
 
     arrow.position
       .copy(axisDefinition.direction)
@@ -3972,10 +4527,33 @@ export function createUI({
   }
 
   axisDefinitions.forEach((axisDefinition, index) => {
-    rotationArrowGroup.add(
-      createRotationArrow(axisDefinition, rotationArrowColors[index]),
+    const arrow = createRotationArrow(
+      axisDefinition,
+      rotationArrowColors[index],
     );
+
+    arrow.visible = rotationArrowVisibility[index];
+    rotationArrowGroup.add(arrow);
   });
+
+  function updateRotationArrowGeometry() {
+    const colors = rotationArrowGroup.children.map(
+      (arrow) => arrow.userData.color,
+    );
+
+    rotationArrowGroup.clear();
+    axisDefinitions.forEach((axisDefinition, index) => {
+      const arrow = createRotationArrow(axisDefinition, colors[index]);
+
+      arrow.visible = rotationArrowVisibility[index];
+      rotationArrowGroup.add(arrow);
+    });
+    updateRotationArrowsVisibilityMode();
+  }
+
+  const updateRotationArrowDirection = updateRotationArrowGeometry;
+  const updateRotationArrowThickness = updateRotationArrowGeometry;
+  const updateRotationArrowRadius = updateRotationArrowGeometry;
 
   rotationArrowGroup.visible = false;
   scene.add(rotationArrowGroup);
@@ -4006,17 +4584,15 @@ export function createUI({
 
     label.userData.labelColor = color;
     label.userData.context.fillStyle = color;
-    label.userData.context.clearRect(0, 0, 128, 64);
-    label.userData.context.strokeText(
-      label.userData.axisDefinition.label[axisLabelMode],
-      64,
-      32,
-    );
-    label.userData.context.fillText(
-      label.userData.axisDefinition.label[axisLabelMode],
-      64,
-      32,
-    );
+    const canvas = label.userData.canvas;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    label.userData.context.clearRect(0, 0, canvas.width, canvas.height);
+    const labelText = getAxisLabelText(label.userData.axisDefinition);
+
+    label.userData.context.strokeText(labelText, centerX, centerY);
+    label.userData.context.fillText(labelText, centerX, centerY);
     label.material.map.needsUpdate = true;
   }
 
@@ -4031,13 +4607,17 @@ export function createUI({
     });
   }
 
-  function createAxisColorControl(title, getColor, applyColor) {
+  function createAxisColorControl(
+    title,
+    getColor,
+    applyColor,
+    container = colorsContent,
+  ) {
     const heading = document.createElement("div");
 
     heading.style.display = "flex";
     heading.style.alignItems = "center";
     heading.style.gap = "6px";
-    heading.style.fontWeight = "bold";
     heading.style.marginTop = "10px";
     heading.style.marginBottom = "7px";
 
@@ -4100,7 +4680,7 @@ export function createUI({
     heading.appendChild(titleElement);
     heading.appendChild(input);
     heading.appendChild(preview);
-    colorsContent.appendChild(heading);
+    container.appendChild(heading);
 
     return { input, preview, sync };
   }
@@ -4112,8 +4692,78 @@ export function createUI({
     return colors.every((color) => color === firstColor) ? firstColor : null;
   }
 
-  const axisLabelColorHeading = createAxisColorControl(
-    "Axis labels",
+  const axisLabelOrder = FACE_ORDER;
+
+  function createInlineColorField(
+    getColor,
+    applyColor,
+    getPickerState,
+    restorePickerState,
+  ) {
+    const input = document.createElement("input");
+    const preview = document.createElement("span");
+
+    input.type = "text";
+    input.style.width = "70px";
+    input.style.padding = "3px";
+    input.style.boxSizing = "border-box";
+
+    preview.style.width = "18px";
+    preview.style.height = "18px";
+    preview.style.borderRadius = "50%";
+    preview.style.border = "1px solid #999";
+    preview.style.flexShrink = "0";
+
+    function sync() {
+      const color = getColor();
+
+      if (color) {
+        input.value = color;
+        input.placeholder = "";
+        preview.style.backgroundImage = "none";
+        preview.style.backgroundColor = color;
+      } else {
+        input.value = "";
+        input.placeholder = "Mixed";
+        preview.style.backgroundColor = "transparent";
+        preview.style.backgroundImage = `url(${mixedColorIcon})`;
+        preview.style.backgroundSize = "contain";
+        preview.style.backgroundRepeat = "no-repeat";
+        preview.style.backgroundPosition = "center";
+      }
+    }
+
+    function handleInput() {
+      const value = input.value.trim();
+
+      if (!isValidColorValue(value)) {
+        if (value !== "") {
+          showInvalidColor(preview);
+        }
+        return;
+      }
+
+      applyColor(value);
+      sync();
+    }
+
+    input.addEventListener("input", handleInput);
+    input.addEventListener("change", handleInput);
+    addColorPicker(
+      preview,
+      input,
+      handleInput,
+      () => getColor() ?? "#111",
+      getPickerState,
+      restorePickerState,
+    );
+
+    sync();
+
+    return { input, preview, sync };
+  }
+
+  const axisLabelAllControls = createInlineColorField(
     () =>
       getUniformColor(
         (index) => axisGroup.children[index * 2 + 1].userData.labelColor,
@@ -4122,10 +4772,29 @@ export function createUI({
       axisDefinitions.forEach((_, index) => updateAxisLabelColor(index, color));
       axisLabelColorControls.forEach((control) => control.sync());
     },
+    () =>
+      axisDefinitions.map(
+        (_, index) => axisGroup.children[index * 2 + 1].userData.labelColor,
+      ),
+    (snapshot) => {
+      snapshot.forEach((color, index) => updateAxisLabelColor(index, color));
+      axisLabelColorControls.forEach((control) => control.sync());
+    },
   );
 
-  const rotationArrowColorHeading = createAxisColorControl(
-    "Rotation arrows",
+  const axisLabelColorSection = createCollapsibleSection({
+    title: "Axis Labels",
+    titleControls: [axisLabelAllControls.input, axisLabelAllControls.preview],
+    headerStyles: {
+      marginTop: "14px",
+      marginBottom: "7px",
+      fontWeight: "bold",
+    },
+    contentStyles: { marginTop: "0" },
+    getContentId: () => "axis-label-color-panel-content",
+  });
+
+  const rotationArrowAllControls = createInlineColorField(
     () =>
       getUniformColor(
         (index) => rotationArrowGroup.children[index].userData.color,
@@ -4136,35 +4805,79 @@ export function createUI({
       );
       rotationArrowColorControls.forEach((control) => control.sync());
     },
+    () =>
+      axisDefinitions.map(
+        (_, index) => rotationArrowGroup.children[index].userData.color,
+      ),
+    (snapshot) => {
+      snapshot.forEach((color, index) =>
+        updateRotationArrowColor(index, color),
+      );
+      rotationArrowColorControls.forEach((control) => control.sync());
+    },
   );
 
-  axisLabelColorControls.set("all", axisLabelColorHeading);
-  rotationArrowColorControls.set("all", rotationArrowColorHeading);
+  const rotationArrowSection = createCollapsibleSection({
+    title: "Arrows",
+    titleControls: [
+      rotationArrowAllControls.input,
+      rotationArrowAllControls.preview,
+    ],
+    headerStyles: {
+      marginTop: "14px",
+      marginBottom: "7px",
+      fontWeight: "bold",
+    },
+    contentStyles: { marginTop: "0" },
+    getContentId: () => "rotation-arrow-color-panel-content",
+  });
 
-  axisDefinitions.forEach((axisDefinition, index) => {
-    const title = axisDefinition.label.face;
+  colorsContent.appendChild(axisLabelColorSection.section);
+  colorsContent.appendChild(rotationArrowSection.section);
+
+  axisLabelColorControls.set("all", {
+    input: axisLabelAllControls.input,
+    preview: axisLabelAllControls.preview,
+    sync: axisLabelAllControls.sync,
+  });
+  rotationArrowColorControls.set("all", {
+    input: rotationArrowAllControls.input,
+    preview: rotationArrowAllControls.preview,
+    sync: rotationArrowAllControls.sync,
+  });
+
+  axisLabelOrder.forEach((face) => {
+    const index = axisDefinitions.findIndex(
+      (axisDefinition) => axisDefinition.label.face === face,
+    );
+
+    if (index === -1) {
+      return;
+    }
 
     axisLabelColorControls.set(
       index,
       createAxisColorControl(
-        title,
+        `Axis Label ${face}`,
         () => axisGroup.children[index * 2 + 1].userData.labelColor,
         (color) => {
           updateAxisLabelColor(index, color);
           axisLabelColorControls.get("all")?.sync();
         },
+        axisLabelColorSection.content,
       ),
     );
 
     rotationArrowColorControls.set(
       index,
       createAxisColorControl(
-        title,
+        `Arrow ${face}`,
         () => rotationArrowGroup.children[index].userData.color,
         (color) => {
           updateRotationArrowColor(index, color);
           rotationArrowColorControls.get("all")?.sync();
         },
+        rotationArrowSection.content,
       ),
     );
   });
@@ -4186,10 +4899,78 @@ export function createUI({
 
   const showAxisLabelsText = document.createElement("span");
 
-  showAxisLabelsText.textContent = "Show axis arrows and labels";
+  showAxisLabelsText.textContent = "Show Axis Labels";
+  styleUiTitle(showAxisLabelsText, {
+    container: showAxisLabelsLabel,
+    marginBottom: "0",
+  });
 
   showAxisLabelsLabel.appendChild(showAxisLabelsCheckbox);
   showAxisLabelsLabel.appendChild(showAxisLabelsText);
+
+  const axisLabelVisibilityControl = document.createElement("div");
+
+  axisLabelVisibilityControl.style.display = "none";
+  axisLabelVisibilityControl.style.marginTop = "8px";
+  axisLabelVisibilityControl.style.marginLeft = "22px";
+
+  const axisLabelVisibilityCheckboxes = new Map();
+  const axisLabelCustomInputs = new Map();
+  const axisLabelCustomMarkers = new Map();
+
+  for (const face of FACE_ORDER) {
+    const label = document.createElement("label");
+
+    label.style.display = "flex";
+    label.style.alignItems = "center";
+    label.style.gap = "7px";
+    label.style.marginBottom = "6px";
+    label.style.cursor = "pointer";
+
+    const checkbox = document.createElement("input");
+
+    checkbox.type = "checkbox";
+    checkbox.checked = false;
+
+    const text = document.createElement("span");
+
+    text.textContent = `Show Label ${face}`;
+    const asText = document.createElement("span");
+
+    asText.textContent = "as";
+    asText.style.visibility = "hidden";
+
+    const customInput = document.createElement("input");
+
+    customInput.type = "text";
+    customInput.value = face;
+    customInput.style.visibility = "hidden";
+    customInput.style.width = "55px";
+    customInput.style.padding = "3px";
+    customInput.style.boxSizing = "border-box";
+    customInput.setAttribute("aria-label", `Custom Label ${face}`);
+    customInput.addEventListener("input", () => {
+      const axisDefinition = axisDefinitions.find(
+        (definition) => definition.label.face === face,
+      );
+
+      if (!axisDefinition) {
+        return;
+      }
+
+      axisDefinition.label.custom = customInput.value;
+      updateAxisLabelText();
+    });
+
+    label.appendChild(checkbox);
+    label.appendChild(text);
+    label.appendChild(asText);
+    label.appendChild(customInput);
+    axisLabelVisibilityControl.appendChild(label);
+    axisLabelVisibilityCheckboxes.set(face, checkbox);
+    axisLabelCustomInputs.set(face, customInput);
+    axisLabelCustomMarkers.set(face, asText);
+  }
 
   const showRotationArrowsLabel = document.createElement("label");
 
@@ -4205,9 +4986,44 @@ export function createUI({
 
   const showRotationArrowsText = document.createElement("span");
 
-  showRotationArrowsText.textContent = "Show rotation arrows";
+  showRotationArrowsText.textContent = "Show Rotation Arrows";
+  styleUiTitle(showRotationArrowsText, {
+    container: showRotationArrowsLabel,
+    marginBottom: "0",
+  });
   showRotationArrowsLabel.appendChild(showRotationArrowsCheckbox);
   showRotationArrowsLabel.appendChild(showRotationArrowsText);
+
+  const rotationArrowVisibilityControl = document.createElement("div");
+
+  rotationArrowVisibilityControl.style.display = "none";
+  rotationArrowVisibilityControl.style.marginTop = "8px";
+  rotationArrowVisibilityControl.style.marginLeft = "22px";
+
+  const rotationArrowVisibilityCheckboxes = new Map();
+
+  for (const face of FACE_ORDER) {
+    const label = document.createElement("label");
+
+    label.style.display = "flex";
+    label.style.alignItems = "center";
+    label.style.gap = "7px";
+    label.style.marginBottom = "6px";
+    label.style.cursor = "pointer";
+
+    const checkbox = document.createElement("input");
+
+    checkbox.type = "checkbox";
+    checkbox.checked = false;
+
+    const text = document.createElement("span");
+
+    text.textContent = `Show Arrow ${face}`;
+    label.appendChild(checkbox);
+    label.appendChild(text);
+    rotationArrowVisibilityControl.appendChild(label);
+    rotationArrowVisibilityCheckboxes.set(face, checkbox);
+  }
 
   const rotationArrowDepthControl = document.createElement("div");
 
@@ -4216,7 +5032,7 @@ export function createUI({
 
   const rotationArrowDepthLabel = document.createElement("label");
 
-  rotationArrowDepthLabel.textContent = "Rotation arrow depth";
+  rotationArrowDepthLabel.textContent = "Rotation Arrow Depth";
   rotationArrowDepthLabel.style.display = "block";
   rotationArrowDepthLabel.style.marginBottom = "5px";
 
@@ -4224,12 +5040,12 @@ export function createUI({
 
   rotationArrowDepthSlider.type = "range";
   rotationArrowDepthSlider.min = "0";
-  rotationArrowDepthSlider.max = "1";
+  rotationArrowDepthSlider.max = "2";
   rotationArrowDepthSlider.step = "0.001";
   rotationArrowDepthSlider.value = String(rotationArrowDepth);
   rotationArrowDepthSlider.style.flex = "1";
   rotationArrowDepthSlider.style.minWidth = "0";
-  rotationArrowDepthSlider.setAttribute("aria-label", "Rotation arrow depth");
+  rotationArrowDepthSlider.setAttribute("aria-label", "Rotation Arrow Depth");
 
   const rotationArrowDepthValue = document.createElement("input");
 
@@ -4240,7 +5056,7 @@ export function createUI({
   rotationArrowDepthValue.style.textAlign = "center";
   rotationArrowDepthValue.setAttribute(
     "aria-label",
-    "Rotation arrow depth value",
+    "Rotation Arrow Depth Value",
   );
 
   const rotationArrowDepthRow = document.createElement("div");
@@ -4254,35 +5070,166 @@ export function createUI({
   rotationArrowDepthRow.appendChild(rotationArrowDepthValue);
   rotationArrowDepthControl.appendChild(rotationArrowDepthRow);
 
+  const rotationArrowThicknessControl = document.createElement("div");
+
+  rotationArrowThicknessControl.style.display = "none";
+  rotationArrowThicknessControl.style.marginTop = "10px";
+
+  const rotationArrowThicknessLabel = document.createElement("label");
+
+  rotationArrowThicknessLabel.textContent = "Rotation Arrow Thickness";
+  rotationArrowThicknessLabel.style.display = "block";
+  rotationArrowThicknessLabel.style.marginBottom = "5px";
+
+  const rotationArrowThicknessSlider = document.createElement("input");
+
+  rotationArrowThicknessSlider.type = "range";
+  rotationArrowThicknessSlider.min = "0.001";
+  rotationArrowThicknessSlider.max = "0.1";
+  rotationArrowThicknessSlider.step = "0.001";
+  rotationArrowThicknessSlider.value = String(rotationArrowThickness);
+  rotationArrowThicknessSlider.style.flex = "1";
+  rotationArrowThicknessSlider.style.minWidth = "0";
+  rotationArrowThicknessSlider.setAttribute(
+    "aria-label",
+    "Rotation Arrow Thickness",
+  );
+
+  const rotationArrowThicknessValue = document.createElement("input");
+
+  rotationArrowThicknessValue.type = "text";
+  rotationArrowThicknessValue.value = String(rotationArrowThickness);
+  rotationArrowThicknessValue.style.width = "55px";
+  rotationArrowThicknessValue.style.boxSizing = "border-box";
+  rotationArrowThicknessValue.style.textAlign = "center";
+  rotationArrowThicknessValue.setAttribute(
+    "aria-label",
+    "Rotation Arrow Thickness Value",
+  );
+
+  const rotationArrowThicknessRow = document.createElement("div");
+
+  rotationArrowThicknessRow.style.display = "flex";
+  rotationArrowThicknessRow.style.alignItems = "center";
+  rotationArrowThicknessRow.style.gap = "8px";
+
+  rotationArrowThicknessControl.appendChild(rotationArrowThicknessLabel);
+  rotationArrowThicknessRow.appendChild(rotationArrowThicknessSlider);
+  rotationArrowThicknessRow.appendChild(rotationArrowThicknessValue);
+  rotationArrowThicknessControl.appendChild(rotationArrowThicknessRow);
+
+  const rotationArrowRadiusControl = document.createElement("div");
+
+  rotationArrowRadiusControl.style.display = "none";
+  rotationArrowRadiusControl.style.marginTop = "10px";
+
+  const rotationArrowRadiusLabel = document.createElement("label");
+
+  rotationArrowRadiusLabel.textContent = "Rotation Arrow Radius";
+  rotationArrowRadiusLabel.style.display = "block";
+  rotationArrowRadiusLabel.style.marginBottom = "5px";
+
+  const rotationArrowRadiusSlider = document.createElement("input");
+
+  rotationArrowRadiusSlider.type = "range";
+  rotationArrowRadiusSlider.min = "0.1";
+  rotationArrowRadiusSlider.max = "2";
+  rotationArrowRadiusSlider.step = "0.01";
+  rotationArrowRadiusSlider.value = String(rotationArrowRadius);
+  rotationArrowRadiusSlider.style.flex = "1";
+  rotationArrowRadiusSlider.style.minWidth = "0";
+  rotationArrowRadiusSlider.setAttribute("aria-label", "Rotation Arrow Radius");
+
+  const rotationArrowRadiusValue = document.createElement("input");
+
+  rotationArrowRadiusValue.type = "text";
+  rotationArrowRadiusValue.value = String(rotationArrowRadius);
+  rotationArrowRadiusValue.style.width = "55px";
+  rotationArrowRadiusValue.style.boxSizing = "border-box";
+  rotationArrowRadiusValue.style.textAlign = "center";
+  rotationArrowRadiusValue.setAttribute(
+    "aria-label",
+    "Rotation Arrow Radius Value",
+  );
+
+  const rotationArrowRadiusRow = document.createElement("div");
+
+  rotationArrowRadiusRow.style.display = "flex";
+  rotationArrowRadiusRow.style.alignItems = "center";
+  rotationArrowRadiusRow.style.gap = "8px";
+
+  rotationArrowRadiusControl.appendChild(rotationArrowRadiusLabel);
+  rotationArrowRadiusRow.appendChild(rotationArrowRadiusSlider);
+  rotationArrowRadiusRow.appendChild(rotationArrowRadiusValue);
+  rotationArrowRadiusControl.appendChild(rotationArrowRadiusRow);
+
+  const rotationArrowDirectionControl = document.createElement("div");
+
+  rotationArrowDirectionControl.style.display = "none";
+  rotationArrowDirectionControl.style.marginTop = "10px";
+
+  const rotationArrowDirectionLabel = document.createElement("label");
+
+  rotationArrowDirectionLabel.textContent = "Arrow Direction";
+  rotationArrowDirectionLabel.style.display = "block";
+  rotationArrowDirectionLabel.style.marginBottom = "5px";
+
+  const rotationArrowDirectionSelect = document.createElement("select");
+
+  rotationArrowDirectionSelect.style.width = "100%";
+  rotationArrowDirectionSelect.style.padding = "6px";
+  rotationArrowDirectionSelect.style.boxSizing = "border-box";
+
+  for (const optionData of [
+    ["clockwise", "Clockwise"],
+    ["counter-clockwise", "Counter-Clockwise"],
+  ]) {
+    const option = document.createElement("option");
+
+    option.value = optionData[0];
+    option.textContent = optionData[1];
+    rotationArrowDirectionSelect.appendChild(option);
+  }
+
+  rotationArrowDirectionSelect.value = rotationArrowDirection;
+  rotationArrowDirectionLabel.htmlFor = "rotation-arrow-direction";
+  rotationArrowDirectionSelect.id = "rotation-arrow-direction";
+  rotationArrowDirectionControl.appendChild(rotationArrowDirectionLabel);
+  rotationArrowDirectionControl.appendChild(rotationArrowDirectionSelect);
+
   const axisLabelNameTitle = document.createElement("div");
 
-  axisLabelNameTitle.textContent = "Label name";
+  axisLabelNameTitle.textContent = "Label Name";
   axisLabelNameTitle.style.display = "none";
   axisLabelNameTitle.style.marginTop = "10px";
+  axisLabelNameTitle.style.fontSize = "14px";
+  axisLabelNameTitle.style.fontWeight = "600";
+  axisLabelNameTitle.style.color = "#374151";
   axisLabelNameTitle.style.marginBottom = "5px";
-  axisLabelNameTitle.style.fontWeight = "bold";
 
   const axisLabelModeContainer = document.createElement("div");
 
   axisLabelModeContainer.style.display = "none";
   axisLabelModeContainer.style.gap = "16px";
 
-  const blankLabel = document.createElement("label");
+  const customAxisLabel = document.createElement("label");
 
-  blankLabel.style.display = "flex";
-  blankLabel.style.alignItems = "center";
-  blankLabel.style.gap = "7px";
-  blankLabel.style.cursor = "pointer";
+  customAxisLabel.style.display = "flex";
+  customAxisLabel.style.alignItems = "center";
+  customAxisLabel.style.gap = "7px";
+  customAxisLabel.style.cursor = "pointer";
 
-  const blankCheckbox = document.createElement("input");
+  const customCheckbox = document.createElement("input");
 
-  blankCheckbox.type = "checkbox";
+  customCheckbox.type = "radio";
+  customCheckbox.name = "axis-label-mode";
+  customCheckbox.value = "custom";
 
-  const blankText = document.createElement("span");
+  const customAxisText = document.createElement("span");
 
-  blankText.textContent = "Blank";
-  blankLabel.appendChild(blankCheckbox);
-  blankLabel.appendChild(blankText);
+  customAxisText.textContent = "Custom";
+  customAxisLabel.appendChild(customCheckbox);
+  customAxisLabel.appendChild(customAxisText);
 
   const cartesianLabel = document.createElement("label");
 
@@ -4293,7 +5240,9 @@ export function createUI({
 
   const cartesianCheckbox = document.createElement("input");
 
-  cartesianCheckbox.type = "checkbox";
+  cartesianCheckbox.type = "radio";
+  cartesianCheckbox.name = "axis-label-mode";
+  cartesianCheckbox.value = "coordinate";
   cartesianCheckbox.checked = false;
 
   const cartesianText = document.createElement("span");
@@ -4311,7 +5260,9 @@ export function createUI({
 
   const faceCheckbox = document.createElement("input");
 
-  faceCheckbox.type = "checkbox";
+  faceCheckbox.type = "radio";
+  faceCheckbox.name = "axis-label-mode";
+  faceCheckbox.value = "face";
   faceCheckbox.checked = true;
 
   const faceText = document.createElement("span");
@@ -4319,9 +5270,62 @@ export function createUI({
   faceText.textContent = "Face";
   faceLabel.appendChild(faceCheckbox);
   faceLabel.appendChild(faceText);
-  axisLabelModeContainer.appendChild(blankLabel);
-  axisLabelModeContainer.appendChild(cartesianLabel);
   axisLabelModeContainer.appendChild(faceLabel);
+  axisLabelModeContainer.appendChild(cartesianLabel);
+  axisLabelModeContainer.appendChild(customAxisLabel);
+
+  const showAxisArrowsLabel = document.createElement("label");
+
+  showAxisArrowsLabel.style.display = "flex";
+  showAxisArrowsLabel.style.alignItems = "center";
+  showAxisArrowsLabel.style.gap = "7px";
+  showAxisArrowsLabel.style.marginTop = "10px";
+  showAxisArrowsLabel.style.cursor = "pointer";
+
+  const showAxisArrowsCheckbox = document.createElement("input");
+
+  showAxisArrowsCheckbox.type = "checkbox";
+
+  const showAxisArrowsText = document.createElement("span");
+
+  showAxisArrowsText.textContent = "Show Axis Arrows";
+  styleUiTitle(showAxisArrowsText, {
+    container: showAxisArrowsLabel,
+    marginBottom: "0",
+  });
+  showAxisArrowsLabel.appendChild(showAxisArrowsCheckbox);
+  showAxisArrowsLabel.appendChild(showAxisArrowsText);
+
+  const axisArrowVisibilityControl = document.createElement("div");
+
+  axisArrowVisibilityControl.style.display = "none";
+  axisArrowVisibilityControl.style.marginTop = "8px";
+  axisArrowVisibilityControl.style.marginLeft = "22px";
+
+  const axisArrowVisibilityCheckboxes = new Map();
+
+  for (const face of FACE_ORDER) {
+    const label = document.createElement("label");
+
+    label.style.display = "flex";
+    label.style.alignItems = "center";
+    label.style.gap = "7px";
+    label.style.marginBottom = "6px";
+    label.style.cursor = "pointer";
+
+    const checkbox = document.createElement("input");
+
+    checkbox.type = "checkbox";
+    checkbox.checked = false;
+
+    const text = document.createElement("span");
+
+    text.textContent = `Show Axis ${face}`;
+    label.appendChild(checkbox);
+    label.appendChild(text);
+    axisArrowVisibilityControl.appendChild(label);
+    axisArrowVisibilityCheckboxes.set(face, checkbox);
+  }
 
   const axisDepthControl = document.createElement("div");
 
@@ -4330,7 +5334,7 @@ export function createUI({
 
   const axisDepthLabel = document.createElement("label");
 
-  axisDepthLabel.textContent = "Axis arrow depth";
+  axisDepthLabel.textContent = "Axis Arrow Depth";
   axisDepthLabel.style.display = "block";
   axisDepthLabel.style.marginBottom = "5px";
 
@@ -4343,7 +5347,7 @@ export function createUI({
   axisDepthSlider.value = String(axisDepth);
   axisDepthSlider.style.flex = "1";
   axisDepthSlider.style.minWidth = "0";
-  axisDepthSlider.setAttribute("aria-label", "Axis arrow depth");
+  axisDepthSlider.setAttribute("aria-label", "Axis Arrow Depth");
 
   const axisDepthValue = document.createElement("input");
 
@@ -4352,7 +5356,7 @@ export function createUI({
   axisDepthValue.style.width = "55px";
   axisDepthValue.style.boxSizing = "border-box";
   axisDepthValue.style.textAlign = "center";
-  axisDepthValue.setAttribute("aria-label", "Axis arrow depth value");
+  axisDepthValue.setAttribute("aria-label", "Axis Arrow Depth Value");
 
   const axisDepthRow = document.createElement("div");
 
@@ -4372,7 +5376,7 @@ export function createUI({
 
   const axisLabelDepthLabel = document.createElement("label");
 
-  axisLabelDepthLabel.textContent = "Axis label depth";
+  axisLabelDepthLabel.textContent = "Axis Label Depth";
   axisLabelDepthLabel.style.display = "block";
   axisLabelDepthLabel.style.marginBottom = "5px";
 
@@ -4385,7 +5389,7 @@ export function createUI({
   axisLabelDepthSlider.value = String(axisLabelDepth);
   axisLabelDepthSlider.style.flex = "1";
   axisLabelDepthSlider.style.minWidth = "0";
-  axisLabelDepthSlider.setAttribute("aria-label", "Axis label depth");
+  axisLabelDepthSlider.setAttribute("aria-label", "Axis Label Depth");
 
   const axisLabelDepthValue = document.createElement("input");
 
@@ -4394,7 +5398,7 @@ export function createUI({
   axisLabelDepthValue.style.width = "55px";
   axisLabelDepthValue.style.boxSizing = "border-box";
   axisLabelDepthValue.style.textAlign = "center";
-  axisLabelDepthValue.setAttribute("aria-label", "Axis label depth value");
+  axisLabelDepthValue.setAttribute("aria-label", "Axis Label Depth Value");
 
   const axisLabelDepthRow = document.createElement("div");
 
@@ -4414,7 +5418,7 @@ export function createUI({
 
   const labelDepthLabel = document.createElement("label");
 
-  labelDepthLabel.textContent = "Label depth";
+  labelDepthLabel.textContent = "Label Depth";
   labelDepthLabel.style.display = "block";
   labelDepthLabel.style.marginBottom = "5px";
 
@@ -4427,7 +5431,7 @@ export function createUI({
   labelDepthSlider.value = String(labelDepth);
   labelDepthSlider.style.flex = "1";
   labelDepthSlider.style.minWidth = "0";
-  labelDepthSlider.setAttribute("aria-label", "Label depth");
+  labelDepthSlider.setAttribute("aria-label", "Label Depth");
 
   const labelDepthValue = document.createElement("input");
 
@@ -4436,7 +5440,7 @@ export function createUI({
   labelDepthValue.style.width = "55px";
   labelDepthValue.style.boxSizing = "border-box";
   labelDepthValue.style.textAlign = "center";
-  labelDepthValue.setAttribute("aria-label", "Label depth value");
+  labelDepthValue.setAttribute("aria-label", "Label Depth Value");
 
   const labelDepthRow = document.createElement("div");
 
@@ -4448,17 +5452,1214 @@ export function createUI({
   labelDepthRow.appendChild(labelDepthSlider);
   labelDepthRow.appendChild(labelDepthValue);
   labelDepthControl.appendChild(labelDepthRow);
+
+  function createVisibilityControl(title, groupName, initialValue, onChange) {
+    const control = document.createElement("div");
+
+    control.style.display = "none";
+    control.style.marginTop = "10px";
+
+    const titleElement = document.createElement("div");
+
+    titleElement.textContent = title;
+    titleElement.style.fontSize = "14px";
+    titleElement.style.fontWeight = "600";
+    titleElement.style.color = "#374151";
+    titleElement.style.marginBottom = "5px";
+
+    const options = document.createElement("div");
+
+    options.style.display = "flex";
+    options.style.gap = "12px";
+
+    for (const [value, text] of [
+      [ALWAYS_VISIBLE, "Visible"],
+      [HIDDEN_BEHIND_CUBE, "Hidden"],
+    ]) {
+      const label = document.createElement("label");
+
+      label.style.display = "flex";
+      label.style.alignItems = "center";
+      label.style.gap = "5px";
+      label.style.cursor = "pointer";
+
+      const radio = document.createElement("input");
+
+      radio.type = "radio";
+      radio.name = groupName;
+      radio.value = value;
+      radio.checked = value === initialValue;
+      radio.addEventListener("change", () => {
+        if (radio.checked) {
+          onChange(value);
+        }
+      });
+
+      const textElement = document.createElement("span");
+
+      textElement.textContent = text;
+      label.appendChild(radio);
+      label.appendChild(textElement);
+      options.appendChild(label);
+    }
+
+    control.appendChild(titleElement);
+    control.appendChild(options);
+    control.setVisibilityMode = (value) => {
+      for (const radio of options.querySelectorAll("input")) {
+        radio.checked = radio.value === value;
+      }
+    };
+
+    return control;
+  }
+
+  const faceletLabelsVisibilityControl = createVisibilityControl(
+    "Facelet Labels Visibility",
+    "facelet-labels-visibility",
+    faceletLabelsVisibility,
+    (value) => {
+      faceletLabelsVisibility = value;
+      updateFaceletLabelsVisibilityMode();
+    },
+  );
+  const axisLabelsVisibilityControl = createVisibilityControl(
+    "Axis Labels Visibility",
+    "axis-labels-visibility",
+    axisLabelsVisibility,
+    (value) => {
+      axisLabelsVisibility = value;
+      updateAxisLabelsVisibilityMode();
+    },
+  );
+  const axisArrowsVisibilityControl = createVisibilityControl(
+    "Axis Arrows Visibility",
+    "axis-arrows-visibility",
+    axisArrowsVisibility,
+    (value) => {
+      axisArrowsVisibility = value;
+      updateAxisArrowsVisibilityMode();
+    },
+  );
+  const rotationArrowsVisibilityControl = createVisibilityControl(
+    "Rotation Arrows Visibility",
+    "rotation-arrows-visibility",
+    rotationArrowsVisibility,
+    (value) => {
+      rotationArrowsVisibility = value;
+      updateRotationArrowsVisibilityMode();
+    },
+  );
+
+  labelsContent.appendChild(showFaceletLabelsLabel);
+  labelsContent.appendChild(labelDepthControl);
+  labelsContent.appendChild(faceletLabelsVisibilityControl);
+  labelsContent.appendChild(showAxisLabelsLabel);
+  labelsContent.appendChild(axisLabelVisibilityControl);
+  labelsContent.appendChild(axisLabelNameTitle);
+  labelsContent.appendChild(axisLabelModeContainer);
+  labelsContent.appendChild(axisLabelDepthControl);
+  labelsContent.appendChild(axisLabelsVisibilityControl);
+  labelsContent.appendChild(showAxisArrowsLabel);
+  labelsContent.appendChild(axisArrowVisibilityControl);
+  labelsContent.appendChild(axisDepthControl);
+  labelsContent.appendChild(axisArrowsVisibilityControl);
+  labelsContent.appendChild(showRotationArrowsLabel);
+  labelsContent.appendChild(rotationArrowVisibilityControl);
+  labelsContent.appendChild(rotationArrowDepthControl);
+  labelsContent.appendChild(rotationArrowThicknessControl);
+  labelsContent.appendChild(rotationArrowRadiusControl);
+  labelsContent.appendChild(rotationArrowDirectionControl);
+  labelsContent.appendChild(rotationArrowsVisibilityControl);
   labelsPanel.appendChild(labelsHeader);
-  labelsPanel.appendChild(showFaceletLabelsLabel);
-  labelsPanel.appendChild(labelDepthControl);
-  labelsPanel.appendChild(showAxisLabelsLabel);
-  labelsPanel.appendChild(showRotationArrowsLabel);
-  labelsPanel.appendChild(rotationArrowDepthControl);
-  labelsPanel.appendChild(axisDepthControl);
-  labelsPanel.appendChild(axisLabelNameTitle);
-  labelsPanel.appendChild(axisLabelModeContainer);
-  labelsPanel.appendChild(axisLabelDepthControl);
+  labelsPanel.appendChild(labelsContent);
   controlsRoot.appendChild(labelsPanel);
+
+  function getJsonExportSetup() {
+    const faceletLabels = {};
+
+    for (const facelet of facelets) {
+      const faceletData = getFaceletData(facelet);
+
+      faceletLabels[faceletData.id] = getFaceletLabelColor(facelet);
+    }
+
+    const axisLabels = {};
+    const axisArrows = {};
+    const rotationArrows = {};
+    const axisLabelColors = {};
+    const rotationArrowColors = {};
+
+    for (const [index, axisDefinition] of axisDefinitions.entries()) {
+      const face = axisDefinition.label.face;
+      const axisLabel = axisGroup.children[index * 2 + 1];
+      const rotationArrow = rotationArrowGroup.children[index];
+
+      axisLabels[face] = {
+        visible: axisLabelVisibilityCheckboxes.get(face).checked,
+        customText: axisDefinition.label.custom,
+      };
+      axisLabelColors[face] = axisLabel.userData.labelColor;
+      axisArrows[face] = {
+        visible:
+          showAxisArrowsCheckbox.checked &&
+          axisArrowVisibilityCheckboxes.get(face).checked,
+      };
+      rotationArrows[face] = {
+        visible: rotationArrowVisibilityCheckboxes.get(face).checked,
+      };
+      rotationArrowColors[face] = rotationArrow.userData.color;
+    }
+
+    return {
+      cube: getCubeState(),
+      view: {
+        cameraPosition: {
+          x: camera.position.x,
+          y: camera.position.y,
+          z: camera.position.z,
+        },
+        target: {
+          x: controls.target.x,
+          y: controls.target.y,
+          z: controls.target.z,
+        },
+      },
+      rotations: {
+        moves: rotationActions.map((action) => action.label),
+        text: getRotationEntries()
+          .map((entry) => entry.textContent)
+          .join(" "),
+        durationSeconds: durationState.value / 1000,
+      },
+      colors: {
+        faceletLabels,
+        axisLabels: axisLabelColors,
+        rotationArrows: rotationArrowColors,
+      },
+      labels: {
+        facelets: showFaceletLabelsCheckbox.checked,
+        faceletVisibility: faceletLabelsVisibility,
+        axisLabels: showAxisLabelsCheckbox.checked,
+        axisLabelVisibility: axisLabelsVisibility,
+        axisLabelMode,
+        axisLabelDepth,
+        axisLabelsByFace: axisLabels,
+        axisArrows: showAxisArrowsCheckbox.checked,
+        axisArrowVisibility: axisArrowsVisibility,
+        axisDepth,
+        axisArrowsByFace: axisArrows,
+        rotationArrows: showRotationArrowsCheckbox.checked,
+        rotationArrowVisibility: rotationArrowsVisibility,
+        rotationArrowDepth,
+        rotationArrowThickness,
+        rotationArrowRadius,
+        rotationArrowDirection,
+        rotationArrowsByFace: rotationArrows,
+        labelDepth,
+      },
+    };
+  }
+
+  function getDefaultJsonExportSetup() {
+    const defaultFaceletLabels = {};
+
+    for (const facelet of facelets) {
+      const faceletData = getFaceletData(facelet);
+
+      defaultFaceletLabels[faceletData.id] = defaultFaceletLabelColor;
+    }
+
+    const defaultAxisLabels = {};
+    const defaultAxisArrows = {};
+    const defaultRotationArrows = {};
+
+    for (const axisDefinition of axisDefinitions) {
+      const face = axisDefinition.label.face;
+
+      defaultAxisLabels[face] = {
+        visible: false,
+        customText: face,
+      };
+      defaultAxisArrows[face] = { visible: false };
+      defaultRotationArrows[face] = {
+        visible: false,
+      };
+    }
+
+    return {
+      cube: getDefaultCubeState(),
+      view: {
+        cameraPosition: { x: 5, y: 5, z: 7 },
+        target: { x: 0, y: 0, z: 0 },
+      },
+      rotations: { moves: [], text: "", durationSeconds: 1 },
+      colors: {
+        faceletLabels: defaultFaceletLabels,
+        axisLabels: Object.fromEntries(
+          axisDefinitions.map((axisDefinition) => [
+            axisDefinition.label.face,
+            defaultFaceColors[axisDefinition.label.face],
+          ]),
+        ),
+        rotationArrows: Object.fromEntries(
+          axisDefinitions.map((axisDefinition) => [
+            axisDefinition.label.face,
+            defaultFaceColors[axisDefinition.label.face],
+          ]),
+        ),
+      },
+      labels: {
+        facelets: false,
+        faceletVisibility: ALWAYS_VISIBLE,
+        axisLabels: false,
+        axisLabelVisibility: ALWAYS_VISIBLE,
+        axisLabelMode: "face",
+        axisLabelDepth: DEFAULT_LABEL_DEPTH,
+        axisLabelsByFace: defaultAxisLabels,
+        axisArrows: false,
+        axisArrowVisibility: HIDDEN_BEHIND_CUBE,
+        axisDepth: DEFAULT_AXIS_DEPTH,
+        axisArrowsByFace: defaultAxisArrows,
+        rotationArrows: false,
+        rotationArrowVisibility: ALWAYS_VISIBLE,
+        rotationArrowDepth: DEFAULT_ROTATION_ARROW_DEPTH,
+        rotationArrowThickness: DEFAULT_ROTATION_ARROW_THICKNESS,
+        rotationArrowRadius: DEFAULT_ROTATION_ARROW_RADIUS,
+        rotationArrowDirection: "clockwise",
+        rotationArrowsByFace: defaultRotationArrows,
+        labelDepth: DEFAULT_LABEL_DEPTH,
+      },
+    };
+  }
+
+  function mergeImportedValues(defaults, imported) {
+    if (!isPlainObject(imported)) {
+      return imported === undefined ? defaults : imported;
+    }
+
+    const result = { ...defaults };
+
+    for (const [key, value] of Object.entries(imported)) {
+      result[key] = isPlainObject(value)
+        ? mergeImportedValues(defaults?.[key] ?? {}, value)
+        : value;
+    }
+
+    return result;
+  }
+
+  function isPlainObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function validateKeys(value, allowedKeys, path) {
+    if (!isPlainObject(value)) {
+      throw new Error(`${path} must be an object.`);
+    }
+
+    for (const key of Object.keys(value)) {
+      if (!allowedKeys.includes(key)) {
+        throw new Error(`${path}.${key} is not supported.`);
+      }
+    }
+  }
+
+  function validateFiniteNumber(value, path, minimum = -Infinity) {
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      value < minimum
+    ) {
+      throw new Error(`${path} must be a valid number.`);
+    }
+  }
+
+  function validateImportedDocument(document) {
+    if (!isPlainObject(document)) {
+      throw new Error("The imported value must be a JSON object.");
+    }
+
+    validateKeys(document, ["version", "exportedAt", "setup"], "document");
+
+    if (document.version !== 1) {
+      throw new Error(`Unsupported setup version: ${document.version}.`);
+    }
+
+    if (
+      typeof document.exportedAt !== "string" ||
+      !Number.isFinite(Date.parse(document.exportedAt))
+    ) {
+      throw new Error("exportedAt must be a valid UTC timestamp.");
+    }
+
+    validateKeys(
+      document.setup,
+      ["cube", "view", "rotations", "colors", "labels"],
+      "setup",
+    );
+
+    const {
+      cube,
+      view,
+      rotations,
+      colors: importedColors,
+      labels,
+    } = document.setup;
+
+    if (view !== undefined) {
+      validateKeys(view, ["cameraPosition", "target"], "setup.view");
+      for (const key of ["cameraPosition", "target"]) {
+        if (view[key] === undefined) {
+          continue;
+        }
+
+        validateKeys(view[key], ["x", "y", "z"], `setup.view.${key}`);
+        for (const axis of ["x", "y", "z"]) {
+          if (view[key][axis] !== undefined) {
+            validateFiniteNumber(view[key][axis], `setup.view.${key}.${axis}`);
+          }
+        }
+      }
+    }
+
+    if (cube !== undefined) {
+      validateKeys(cube, ["size", "gap", "cubies"], "setup.cube");
+      if (cube.size !== undefined)
+        validateFiniteNumber(cube.size, "cube.size", 0);
+      if (cube.gap !== undefined) validateFiniteNumber(cube.gap, "cube.gap", 0);
+      if (cube.cubies !== undefined) {
+        validateKeys(cube.cubies, Object.keys(cube.cubies), "cube.cubies");
+        for (const [id, cubie] of Object.entries(cube.cubies)) {
+          validateKeys(
+            cubie,
+            ["position", "innerColor", "facelets"],
+            `cube.cubies.${id}`,
+          );
+          if (cubie.position !== undefined) {
+            validateKeys(
+              cubie.position,
+              ["x", "y", "z"],
+              `cube.cubies.${id}.position`,
+            );
+            for (const axis of ["x", "y", "z"]) {
+              if (cubie.position[axis] !== undefined) {
+                validateFiniteNumber(
+                  cubie.position[axis],
+                  `cube.cubies.${id}.position.${axis}`,
+                );
+              }
+            }
+          }
+          if (
+            cubie.innerColor !== undefined &&
+            typeof cubie.innerColor !== "string"
+          ) {
+            throw new Error(
+              `cube.cubies.${id}.innerColor must be a color string.`,
+            );
+          }
+          if (cubie.facelets !== undefined) {
+            validateKeys(
+              cubie.facelets,
+              Object.keys(cubie.facelets),
+              `cube.cubies.${id}.facelets`,
+            );
+            for (const [faceletId, facelet] of Object.entries(cubie.facelets)) {
+              validateKeys(
+                facelet,
+                ["normal", "color"],
+                `cube.cubies.${id}.facelets.${faceletId}`,
+              );
+              if (facelet.normal !== undefined) {
+                validateKeys(
+                  facelet.normal,
+                  ["x", "y", "z"],
+                  `cube.cubies.${id}.facelets.${faceletId}.normal`,
+                );
+                for (const axis of ["x", "y", "z"]) {
+                  if (facelet.normal[axis] !== undefined) {
+                    validateFiniteNumber(
+                      facelet.normal[axis],
+                      `cube.cubies.${id}.facelets.${faceletId}.normal.${axis}`,
+                    );
+                  }
+                }
+              }
+              if (
+                facelet.color !== undefined &&
+                typeof facelet.color !== "string"
+              ) {
+                throw new Error(
+                  `cube.cubies.${id}.facelets.${faceletId}.color must be a color string.`,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (rotations !== undefined) {
+      validateKeys(
+        rotations,
+        ["moves", "text", "durationSeconds"],
+        "setup.rotations",
+      );
+      if (
+        rotations.moves !== undefined &&
+        (!Array.isArray(rotations.moves) ||
+          rotations.moves.some((move) => typeof move !== "string"))
+      ) {
+        throw new Error("setup.rotations.moves must be an array of strings.");
+      }
+      if (rotations.text !== undefined && typeof rotations.text !== "string") {
+        throw new Error("setup.rotations.text must be a string.");
+      }
+      if (rotations.durationSeconds !== undefined) {
+        validateFiniteNumber(
+          rotations.durationSeconds,
+          "setup.rotations.durationSeconds",
+          0,
+        );
+      }
+    }
+
+    if (importedColors !== undefined) {
+      validateKeys(
+        importedColors,
+        ["faceletLabels", "axisLabels", "rotationArrows"],
+        "setup.colors",
+      );
+      for (const key of ["faceletLabels", "axisLabels", "rotationArrows"]) {
+        if (importedColors[key] !== undefined) {
+          validateKeys(
+            importedColors[key],
+            Object.keys(importedColors[key]),
+            `setup.colors.${key}`,
+          );
+          if (
+            Object.values(importedColors[key]).some(
+              (color) => typeof color !== "string",
+            )
+          ) {
+            throw new Error(
+              `setup.colors.${key} values must be color strings.`,
+            );
+          }
+        }
+      }
+    }
+
+    if (labels !== undefined) {
+      validateKeys(
+        labels,
+        [
+          "facelets",
+          "faceletVisibility",
+          "axisLabels",
+          "axisLabelVisibility",
+          "axisLabelMode",
+          "axisLabelDepth",
+          "axisLabelsByFace",
+          "axisArrows",
+          "axisArrowVisibility",
+          "axisDepth",
+          "axisArrowsByFace",
+          "rotationArrows",
+          "rotationArrowVisibility",
+          "rotationArrowDepth",
+          "rotationArrowThickness",
+          "rotationArrowRadius",
+          "rotationArrowDirection",
+          "rotationArrowsByFace",
+          "labelDepth",
+        ],
+        "setup.labels",
+      );
+      for (const key of [
+        "facelets",
+        "axisLabels",
+        "axisArrows",
+        "rotationArrows",
+      ]) {
+        if (labels[key] !== undefined && typeof labels[key] !== "boolean") {
+          throw new Error(`setup.labels.${key} must be boolean.`);
+        }
+      }
+      for (const key of [
+        "axisLabelDepth",
+        "axisDepth",
+        "rotationArrowDepth",
+        "rotationArrowThickness",
+        "rotationArrowRadius",
+        "labelDepth",
+      ]) {
+        if (labels[key] !== undefined)
+          validateFiniteNumber(labels[key], `setup.labels.${key}`, 0);
+      }
+      for (const key of [
+        "faceletVisibility",
+        "axisLabelVisibility",
+        "axisArrowVisibility",
+        "rotationArrowVisibility",
+      ]) {
+        if (
+          labels[key] !== undefined &&
+          ![ALWAYS_VISIBLE, HIDDEN_BEHIND_CUBE].includes(labels[key])
+        ) {
+          throw new Error(`setup.labels.${key} is invalid.`);
+        }
+      }
+      if (
+        labels.axisLabelMode !== undefined &&
+        !["face", "coordinate", "custom"].includes(labels.axisLabelMode)
+      ) {
+        throw new Error("setup.labels.axisLabelMode is invalid.");
+      }
+      if (
+        labels.rotationArrowDirection !== undefined &&
+        !["clockwise", "counter-clockwise"].includes(
+          labels.rotationArrowDirection,
+        )
+      ) {
+        throw new Error("setup.labels.rotationArrowDirection is invalid.");
+      }
+      for (const [key, entry] of Object.entries(
+        labels.axisLabelsByFace ?? {},
+      )) {
+        validateKeys(
+          entry,
+          ["visible", "customText"],
+          `setup.labels.axisLabelsByFace.${key}`,
+        );
+        if (
+          typeof entry.visible !== "boolean" ||
+          (entry.customText !== undefined &&
+            typeof entry.customText !== "string")
+        ) {
+          throw new Error(`setup.labels.axisLabelsByFace.${key} is invalid.`);
+        }
+      }
+      for (const key of ["axisArrowsByFace", "rotationArrowsByFace"]) {
+        for (const [face, entry] of Object.entries(labels[key] ?? {})) {
+          validateKeys(entry, ["visible"], `setup.labels.${key}.${face}`);
+          if (typeof entry.visible !== "boolean") {
+            throw new Error(
+              `setup.labels.${key}.${face}.visible must be boolean.`,
+            );
+          }
+        }
+      }
+    }
+
+    return mergeImportedValues(getDefaultJsonExportSetup(), document.setup);
+  }
+
+  function applyImportedColors(importedColors) {
+    for (const facelet of facelets) {
+      const faceletData = getFaceletData(facelet);
+      const color = importedColors.faceletLabels[faceletData.id];
+
+      updateFaceletLabelColor(facelet, color);
+      updateFaceletLabelColorControl(facelet);
+    }
+
+    for (const [face, color] of Object.entries(importedColors.axisLabels)) {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      if (index !== -1) {
+        updateAxisLabelColor(index, color);
+      }
+    }
+
+    for (const [face, color] of Object.entries(importedColors.rotationArrows)) {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      if (index !== -1) {
+        updateRotationArrowColor(index, color);
+      }
+    }
+
+    for (const [face] of faceletSections) {
+      updateFaceletLabelFaceControl(face);
+    }
+    updateFaceletLabelHeading();
+    axisLabelColorControls.forEach((control) => control.sync());
+    rotationArrowColorControls.forEach((control) => control.sync());
+  }
+
+  function setNumericControl(controls, value) {
+    controls.slider.value = String(value);
+    controls.value.value = String(value);
+  }
+
+  function applyImportedLabels(importedLabels) {
+    showFaceletLabelsCheckbox.checked = importedLabels.facelets;
+    showFaceletLabelsCheckbox.dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+    faceletLabelsVisibility = importedLabels.faceletVisibility;
+    faceletLabelsVisibilityControl.setVisibilityMode(faceletLabelsVisibility);
+    updateFaceletLabelsVisibilityMode();
+
+    showAxisLabelsCheckbox.checked = importedLabels.axisLabels;
+    showAxisLabelsCheckbox.dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+    axisLabelsVisibility = importedLabels.axisLabelVisibility;
+    axisLabelsVisibilityControl.setVisibilityMode(axisLabelsVisibility);
+    updateAxisLabelsVisibilityMode();
+
+    for (const [face, importedLabel] of Object.entries(
+      importedLabels.axisLabelsByFace,
+    )) {
+      const checkbox = axisLabelVisibilityCheckboxes.get(face);
+      const customInput = axisLabelCustomInputs.get(face);
+      const axisDefinition = axisDefinitions.find(
+        (definition) => definition.label.face === face,
+      );
+
+      if (checkbox) {
+        checkbox.checked = importedLabel.visible;
+        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (customInput && axisDefinition) {
+        customInput.value = importedLabel.customText;
+        axisDefinition.label.custom = importedLabel.customText;
+      }
+    }
+
+    selectAxisLabelMode(importedLabels.axisLabelMode);
+    axisLabelDepth = importedLabels.axisLabelDepth;
+    setNumericControl(
+      { slider: axisLabelDepthSlider, value: axisLabelDepthValue },
+      axisLabelDepth,
+    );
+    updateAxisLabelDepth();
+
+    showAxisArrowsCheckbox.checked = importedLabels.axisArrows;
+    showAxisArrowsCheckbox.dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+    axisArrowsVisibility = importedLabels.axisArrowVisibility;
+    axisArrowsVisibilityControl.setVisibilityMode(axisArrowsVisibility);
+    updateAxisArrowsVisibilityMode();
+    for (const [face, importedArrow] of Object.entries(
+      importedLabels.axisArrowsByFace,
+    )) {
+      const checkbox = axisArrowVisibilityCheckboxes.get(face);
+
+      if (checkbox) {
+        checkbox.checked = importedArrow.visible;
+        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+    axisDepth = importedLabels.axisDepth;
+    setNumericControl(
+      { slider: axisDepthSlider, value: axisDepthValue },
+      axisDepth,
+    );
+    updateAxisDepth();
+
+    showRotationArrowsCheckbox.checked = importedLabels.rotationArrows;
+    showRotationArrowsCheckbox.dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+    rotationArrowsVisibility = importedLabels.rotationArrowVisibility;
+    rotationArrowsVisibilityControl.setVisibilityMode(rotationArrowsVisibility);
+    updateRotationArrowsVisibilityMode();
+    for (const [face, importedArrow] of Object.entries(
+      importedLabels.rotationArrowsByFace,
+    )) {
+      const checkbox = rotationArrowVisibilityCheckboxes.get(face);
+
+      if (checkbox) {
+        checkbox.checked = importedArrow.visible;
+        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+
+    rotationArrowDepth = importedLabels.rotationArrowDepth;
+    setNumericControl(
+      { slider: rotationArrowDepthSlider, value: rotationArrowDepthValue },
+      rotationArrowDepth,
+    );
+    updateRotationArrowDepth();
+    rotationArrowThickness = importedLabels.rotationArrowThickness;
+    setNumericControl(
+      {
+        slider: rotationArrowThicknessSlider,
+        value: rotationArrowThicknessValue,
+      },
+      rotationArrowThickness,
+    );
+    updateRotationArrowThickness();
+    rotationArrowRadius = importedLabels.rotationArrowRadius;
+    rotationArrowRadiusSlider.value = String(
+      Math.min(Math.max(rotationArrowRadius, 0.1), 2),
+    );
+    rotationArrowRadiusValue.value = String(rotationArrowRadius);
+    updateRotationArrowRadius();
+    rotationArrowDirection = importedLabels.rotationArrowDirection;
+    rotationArrowDirectionSelect.value = rotationArrowDirection;
+    updateRotationArrowDirection();
+    labelDepth = importedLabels.labelDepth;
+    setNumericControl(
+      { slider: labelDepthSlider, value: labelDepthValue },
+      labelDepth,
+    );
+    refreshFaceletLabels();
+  }
+
+  function createImportedRotationAction(label) {
+    const definition = getRotationDefinition(label);
+
+    if (definition) {
+      const inverse = getInverseMoveName(label);
+
+      return {
+        label,
+        run: (duration) => rotateMove(label, duration),
+        inverse: {
+          label: inverse,
+          run: (duration) => rotateMove(inverse, duration),
+        },
+      };
+    }
+
+    const customMatch = label.match(/^([A-Za-z]+)\[(-?\d+(?:\.\d+)?)°\]$/u);
+
+    if (!customMatch || !getRotationDefinition(customMatch[1])) {
+      return {
+        label,
+        run: () => Promise.resolve(true),
+        inverse: { label, run: () => Promise.resolve(true) },
+      };
+    }
+
+    const moveName = customMatch[1];
+    const angle = Number(customMatch[2]);
+    const signedAngle = getCustomRotationAngle(moveName, angle);
+
+    return {
+      label,
+      run: (duration) => rotateSlice(moveName, signedAngle, duration),
+      inverse: {
+        label: getCustomMoveLabel(moveName, -angle, {
+          preserveEnteredAngle: true,
+        }),
+        run: (duration) => rotateSlice(moveName, -signedAngle, duration),
+      },
+    };
+  }
+
+  function restoreImportedRotations(importedRotations) {
+    clearRotationEntries();
+    rotationActions.length = 0;
+    pendingRotationEntries.length = 0;
+    queuedRotationActions = [];
+    cursorRotationEntry = null;
+
+    const moves = importedRotations.moves.length
+      ? importedRotations.moves
+      : importedRotations.text.trim()
+        ? importedRotations.text.trim().split(/\s+/u)
+        : [];
+
+    for (const move of moves) {
+      const entry = appendRotationEntry(move);
+      const action = createImportedRotationAction(move);
+
+      action.entry = entry;
+      rotationActions.push(action);
+      cursorRotationEntry = entry;
+    }
+
+    if (moves.length > 0) {
+      showRotationStatus();
+    }
+    rotationPlaybackState = "idle";
+    rotationStopRequested = false;
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+  }
+
+  function applyImportedSetup(importedSetup) {
+    resetEverythingInterface();
+
+    camera.position.set(
+      importedSetup.view.cameraPosition.x,
+      importedSetup.view.cameraPosition.y,
+      importedSetup.view.cameraPosition.z,
+    );
+    controls.target.set(
+      importedSetup.view.target.x,
+      importedSetup.view.target.y,
+      importedSetup.view.target.z,
+    );
+    controls.update();
+
+    size = importedSetup.cube.size;
+    gap = importedSetup.cube.gap;
+    setNumericControl(sizeControls, size);
+    setNumericControl(gapControls, gap);
+    globalGapRadio.checked = true;
+    customGapRadio.checked = false;
+    updateCubeDimensions(size, gap);
+    applyCubeState(importedSetup.cube);
+    applyImportedColors(importedSetup.colors);
+    applyImportedLabels(importedSetup.labels);
+
+    durationState.value = importedSetup.rotations.durationSeconds * 1000;
+    durationValue.value = String(importedSetup.rotations.durationSeconds);
+    durationSlider.value = String(
+      Math.min(importedSetup.rotations.durationSeconds, 5),
+    );
+    restoreImportedRotations(importedSetup.rotations);
+  }
+
+  function openImportDialog() {
+    const overlay = document.createElement("div");
+    const dialog = document.createElement("div");
+    const title = document.createElement("div");
+    const instructions = document.createElement("div");
+    const fileInput = document.createElement("input");
+    const textArea = document.createElement("textarea");
+    const status = document.createElement("div");
+    const buttonRow = document.createElement("div");
+    const cancelButton = document.createElement("button");
+    const importButton = document.createElement("button");
+
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "1000";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.background = "rgba(0, 0, 0, 0.35)";
+    overlay.style.padding = "20px";
+    overlay.style.boxSizing = "border-box";
+
+    dialog.style.width = "min(560px, 100%)";
+    dialog.style.padding = "18px";
+    dialog.style.background = "white";
+    dialog.style.borderRadius = UI_PANEL_BORDER_RADIUS;
+    dialog.style.boxShadow = UI_PANEL_BOX_SHADOW;
+    dialog.style.fontFamily = UI_FONT_FAMILY;
+    dialog.style.boxSizing = "border-box";
+
+    title.textContent = "Import JSON";
+    title.style.fontSize = "18px";
+    title.style.fontWeight = "bold";
+    title.style.marginBottom = "10px";
+
+    instructions.textContent =
+      "Paste a setup JSON document or choose a JSON file.";
+    instructions.style.marginBottom = "10px";
+
+    fileInput.type = "file";
+    fileInput.accept = ".json,application/json";
+    fileInput.style.display = "block";
+    fileInput.style.marginBottom = "10px";
+
+    textArea.rows = 12;
+    textArea.placeholder = "Paste exported JSON here";
+    textArea.style.width = "100%";
+    textArea.style.resize = "vertical";
+    textArea.style.boxSizing = "border-box";
+    textArea.style.fontFamily = "monospace";
+    textArea.style.fontSize = "12px";
+
+    status.style.minHeight = "20px";
+    status.style.marginTop = "8px";
+    status.style.color = "#b42318";
+
+    buttonRow.style.display = "flex";
+    buttonRow.style.justifyContent = "flex-end";
+    buttonRow.style.gap = "8px";
+    buttonRow.style.marginTop = "12px";
+
+    cancelButton.type = "button";
+    cancelButton.textContent = "Cancel";
+    importButton.type = "button";
+    importButton.textContent = "Import";
+
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+
+      if (!file) {
+        return;
+      }
+
+      try {
+        textArea.value = await file.text();
+        status.textContent = "";
+      } catch {
+        status.textContent = "Unable to read that file.";
+      }
+    });
+
+    cancelButton.addEventListener("click", () => overlay.remove());
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        overlay.remove();
+      }
+    });
+    importButton.addEventListener("click", () => {
+      try {
+        const document = JSON.parse(textArea.value);
+        const importedSetup = validateImportedDocument(document);
+
+        applyImportedSetup(importedSetup);
+        markSetupChanged();
+        overlay.remove();
+      } catch (error) {
+        status.textContent =
+          error instanceof Error
+            ? error.message
+            : "Unable to import this setup.";
+      }
+    });
+
+    buttonRow.appendChild(cancelButton);
+    buttonRow.appendChild(importButton);
+    dialog.appendChild(title);
+    dialog.appendChild(instructions);
+    dialog.appendChild(fileInput);
+    dialog.appendChild(textArea);
+    dialog.appendChild(status);
+    dialog.appendChild(buttonRow);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    textArea.focus();
+  }
+
+  function downloadJsonExport() {
+    const exportData = createCurrentJsonExport();
+    const blob = new Blob([`${JSON.stringify(exportData, null, 2)}\n`], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "cube-setup.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function createCurrentJsonExport() {
+    return createJsonExport(getJsonExportSetup(), getDefaultJsonExportSetup());
+  }
+
+  function encodeUrlSafeBase64(bytes) {
+    let binary = "";
+
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/u, "");
+  }
+
+  async function compressJsonExport(exportData) {
+    const compressionStream = new CompressionStream("gzip");
+    const writer = compressionStream.writable.getWriter();
+    const json = JSON.stringify(exportData);
+
+    await writer.write(new TextEncoder().encode(json));
+    await writer.close();
+
+    return new Uint8Array(
+      await new Response(compressionStream.readable).arrayBuffer(),
+    );
+  }
+
+  let exportUrlFeedbackTimeout = null;
+
+  async function copyUrlExport(button) {
+    if (exportUrlCopying) {
+      return;
+    }
+
+    const originalText = "Export URL";
+    const feedbackLabel = button.querySelector(".export-url-label");
+    const feedbackImage = button.querySelector(".export-url-feedback");
+    let clipboardTimeout;
+
+    exportUrlCopying = true;
+
+    try {
+      const compressed = await compressJsonExport(createCurrentJsonExport());
+      const encodedData = encodeUrlSafeBase64(compressed);
+      const appUrl = new URL(DEFAULT_APP_URL);
+
+      appUrl.search = "";
+      appUrl.searchParams.set("setup", encodedData);
+      await Promise.race([
+        navigator.clipboard.writeText(appUrl.toString()),
+        new Promise((_, reject) => {
+          clipboardTimeout = setTimeout(
+            () => reject(new Error("Clipboard write timed out")),
+            3000,
+          );
+        }),
+      ]);
+      exportUrlDirty = false;
+      feedbackLabel.textContent = "Copied!";
+      feedbackImage.src = sequenceValidIcon;
+      feedbackImage.alt = "Export URL copied";
+    } catch {
+      feedbackLabel.textContent = "Copy failed";
+      feedbackImage.src = sequenceInvalidIcon;
+      feedbackImage.alt = "Export URL copy failed";
+    } finally {
+      clearTimeout(clipboardTimeout);
+      feedbackImage.style.display = "block";
+      exportUrlCopying = false;
+      button.disabled = false;
+      button.disabled = !exportUrlDirty;
+      clearTimeout(exportUrlFeedbackTimeout);
+      exportUrlFeedbackTimeout = setTimeout(() => {
+        feedbackLabel.textContent = originalText;
+        feedbackImage.style.display = "none";
+      }, 1800);
+    }
+  }
+
+  // ============================================================
+  // Setup panel
+  // ============================================================
+
+  setupPanel = document.createElement("div");
+
+  setupPanel.style.position = "absolute";
+  setupPanel.style.top = "20px";
+  setupPanel.style.right = "20px";
+  setupPanel.style.width = "280px";
+  setupPanel.style.padding = "16px";
+  setupPanel.style.background = UI_PANEL_BACKGROUND;
+  setupPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
+  setupPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
+  setupPanel.style.fontFamily = UI_FONT_FAMILY;
+  setupPanel.style.fontSize = UI_FONT_SIZE;
+  setupPanel.style.boxSizing = "border-box";
+
+  const setupHeader = document.createElement("div");
+
+  setupHeader.style.display = "flex";
+  setupHeader.style.alignItems = "center";
+  setupHeader.style.justifyContent = "space-between";
+  setupHeader.style.cursor = "pointer";
+  setupHeader.style.userSelect = "none";
+
+  const setupTitle = document.createElement("span");
+
+  setupTitle.textContent = "Setup";
+  setupTitle.style.fontSize = "18px";
+  setupTitle.style.fontWeight = "bold";
+
+  const setupCollapseIcon = document.createElement("span");
+
+  setupCollapseIcon.textContent = "+";
+  setupCollapseIcon.style.fontSize = "20px";
+  setupCollapseIcon.style.lineHeight = "1";
+
+  const setupContent = document.createElement("div");
+
+  setupContent.id = "setup-panel-content";
+  setupContent.style.display = "none";
+  setupContent.style.marginTop = "12px";
+
+  const setupButtonRow = document.createElement("div");
+
+  setupButtonRow.style.display = "flex";
+  setupButtonRow.style.gap = "8px";
+
+  for (const text of ["Export JSON", "Export URL", "Import JSON"]) {
+    const button = document.createElement("button");
+
+    button.type = "button";
+    button.textContent = text;
+    button.style.flex = "1";
+    button.style.padding = "6px";
+    if (text === "Export JSON") {
+      button.addEventListener("click", downloadJsonExport);
+    } else if (text === "Export URL") {
+      exportUrlButton = button;
+      button.style.position = "relative";
+
+      const feedbackLabel = document.createElement("span");
+
+      feedbackLabel.className = "export-url-label";
+      feedbackLabel.textContent = text;
+      button.textContent = "";
+      button.appendChild(feedbackLabel);
+
+      const feedbackImage = document.createElement("img");
+
+      feedbackImage.className = "export-url-feedback";
+      feedbackImage.alt = "";
+      feedbackImage.style.display = "none";
+      feedbackImage.style.position = "absolute";
+      feedbackImage.style.right = "2px";
+      feedbackImage.style.bottom = "2px";
+      feedbackImage.style.width = "16px";
+      feedbackImage.style.height = "16px";
+      feedbackImage.style.pointerEvents = "none";
+      button.appendChild(feedbackImage);
+      button.addEventListener("click", () => copyUrlExport(button));
+    } else {
+      button.addEventListener("click", openImportDialog);
+    }
+    setupButtonRow.appendChild(button);
+  }
+
+  setupContent.appendChild(setupButtonRow);
+
+  let setupCollapsed = true;
+
+  setupHeader.appendChild(setupTitle);
+  setupHeader.appendChild(setupCollapseIcon);
+  setupPanel.appendChild(setupHeader);
+  setupPanel.appendChild(setupContent);
+  setupHeader.setAttribute("role", "button");
+  setupHeader.setAttribute("aria-controls", setupContent.id);
+  setupHeader.setAttribute("aria-expanded", "false");
+  setupHeader.tabIndex = 0;
+
+  function toggleSetupPanel() {
+    setupCollapsed = !setupCollapsed;
+
+    if (!setupCollapsed) {
+      collapseOtherPanels("setup");
+    }
+
+    setupContent.style.display = setupCollapsed ? "none" : "block";
+    setupCollapseIcon.textContent = setupCollapsed ? "+" : "−";
+    setupHeader.setAttribute("aria-expanded", String(!setupCollapsed));
+    scheduleCubePanelPositionUpdate();
+  }
+
+  setupHeader.addEventListener("click", toggleSetupPanel);
+  setupHeader.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    toggleSetupPanel();
+  });
+
+  controlsRoot.appendChild(setupPanel);
 
   function updateFaceletLabelVisibility() {
     const isVisible = showFaceletLabelsCheckbox.checked;
@@ -4473,34 +6674,192 @@ export function createUI({
     scheduleCubePanelPositionUpdate();
   }
 
-  showFaceletLabelsCheckbox.addEventListener(
-    "change",
-    updateFaceletLabelVisibility,
-  );
+  showFaceletLabelsCheckbox.addEventListener("change", () => {
+    updateFaceletLabelVisibility();
+    faceletLabelsVisibilityControl.style.display =
+      showFaceletLabelsCheckbox.checked ? "block" : "none";
+  });
 
   showAxisLabelsCheckbox.addEventListener("change", () => {
-    axisGroup.visible = showAxisLabelsCheckbox.checked;
+    axisGroup.visible =
+      showAxisLabelsCheckbox.checked || showAxisArrowsCheckbox.checked;
+    axisLabelVisibilityControl.style.display = showAxisLabelsCheckbox.checked
+      ? "block"
+      : "none";
+
+    if (showAxisLabelsCheckbox.checked) {
+      setAllAxisLabelVisibility(true);
+    } else {
+      setAllAxisLabelVisibility(false);
+    }
+
     axisLabelNameTitle.style.display = showAxisLabelsCheckbox.checked
       ? "block"
       : "none";
     axisLabelModeContainer.style.display = showAxisLabelsCheckbox.checked
       ? "flex"
       : "none";
-    axisDepthControl.style.display = showAxisLabelsCheckbox.checked
+    axisLabelDepthControl.style.display = showAxisLabelsCheckbox.checked
       ? "block"
       : "none";
-    axisLabelDepthControl.style.display = showAxisLabelsCheckbox.checked
+    axisLabelsVisibilityControl.style.display = showAxisLabelsCheckbox.checked
       ? "block"
       : "none";
     scheduleCubePanelPositionUpdate();
   });
 
-  showRotationArrowsCheckbox.addEventListener("change", () => {
-    rotationArrowGroup.visible = showRotationArrowsCheckbox.checked;
-    rotationArrowDepthControl.style.display = showRotationArrowsCheckbox.checked
+  showAxisArrowsCheckbox.addEventListener("change", () => {
+    axisGroup.visible =
+      showAxisLabelsCheckbox.checked || showAxisArrowsCheckbox.checked;
+    axisArrowVisibilityControl.style.display = showAxisArrowsCheckbox.checked
+      ? "block"
+      : "none";
+
+    if (showAxisArrowsCheckbox.checked) {
+      setAllAxisArrowVisibility(true);
+    } else {
+      setAllAxisArrowVisibility(false);
+    }
+
+    axisDepthControl.style.display = showAxisArrowsCheckbox.checked
+      ? "block"
+      : "none";
+    axisArrowsVisibilityControl.style.display = showAxisArrowsCheckbox.checked
       ? "block"
       : "none";
     scheduleCubePanelPositionUpdate();
+  });
+
+  function setAllAxisLabelVisibility(isVisible) {
+    for (const [face, checkbox] of axisLabelVisibilityCheckboxes) {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      checkbox.checked = isVisible;
+      axisGroup.children[index * 2 + 1].visible = isVisible;
+    }
+  }
+
+  for (const [face, checkbox] of axisLabelVisibilityCheckboxes) {
+    checkbox.addEventListener("change", () => {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      axisGroup.children[index * 2 + 1].visible = checkbox.checked;
+    });
+  }
+
+  function setAllAxisArrowVisibility(isVisible) {
+    for (const [face, checkbox] of axisArrowVisibilityCheckboxes) {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      checkbox.checked = isVisible;
+      axisGroup.children[index * 2].visible = isVisible;
+    }
+  }
+
+  for (const [face, checkbox] of axisArrowVisibilityCheckboxes) {
+    checkbox.addEventListener("change", () => {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      axisGroup.children[index * 2].visible = checkbox.checked;
+    });
+  }
+
+  function setDepthTest(root, depthTest) {
+    root.traverse((object) => {
+      if (object.material) {
+        object.material.depthTest = depthTest;
+        object.material.needsUpdate = true;
+      }
+    });
+  }
+
+  function updateFaceletLabelsVisibilityMode() {
+    for (const label of faceletLabels.values()) {
+      setDepthTest(label, faceletLabelsVisibility === HIDDEN_BEHIND_CUBE);
+    }
+  }
+
+  function updateAxisLabelsVisibilityMode() {
+    for (let index = 1; index < axisGroup.children.length; index += 2) {
+      setDepthTest(
+        axisGroup.children[index],
+        axisLabelsVisibility === HIDDEN_BEHIND_CUBE,
+      );
+    }
+  }
+
+  function updateAxisArrowsVisibilityMode() {
+    for (let index = 0; index < axisGroup.children.length; index += 2) {
+      setDepthTest(
+        axisGroup.children[index],
+        axisArrowsVisibility === HIDDEN_BEHIND_CUBE,
+      );
+    }
+  }
+
+  function updateRotationArrowsVisibilityMode() {
+    for (const arrow of rotationArrowGroup.children) {
+      setDepthTest(arrow, rotationArrowsVisibility === HIDDEN_BEHIND_CUBE);
+    }
+  }
+
+  showRotationArrowsCheckbox.addEventListener("change", () => {
+    rotationArrowGroup.visible = showRotationArrowsCheckbox.checked;
+    rotationArrowVisibilityControl.style.display =
+      showRotationArrowsCheckbox.checked ? "block" : "none";
+
+    if (showRotationArrowsCheckbox.checked) {
+      setAllRotationArrowVisibility(true);
+    }
+
+    rotationArrowDepthControl.style.display = showRotationArrowsCheckbox.checked
+      ? "block"
+      : "none";
+    rotationArrowDirectionControl.style.display =
+      showRotationArrowsCheckbox.checked ? "block" : "none";
+    rotationArrowThicknessControl.style.display =
+      showRotationArrowsCheckbox.checked ? "block" : "none";
+    rotationArrowRadiusControl.style.display =
+      showRotationArrowsCheckbox.checked ? "block" : "none";
+    rotationArrowsVisibilityControl.style.display =
+      showRotationArrowsCheckbox.checked ? "block" : "none";
+    scheduleCubePanelPositionUpdate();
+  });
+
+  function setAllRotationArrowVisibility(isVisible) {
+    for (const [face, checkbox] of rotationArrowVisibilityCheckboxes) {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      checkbox.checked = isVisible;
+      rotationArrowVisibility[index] = isVisible;
+      rotationArrowGroup.children[index].visible = isVisible;
+    }
+  }
+
+  for (const [face, checkbox] of rotationArrowVisibilityCheckboxes) {
+    checkbox.addEventListener("change", () => {
+      const index = axisDefinitions.findIndex(
+        (axisDefinition) => axisDefinition.label.face === face,
+      );
+
+      rotationArrowVisibility[index] = checkbox.checked;
+      rotationArrowGroup.children[index].visible = checkbox.checked;
+    });
+  }
+
+  rotationArrowDirectionSelect.addEventListener("change", () => {
+    rotationArrowDirection = rotationArrowDirectionSelect.value;
+    updateRotationArrowDirection();
   });
 
   rotationArrowDepthSlider.addEventListener("input", () => {
@@ -4512,12 +6871,57 @@ export function createUI({
   rotationArrowDepthValue.addEventListener("input", () => {
     const raw = rotationArrowDepthValue.value;
 
+    if (raw === "" || raw === "-" || raw === "." || raw === "-.") {
+      return;
+    }
+
+    if (!/^-?\d*\.?\d+$/.test(raw)) {
+      rotationArrowDepthValue.value = raw
+        .replace(/(?!^)-/g, "")
+        .replace(/[^\d.-]/g, "")
+        .replace(/(\..*)\./g, "$1");
+      return;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    rotationArrowDepth = value;
+    rotationArrowDepthSlider.value = String(Math.min(Math.max(value, 0), 2));
+    updateRotationArrowDepth();
+  });
+
+  rotationArrowDepthValue.addEventListener("blur", () => {
+    const value = Number(rotationArrowDepthValue.value);
+
+    rotationArrowDepth = Number.isFinite(value)
+      ? value
+      : DEFAULT_ROTATION_ARROW_DEPTH;
+    rotationArrowDepthValue.value = String(rotationArrowDepth);
+    rotationArrowDepthSlider.value = String(
+      Math.min(Math.max(rotationArrowDepth, 0), 2),
+    );
+    updateRotationArrowDepth();
+  });
+
+  rotationArrowThicknessSlider.addEventListener("input", () => {
+    rotationArrowThickness = Number(rotationArrowThicknessSlider.value);
+    rotationArrowThicknessValue.value = String(rotationArrowThickness);
+    updateRotationArrowThickness();
+  });
+
+  rotationArrowThicknessValue.addEventListener("input", () => {
+    const raw = rotationArrowThicknessValue.value;
+
     if (raw === "" || raw === ".") {
       return;
     }
 
     if (!/^\d*\.?\d+$/.test(raw)) {
-      rotationArrowDepthValue.value = raw
+      rotationArrowThicknessValue.value = raw
         .replace(/[^\d.]/g, "")
         .replace(/(\..*)\./g, "$1");
       return;
@@ -4529,18 +6933,64 @@ export function createUI({
       return;
     }
 
-    rotationArrowDepth = value;
-    rotationArrowDepthSlider.value = String(Math.min(value, 1));
-    updateRotationArrowDepth();
+    rotationArrowThickness = value;
+    rotationArrowThicknessSlider.value = String(
+      Math.min(Math.max(value, 0.001), 0.1),
+    );
+    updateRotationArrowThickness();
   });
 
-  rotationArrowDepthValue.addEventListener("blur", () => {
-    const value = Number(rotationArrowDepthValue.value);
+  rotationArrowThicknessValue.addEventListener("blur", () => {
+    const value = Number(rotationArrowThicknessValue.value);
 
-    rotationArrowDepth = Number.isFinite(value) ? Math.max(value, 0) : 0.72;
-    rotationArrowDepthValue.value = String(rotationArrowDepth);
-    rotationArrowDepthSlider.value = String(Math.min(rotationArrowDepth, 1));
-    updateRotationArrowDepth();
+    rotationArrowThickness = Number.isFinite(value)
+      ? Math.min(Math.max(value, 0.001), 0.1)
+      : DEFAULT_ROTATION_ARROW_THICKNESS;
+    rotationArrowThicknessValue.value = String(rotationArrowThickness);
+    rotationArrowThicknessSlider.value = String(rotationArrowThickness);
+    updateRotationArrowThickness();
+  });
+
+  rotationArrowRadiusSlider.addEventListener("input", () => {
+    rotationArrowRadius = Number(rotationArrowRadiusSlider.value);
+    rotationArrowRadiusValue.value = String(rotationArrowRadius);
+    updateRotationArrowRadius();
+  });
+
+  rotationArrowRadiusValue.addEventListener("input", () => {
+    const raw = rotationArrowRadiusValue.value;
+
+    if (raw === "" || raw === ".") {
+      return;
+    }
+
+    if (!/^\d*\.?\d+$/.test(raw)) {
+      rotationArrowRadiusValue.value = raw
+        .replace(/[^\d.]/g, "")
+        .replace(/(\..*)\./g, "$1");
+      return;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isFinite(value) || value < 0.1) {
+      return;
+    }
+
+    rotationArrowRadius = value;
+    rotationArrowRadiusSlider.value = String(Math.min(value, 2));
+    updateRotationArrowRadius();
+  });
+
+  rotationArrowRadiusValue.addEventListener("blur", () => {
+    const value = Number(rotationArrowRadiusValue.value);
+
+    rotationArrowRadius = Number.isFinite(value)
+      ? Math.max(value, 0.1)
+      : DEFAULT_ROTATION_ARROW_RADIUS;
+    rotationArrowRadiusValue.value = String(rotationArrowRadius);
+    rotationArrowRadiusSlider.value = String(Math.min(rotationArrowRadius, 2));
+    updateRotationArrowRadius();
   });
 
   function updateAxisLabelText() {
@@ -4548,44 +6998,46 @@ export function createUI({
       const axisLabel = axisGroup.children[index];
       const axisDefinition = axisLabel.userData.axisDefinition;
       const context = axisLabel.userData.context;
-      const labelText = axisDefinition.label[axisLabelMode];
+      const labelText = getAxisLabelText(axisDefinition);
 
-      context.clearRect(0, 0, 128, 64);
+      const canvas = axisLabel.userData.canvas;
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
       context.fillStyle = axisLabel.userData.labelColor;
-      context.strokeText(labelText, 64, 32);
-      context.fillText(labelText, 64, 32);
+      context.strokeText(labelText, canvas.width / 2, canvas.height / 2);
+      context.fillText(labelText, canvas.width / 2, canvas.height / 2);
       axisLabel.material.map.needsUpdate = true;
     }
   }
 
   function selectAxisLabelMode(mode) {
     axisLabelMode = mode;
-    blankCheckbox.checked = mode === "blank";
+    customCheckbox.checked = mode === "custom";
     cartesianCheckbox.checked = mode === "coordinate";
     faceCheckbox.checked = mode === "face";
+    for (const input of axisLabelCustomInputs.values()) {
+      input.style.visibility = mode === "custom" ? "visible" : "hidden";
+    }
+    for (const marker of axisLabelCustomMarkers.values()) {
+      marker.style.visibility = mode === "custom" ? "visible" : "hidden";
+    }
     updateAxisLabelText();
   }
 
-  blankCheckbox.addEventListener("change", () => {
-    if (blankCheckbox.checked) {
-      selectAxisLabelMode("blank");
-    } else if (!cartesianCheckbox.checked && !faceCheckbox.checked) {
-      selectAxisLabelMode("face");
+  customCheckbox.addEventListener("change", () => {
+    if (customCheckbox.checked) {
+      selectAxisLabelMode("custom");
     }
   });
 
   cartesianCheckbox.addEventListener("change", () => {
     if (cartesianCheckbox.checked) {
       selectAxisLabelMode("coordinate");
-    } else if (!blankCheckbox.checked && !faceCheckbox.checked) {
-      selectAxisLabelMode("face");
     }
   });
 
   faceCheckbox.addEventListener("change", () => {
     if (faceCheckbox.checked) {
-      selectAxisLabelMode("face");
-    } else if (!blankCheckbox.checked && !cartesianCheckbox.checked) {
       selectAxisLabelMode("face");
     }
   });
@@ -4693,7 +7145,7 @@ export function createUI({
     const value = Number(axisLabelDepthValue.value);
 
     if (!Number.isFinite(value) || value <= 0) {
-      axisLabelDepth = 0.25;
+      axisLabelDepth = DEFAULT_LABEL_DEPTH;
       axisLabelDepthValue.value = String(axisLabelDepth);
       axisLabelDepthSlider.value = String(axisLabelDepth);
     } else {
@@ -4740,7 +7192,7 @@ export function createUI({
     const value = Number(labelDepthValue.value);
 
     if (!Number.isFinite(value) || value <= 0) {
-      labelDepth = 0.25;
+      labelDepth = DEFAULT_LABEL_DEPTH;
       labelDepthValue.value = String(labelDepth);
       labelDepthSlider.value = String(labelDepth);
     } else {
@@ -4763,11 +7215,11 @@ export function createUI({
   cubePanel.style.right = "20px";
   cubePanel.style.width = "280px";
   cubePanel.style.padding = "16px";
-  cubePanel.style.background = "rgba(255, 255, 255, 0.95)";
-  cubePanel.style.borderRadius = "8px";
-  cubePanel.style.boxShadow = "0 2px 10px rgba(0, 0, 0, 0.2)";
-  cubePanel.style.fontFamily = "Arial, sans-serif";
-  cubePanel.style.fontSize = "14px";
+  cubePanel.style.background = UI_PANEL_BACKGROUND;
+  cubePanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
+  cubePanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
+  cubePanel.style.fontFamily = UI_FONT_FAMILY;
+  cubePanel.style.fontSize = UI_FONT_SIZE;
   cubePanel.style.boxSizing = "border-box";
 
   controlsRoot.insertBefore(cubePanel, colorsPanel);
@@ -4782,6 +7234,11 @@ export function createUI({
       if (labelsPanel) {
         labelsPanel.style.top = "";
         labelsPanel.style.right = "";
+      }
+
+      if (setupPanel) {
+        setupPanel.style.top = "";
+        setupPanel.style.right = "";
       }
 
       if (exportSvgButton) {
@@ -4803,10 +7260,19 @@ export function createUI({
       }px`;
     }
 
-    if (exportSvgButton) {
-      exportSvgButton.style.top = `${
+    if (setupPanel) {
+      setupPanel.style.top = `${
         (labelsPanel ?? colorsPanel).offsetTop +
         (labelsPanel ?? colorsPanel).offsetHeight +
+        10
+      }px`;
+      setupPanel.style.right = "20px";
+    }
+
+    if (exportSvgButton) {
+      exportSvgButton.style.top = `${
+        (setupPanel ?? labelsPanel ?? colorsPanel).offsetTop +
+        (setupPanel ?? labelsPanel ?? colorsPanel).offsetHeight +
         10
       }px`;
     }
@@ -4835,7 +7301,6 @@ export function createUI({
   const cubeTitle = document.createElement("div");
 
   cubeTitle.textContent = "Cube";
-
   cubeTitle.style.fontSize = "18px";
   cubeTitle.style.fontWeight = "bold";
 
@@ -4845,7 +7310,7 @@ export function createUI({
   cubeTitleRow.style.alignItems = "center";
   cubeTitleRow.style.gap = "6px";
 
-  const resetCubeButton = createResetButton("Reset cube settings", () => {
+  const resetCubeButton = createResetButton("Reset Cube Settings", () => {
     resetCubeInterface();
   });
 
@@ -4895,6 +7360,20 @@ export function createUI({
       cubeCollapsed = true;
       cubeContent.style.display = "none";
       cubeCollapseIcon.textContent = "+";
+    }
+
+    if (activePanel !== "labels" && !labelsCollapsed) {
+      labelsCollapsed = true;
+      labelsContent.style.display = "none";
+      labelsCollapseIcon.textContent = "+";
+      labelsHeader.setAttribute("aria-expanded", "false");
+    }
+
+    if (activePanel !== "setup" && !setupCollapsed) {
+      setupCollapsed = true;
+      setupContent.style.display = "none";
+      setupCollapseIcon.textContent = "+";
+      setupHeader.setAttribute("aria-expanded", "false");
     }
   }
 
@@ -5149,11 +7628,11 @@ export function createUI({
   customDimensionsHeader.style.gridTemplateColumns = "1fr 55px 55px";
   customDimensionsHeader.style.gap = "6px";
   customDimensionsHeader.style.marginBottom = "6px";
-  customDimensionsHeader.style.fontWeight = "bold";
   customDimensionsHeader.style.position = "sticky";
   customDimensionsHeader.style.top = "0";
   customDimensionsHeader.style.zIndex = "1";
-  customDimensionsHeader.style.background = "rgba(255, 255, 255, 0.95)";
+  customDimensionsHeader.style.background = UI_PANEL_BACKGROUND;
+  styleUiTitle(customDimensionsHeader, { marginBottom: "6px" });
 
   for (const text of ["Cubie", "Size", "Gap"]) {
     const header = document.createElement("span");
@@ -5315,13 +7794,13 @@ export function createUI({
     heading.style.gridTemplateColumns = "1fr 55px 55px";
     heading.style.gap = "6px";
     heading.style.alignItems = "center";
-    heading.style.fontWeight = "bold";
     heading.style.marginTop = "10px";
     heading.style.marginBottom = "6px";
 
     const title = document.createElement("span");
 
     title.textContent = group;
+    styleUiTitle(title, { container: heading, marginBottom: "6px" });
 
     const controls = {
       size: createGroupInput(group, "size", 0, 2),
@@ -5488,7 +7967,7 @@ export function createUI({
   // Rotate button
   // ============================================================
 
-  insertButton.addEventListener("click", () => {
+  async function insertRotation() {
     if (!moveType) {
       return;
     }
@@ -5504,6 +7983,8 @@ export function createUI({
       if (!sequence?.length || sequence.some((move) => !move)) {
         return;
       }
+
+      await ensureCursorAtEndForInsertion();
 
       for (const move of sequence) {
         queueRotationAction({
@@ -5543,6 +8024,8 @@ export function createUI({
       return;
     }
 
+    await ensureCursorAtEndForInsertion();
+
     // --------------------------------------------------------
     // Custom rotation
     //
@@ -5569,6 +8052,10 @@ export function createUI({
         });
       }
     }
+  }
+
+  insertButton.addEventListener("click", () => {
+    scheduleRotationInsertion(insertRotation);
   });
 
   // ============================================================
@@ -5640,14 +8127,34 @@ export function createUI({
 
     showFaceletLabelsCheckbox.checked = false;
     showAxisLabelsCheckbox.checked = false;
+    showAxisArrowsCheckbox.checked = false;
     axisGroup.visible = false;
+    axisLabelVisibilityControl.style.display = "none";
+    setAllAxisLabelVisibility(false);
+    axisArrowVisibilityControl.style.display = "none";
+    setAllAxisArrowVisibility(false);
     showRotationArrowsCheckbox.checked = false;
     rotationArrowGroup.visible = false;
+    rotationArrowVisibilityControl.style.display = "none";
+    rotationArrowRadiusControl.style.display = "none";
+    setAllRotationArrowVisibility(true);
     rotationArrowDepthControl.style.display = "none";
-    rotationArrowDepth = 0.72;
+    rotationArrowThicknessControl.style.display = "none";
+    rotationArrowDepth = DEFAULT_ROTATION_ARROW_DEPTH;
     rotationArrowDepthSlider.value = String(rotationArrowDepth);
     rotationArrowDepthValue.value = String(rotationArrowDepth);
     updateRotationArrowDepth();
+    rotationArrowThickness = DEFAULT_ROTATION_ARROW_THICKNESS;
+    rotationArrowThicknessSlider.value = String(rotationArrowThickness);
+    rotationArrowThicknessValue.value = String(rotationArrowThickness);
+    updateRotationArrowThickness();
+    rotationArrowRadius = DEFAULT_ROTATION_ARROW_RADIUS;
+    rotationArrowRadiusSlider.value = String(rotationArrowRadius);
+    rotationArrowRadiusValue.value = String(rotationArrowRadius);
+    updateRotationArrowRadius();
+    rotationArrowDirection = "clockwise";
+    rotationArrowDirectionSelect.value = rotationArrowDirection;
+    updateRotationArrowDirection();
     axisLabelNameTitle.style.display = "none";
     axisLabelModeContainer.style.display = "none";
     selectAxisLabelMode("face");
@@ -5657,11 +8164,11 @@ export function createUI({
     axisDepthValue.value = String(axisDepth);
     updateAxisDepth();
     axisLabelDepthControl.style.display = "none";
-    axisLabelDepth = 0.25;
+    axisLabelDepth = DEFAULT_LABEL_DEPTH;
     axisLabelDepthSlider.value = String(axisLabelDepth);
     axisLabelDepthValue.value = String(axisLabelDepth);
     updateAxisLabelDepth();
-    labelDepth = 0.25;
+    labelDepth = DEFAULT_LABEL_DEPTH;
     labelDepthSlider.value = String(labelDepth);
     labelDepthValue.value = String(labelDepth);
     updateFaceletLabelVisibility();
@@ -5682,6 +8189,11 @@ export function createUI({
     cubeContent.style.display = "none";
     cubeCollapseIcon.textContent = "+";
     cubeHeader.setAttribute("aria-expanded", "false");
+
+    setupCollapsed = true;
+    setupContent.style.display = "none";
+    setupCollapseIcon.textContent = "+";
+    setupHeader.setAttribute("aria-expanded", "false");
     scheduleCubePanelPositionUpdate();
   }
 
@@ -5703,7 +8215,10 @@ export function createUI({
   resetEverythingButton.style.boxSizing = "border-box";
   addHoverEffect(resetEverythingButton, "#f3c7cc");
 
-  resetEverythingButton.addEventListener("click", resetEverythingInterface);
+  resetEverythingButton.addEventListener("click", () => {
+    resetEverythingInterface();
+    markSetupChanged();
+  });
 
   controlsRoot.appendChild(resetEverythingButton);
 

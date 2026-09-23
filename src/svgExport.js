@@ -77,6 +77,252 @@ function createSvg(width, height, content) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${content}</svg>`;
 }
 
+function createRenderedSceneSvg(
+  renderer,
+  width = renderer.domElement.width,
+  height = renderer.domElement.height,
+) {
+  const canvas = renderer.domElement;
+  const image = canvas.toDataURL("image/png");
+
+  return createSvg(
+    width,
+    height,
+    `<image href="${image}" width="100%" height="100%" preserveAspectRatio="none"/>`,
+  );
+}
+
+function projectPoint(point, camera, width, height) {
+  const projected = point.clone().project(camera);
+
+  return {
+    x: (projected.x + 1) * 0.5 * width,
+    y: (1 - projected.y) * 0.5 * height,
+    z: projected.z,
+  };
+}
+
+function formatPoint(point) {
+  return `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+}
+
+function isVisible(object) {
+  let current = object;
+
+  while (current) {
+    if (!current.visible) {
+      return false;
+    }
+
+    current = current.parent;
+  }
+
+  return true;
+}
+
+function getMaterialColor(object, fallback = "#111") {
+  return object.material?.color?.getStyle?.() ?? fallback;
+}
+
+function isArrowHelper(object) {
+  return Boolean(object?.line && object?.cone);
+}
+
+function getProjectedGeometryPoints(object, camera, width, height) {
+  const position = object.geometry?.attributes?.position;
+
+  if (!position) {
+    return [];
+  }
+
+  const points = [];
+
+  for (let index = 0; index < position.count; index += 1) {
+    const point = new Vector3(
+      position.getX(index),
+      position.getY(index),
+      position.getZ(index),
+    ).applyMatrix4(object.matrixWorld);
+
+    points.push(projectPoint(point, camera, width, height));
+  }
+
+  return points;
+}
+
+function getConvexHull(points) {
+  const sorted = [...points].sort(
+    (first, second) => first.x - second.x || first.y - second.y,
+  );
+  const cross = (origin, first, second) =>
+    (first.x - origin.x) * (second.y - origin.y) -
+    (first.y - origin.y) * (second.x - origin.x);
+  const lower = [];
+
+  for (const point of sorted) {
+    while (
+      lower.length >= 2 &&
+      cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0
+    ) {
+      lower.pop();
+    }
+
+    lower.push(point);
+  }
+
+  const upper = [];
+
+  for (const point of [...sorted].reverse()) {
+    while (
+      upper.length >= 2 &&
+      cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0
+    ) {
+      upper.pop();
+    }
+
+    upper.push(point);
+  }
+
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+function createOverlaySvg({
+  camera,
+  faceletLabels,
+  axisGroup,
+  rotationArrowGroup,
+  getAxisLabelText,
+  rotationArrowThickness,
+  faceletLabelsVisibility,
+  axisLabelsVisibility,
+  axisArrowsVisibility,
+  rotationArrowsVisibility,
+  width,
+  height,
+}) {
+  const foreground = [];
+  const background = [];
+  const addContent = (content, visibility) => {
+    (visibility === "hidden-behind-cube" ? background : foreground).push(
+      content,
+    );
+  };
+
+  camera.updateMatrixWorld();
+  faceletLabels?.forEach((label) => label.updateWorldMatrix(true, false));
+  axisGroup?.updateWorldMatrix(true, true);
+  rotationArrowGroup?.updateWorldMatrix(true, true);
+
+  for (const label of faceletLabels?.values?.() ?? []) {
+    if (!isVisible(label)) {
+      continue;
+    }
+
+    const position = projectPoint(
+      label.getWorldPosition(new Vector3()),
+      camera,
+      width,
+      height,
+    );
+    const text = escapeSvgText(label.userData.labelText ?? "");
+    const color = escapeSvgText(label.userData.labelColor ?? "#111");
+
+    addContent(
+      `<text x="${position.x.toFixed(2)}" y="${position.y.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" fill="${color}" stroke="#fff" stroke-width="3" paint-order="stroke" font-family="Arial, sans-serif" font-size="14">${text}</text>`,
+      faceletLabelsVisibility,
+    );
+  }
+
+  for (let index = 1; index < (axisGroup?.children.length ?? 0); index += 2) {
+    const label = axisGroup.children[index];
+
+    if (!isVisible(label)) {
+      continue;
+    }
+
+    const position = projectPoint(
+      label.getWorldPosition(new Vector3()),
+      camera,
+      width,
+      height,
+    );
+    const text = escapeSvgText(getAxisLabelText(label) ?? "");
+    const color = escapeSvgText(label.userData.labelColor ?? "#111");
+
+    addContent(
+      `<text x="${position.x.toFixed(2)}" y="${position.y.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" fill="${color}" stroke="#fff" stroke-width="3" paint-order="stroke" font-family="Arial, sans-serif" font-size="14">${text}</text>`,
+      axisLabelsVisibility,
+    );
+  }
+
+  const addArrowHelper = (arrowHelper, visibility) => {
+    if (!isVisible(arrowHelper)) {
+      return;
+    }
+
+    for (const part of [arrowHelper.line, arrowHelper.cone]) {
+      if (!isVisible(part)) {
+        continue;
+      }
+
+      const points = getProjectedGeometryPoints(part, camera, width, height);
+      const color = escapeSvgText(getMaterialColor(part));
+
+      if (part.isMesh) {
+        const hull = getConvexHull(points);
+
+        if (hull.length >= 3) {
+          addContent(
+            `<polygon points="${hull.map(formatPoint).join(" ")}" fill="${color}"/>`,
+            visibility,
+          );
+        }
+      } else if (points.length >= 2) {
+        addContent(
+          `<line x1="${points[0].x.toFixed(2)}" y1="${points[0].y.toFixed(2)}" x2="${points[1].x.toFixed(2)}" y2="${points[1].y.toFixed(2)}" stroke="${color}" stroke-width="1"/>`,
+          visibility,
+        );
+      }
+    }
+  };
+
+  axisGroup?.traverse((object) => {
+    if (isArrowHelper(object)) {
+      addArrowHelper(object, axisArrowsVisibility);
+    }
+  });
+
+  rotationArrowGroup?.traverse((object) => {
+    if (object.geometry?.parameters?.path && isVisible(object)) {
+      const points = [];
+      const path = object.geometry.parameters.path;
+      const segments = object.geometry.parameters.tubularSegments ?? 18;
+
+      for (let index = 0; index <= segments; index += 1) {
+        const point = path
+          .getPoint(index / segments)
+          .applyMatrix4(object.matrixWorld);
+
+        points.push(formatPoint(projectPoint(point, camera, width, height)));
+      }
+
+      addContent(
+        `<polyline points="${points.join(" ")}" fill="none" stroke="${escapeSvgText(getMaterialColor(object, "#111"))}" stroke-width="${Math.max(1, rotationArrowThickness * 40).toFixed(2)}" stroke-linecap="round"/>`,
+        rotationArrowsVisibility,
+      );
+    }
+
+    if (isArrowHelper(object)) {
+      addArrowHelper(object, rotationArrowsVisibility);
+    }
+  });
+
+  return {
+    background: background.join(""),
+    foreground: foreground.join(""),
+  };
+}
+
 function getStickerColor(cubie, face) {
   const sticker = cubie.userData.stickers.find((item) => {
     const normal = item.normal;
@@ -101,6 +347,8 @@ function createVisibleViewSvg({
   gap,
   width = 800,
   height = 600,
+  overlayBeforeContent = "",
+  overlayContent = "",
 }) {
   const half = Math.max(0, size - gap) / 2;
   const polygons = [];
@@ -146,7 +394,7 @@ function createVisibleViewSvg({
   return createSvg(
     width,
     height,
-    `<rect width="100%" height="100%" fill="#e5e5e5"/>${polygons.map((item) => item.svg).join("")}`,
+    `<rect width="100%" height="100%" fill="#e5e5e5"/>${overlayBeforeContent}${polygons.map((item) => item.svg).join("")}${overlayContent}`,
   );
 }
 
@@ -231,7 +479,23 @@ function createLogicalStateSvg(cubies) {
   return createSvg(width, height, content);
 }
 
-export function createSvgArchive({ camera, cubies, getSize, getGap }) {
+export function createSvgArchive({
+  scene,
+  renderer,
+  camera,
+  cubies,
+  getSize,
+  getGap,
+  getFaceletLabels,
+  getAxisGroup,
+  getRotationArrowGroup,
+  getAxisLabelText,
+  getRotationArrowThickness,
+  getFaceletLabelsVisibility,
+  getAxisLabelsVisibility,
+  getAxisArrowsVisibility,
+  getRotationArrowsVisibility,
+}) {
   return async function exportSvgArchive() {
     const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
@@ -241,7 +505,12 @@ export function createSvgArchive({ camera, cubies, getSize, getGap }) {
     const gap = getGap();
     const viewOptions = { camera, cubies, size, gap };
 
-    zip.file("cube-interactive-visible-view.svg", createVisibleViewSvg(viewOptions));
+    renderer.render(scene, camera);
+
+    zip.file(
+      "cube-interactive-visible-view.svg",
+      createVisibleViewSvg(viewOptions),
+    );
     zip.file(
       "cube-interactive-app-view.svg",
       createVisibleViewSvg({
@@ -251,7 +520,20 @@ export function createSvgArchive({ camera, cubies, getSize, getGap }) {
       }),
     );
     zip.file("cube-interactive-flat-cubies.svg", createFlatCubieSvg(cubies));
-    zip.file("cube-interactive-logical-state.svg", createLogicalStateSvg(cubies));
+    zip.file(
+      "cube-interactive-logical-state.svg",
+      createLogicalStateSvg(cubies),
+    );
+
+    zip.file(
+      "cube-interactive-visible-view_with_overlay.svg",
+      createRenderedSceneSvg(renderer, 800, 600),
+    );
+
+    zip.file(
+      "cube-interactive-app-view_with_overlay.svg",
+      createRenderedSceneSvg(renderer, appWidth, appHeight),
+    );
 
     const archive = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(archive);

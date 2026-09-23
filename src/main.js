@@ -761,6 +761,115 @@ function updateCubeDimensions(
   }
 }
 
+function getCubeState() {
+  return {
+    size,
+    gap,
+    cubies: Object.fromEntries(
+      cubies.map((cubie) => {
+        const id = JSON.stringify(cubie.userData.originalPieceKey);
+
+        return [
+          id,
+          {
+            position: {
+              x: cubie.userData.x,
+              y: cubie.userData.y,
+              z: cubie.userData.z,
+            },
+            innerColor:
+              cubie.userData.currentInnerColor ?? cubie.userData.innerColor,
+            facelets: Object.fromEntries(
+              cubie.userData.facelets.map((facelet) => [
+                facelet.id,
+                {
+                  normal: { ...facelet.normal },
+                  color: facelet.currentColor ?? facelet.color,
+                },
+              ]),
+            ),
+          },
+        ];
+      }),
+    ),
+  };
+}
+
+function applyCubeState(state) {
+  if (rotating || !state || typeof state !== "object") {
+    return false;
+  }
+
+  updateCubeDimensions(state.size, state.gap);
+
+  for (const cubie of cubies) {
+    const id = JSON.stringify(cubie.userData.originalPieceKey);
+    const importedCubie = state.cubies?.[id];
+
+    if (!importedCubie) {
+      continue;
+    }
+
+    const position = importedCubie.position;
+
+    cubie.userData.x = position.x;
+    cubie.userData.y = position.y;
+    cubie.userData.z = position.z;
+    cubie.position.set(position.x * size, position.y * size, position.z * size);
+    cubie.userData.currentInnerColor = importedCubie.innerColor;
+    cubie.userData.innerColor = importedCubie.innerColor;
+
+    for (const facelet of cubie.userData.facelets) {
+      const importedFacelet = importedCubie.facelets?.[facelet.id];
+
+      if (!importedFacelet) {
+        continue;
+      }
+
+      facelet.normal = { ...importedFacelet.normal };
+      facelet.currentColor = importedFacelet.color;
+      facelet.color = importedFacelet.color;
+    }
+
+    cubie.rotation.set(0, 0, 0);
+    updateCubieMaterials(cubie);
+  }
+
+  rebuildFacelets();
+  return true;
+}
+
+function getDefaultCubeState() {
+  const defaultState = { size: defaultSize, gap: defaultGap, cubies: {} };
+
+  for (let x = -1; x <= 1; x++) {
+    for (let y = -1; y <= 1; y++) {
+      for (let z = -1; z <= 1; z++) {
+        const position = { x, y, z };
+        const pieceKey = getSolvedPieceKey(position);
+
+        const id = JSON.stringify(pieceKey);
+
+        defaultState.cubies[id] = {
+          position,
+          innerColor: defaultColors.inner,
+          facelets: Object.fromEntries(
+            getSolvedPieceFaces(position).map((face) => [
+              `(${pieceKey.x},${pieceKey.y},${pieceKey.z})-${face}`,
+              {
+                normal: { ...FACE_DEFINITIONS[face].normal },
+                color: FACE_DEFINITIONS[face].color,
+              },
+            ]),
+          ),
+        };
+      }
+    }
+  }
+
+  return defaultState;
+}
+
 // ============================================================
 // UI
 // ============================================================
@@ -774,6 +883,7 @@ const animationDuration = {
 
 createUI({
   scene,
+  renderer,
   camera,
   controls,
   cubies,
@@ -794,6 +904,9 @@ createUI({
   resetVisualRotations,
 
   updateCubeDimensions,
+  getCubeState,
+  getDefaultCubeState,
+  applyCubeState,
 
   get size() {
     return size;

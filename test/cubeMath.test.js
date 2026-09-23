@@ -20,8 +20,60 @@ import {
   getSolvedStickerName,
   MATERIAL_INDEX_BY_FACE,
 } from "../src/faceDefinitions.js";
+import { createJsonExport } from "../src/jsonExport.js";
 import { getCubeViewportHeight } from "../src/responsiveLayout.js";
 import { ROTATIONS } from "../src/rotationDefinitions.js";
+
+test("JSON export keeps intentional falsy changes and UTC seconds", () => {
+  const exported = createJsonExport(
+    {
+      enabled: false,
+      depth: 0,
+      label: "",
+      unchanged: "default",
+    },
+    {
+      enabled: true,
+      depth: 1,
+      label: "default",
+      unchanged: "default",
+    },
+    new Date("2026-09-23T12:34:56.789Z"),
+  );
+
+  assert.deepEqual(exported.setup, {
+    enabled: false,
+    depth: 0,
+    label: "",
+  });
+  assert.equal(exported.version, 1);
+  assert.equal(exported.exportedAt, "2026-09-23T12:34:56Z");
+});
+
+test("JSON export prunes unchanged nested state", () => {
+  const exported = createJsonExport(
+    {
+      cube: {
+        cubies: {
+          solved: { position: { x: 0, y: 0, z: 0 }, color: "white" },
+          moved: { position: { x: 1, y: 0, z: 0 }, color: "blue" },
+        },
+      },
+    },
+    {
+      cube: {
+        cubies: {
+          solved: { position: { x: 0, y: 0, z: 0 }, color: "white" },
+          moved: { position: { x: 0, y: 0, z: 0 }, color: "blue" },
+        },
+      },
+    },
+  );
+
+  assert.deepEqual(exported.setup, {
+    cube: { cubies: { moved: { position: { x: 1 } } } },
+  });
+});
 
 test("cloneVector returns an independent vector", () => {
   const original = { x: 1, y: -2, z: 3 };
