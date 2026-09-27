@@ -16,7 +16,7 @@ html.cube-viewport-collapsed {
 }
 
 .rotation-sequence[data-empty="true"]::before {
-  display: block;
+  display: inline;
   color: #999;
   content: attr(data-placeholder);
   font-size: inherit;
@@ -24,6 +24,10 @@ html.cube-viewport-collapsed {
   line-height: 1.4;
   pointer-events: none;
   user-select: none;
+}
+
+.rotation-sequence[data-empty="true"]:focus::before {
+  display: none;
 }
 
 .rotation-panel-chevron:focus-visible,
@@ -121,7 +125,6 @@ html.cube-viewport-collapsed {
   .rotation-sequence {
     position: fixed !important;
     right: auto !important;
-    width: auto !important;
     max-width: calc(100vw - 24px) !important;
     z-index: 20;
   }

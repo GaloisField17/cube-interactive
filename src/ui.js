@@ -64,7 +64,7 @@ const UI_FONT_SIZE = "14px";
 const DEFAULT_ROTATION_TEXT_FONT_SIZE = 28;
 const MIN_ROTATION_TEXT_FONT_SIZE = 16;
 const ROTATION_TEXT_FONT_SIZE_STEP = 4;
-const ROTATION_TEXT_MAX_ROWS = 2;
+const ROTATION_TEXT_MAX_ROWS = 1;
 const MAX_NUMERIC_EDIT_VALUE = 100;
 const COMPACT_ROTATION_TEXT_TOP_OFFSET = 168;
 const DESKTOP_ROTATION_TEXT_TOP_OFFSET = 60;
@@ -824,13 +824,13 @@ export function createUI({
   rotationText.style.lineHeight = "1.2";
   rotationText.style.fontWeight = "bold";
   rotationText.style.display = "block";
-  rotationText.style.width = "fit-content";
+  rotationText.style.width = "180px";
   rotationText.style.minWidth = "180px";
   rotationText.style.minHeight = "38px";
   rotationText.style.maxWidth = "none";
   rotationText.style.right = "560px";
-  rotationText.style.whiteSpace = "normal";
-  rotationText.style.overflowWrap = "break-word";
+  rotationText.style.whiteSpace = "nowrap";
+  rotationText.style.overflowWrap = "normal";
   rotationText.style.padding = "3px 6px";
   rotationText.style.background = "rgba(245, 245, 245, 0.96)";
   rotationText.style.border = "1px solid rgba(0, 0, 0, 0.2)";
@@ -1073,9 +1073,9 @@ export function createUI({
       return;
     }
 
-    rotationText.style.whiteSpace = "normal";
-    rotationText.style.overflowWrap = "break-word";
-    rotationText.style.overflowX = "hidden";
+    rotationText.style.whiteSpace = "nowrap";
+    rotationText.style.overflowWrap = "normal";
+    rotationText.style.overflowX = "auto";
     rotationText.style.minHeight = "";
 
     const { verticalPadding, maximumContentHeight, maximumBoxHeight } =
@@ -1110,14 +1110,10 @@ export function createUI({
   }
 
   function syncRotationBlockLayout() {
-    const hasRotationEntries = getRotationEntries().length > 0;
-
-    resizeRotationTextControl.button.style.display = hasRotationEntries
-      ? "flex"
-      : "none";
+    resizeRotationTextControl.button.style.display = "flex";
     resizeRotationTextControl.button.setAttribute(
       "aria-pressed",
-      String(hasRotationEntries && rotationText.style.display !== "none"),
+      String(rotationText.style.display !== "none"),
     );
 
     const compactLayout = window.innerWidth <= 900;
@@ -1213,10 +1209,15 @@ export function createUI({
     for (let pass = 0; pass <= controlsRoot.children.length; pass += 1) {
       const rotationTextLeft = compactLayout ? 12 : actionButtonsLeft;
 
-      rotationText.style.maxWidth = `${Math.max(
+      const rotationTextWidth = Math.max(
         0,
-        availableRight - rotationTextLeft,
-      )}px`;
+        availableRight -
+          rotationTextLeft -
+          RESIZE_CONTROL_SIZE -
+          RESIZE_CONTROL_GAP,
+      );
+      rotationText.style.width = `${rotationTextWidth}px`;
+      rotationText.style.maxWidth = `${rotationTextWidth}px`;
       fitRotationText();
 
       const textBottom =
@@ -1303,10 +1304,15 @@ export function createUI({
     }px`;
     rotationText.style.left = `${rotationTextLeft}px`;
     rotationText.style.right = "auto";
-    rotationText.style.maxWidth = `${Math.max(
+    const rotationTextWidth = Math.max(
       0,
-      availableRight - rotationTextLeft,
-    )}px`;
+      availableRight -
+        rotationTextLeft -
+        RESIZE_CONTROL_SIZE -
+        RESIZE_CONTROL_GAP,
+    );
+    rotationText.style.width = `${rotationTextWidth}px`;
+    rotationText.style.maxWidth = `${rotationTextWidth}px`;
     fitRotationText();
 
     const toolbarClearance = compactLayout
@@ -2184,10 +2190,11 @@ export function createUI({
       rotationPlaybackState === "idle" || rotationPlaybackState === "stopped";
     const isEditorFocused =
       document.activeElement === rotationText && canEditRotationSequence();
+    const entries = getRotationEntries();
 
     if (isEditorFocused) {
       rotationCursor.style.display = "none";
-    } else if (isCursorMode) {
+    } else if (isCursorMode && entries.length > 0) {
       if (cursorEntry) {
         cursorEntry.after(rotationCursor);
       } else {
@@ -2198,7 +2205,7 @@ export function createUI({
       rotationCursor.style.display = "none";
     }
 
-    for (const entry of getRotationEntries()) {
+    for (const entry of entries) {
       const isActive = entry === activeEntry && !isCursorMode;
       const isCursor = entry === cursorEntry;
       const isPending = pendingRotationEntries.includes(entry);
@@ -2228,6 +2235,9 @@ export function createUI({
     event.stopPropagation();
     setCursorRotationEntry(null);
     rotationText.focus({ preventScroll: true });
+    if (getRotationEntries().length === 0) {
+      setRotationEditorCaret(0);
+    }
   });
 
   rotationText.addEventListener("focus", () => {
@@ -2243,6 +2253,7 @@ export function createUI({
 
     if (entries.length === 0) {
       rotationText.focus({ preventScroll: true });
+      setRotationEditorCaret(0);
       return;
     }
 
@@ -2994,7 +3005,6 @@ export function createUI({
     "rotation-resize-text",
     RESIZE_ROTATION_TEXT_ICON,
   );
-  resizeRotationTextControl.button.style.display = "none";
   resizeRotationTextControl.button.setAttribute("aria-pressed", "false");
   resizeRotationTextControl.button.addEventListener("click", () => {
     rotationText.style.display =
