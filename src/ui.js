@@ -57,6 +57,7 @@ import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
 import { createCubePanel } from "./ui/cubePanel.js";
+import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
 import { openSetupImportDialog } from "./ui/setupImportDialog.js";
 
 const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
@@ -3240,43 +3241,6 @@ export function createUI({
   // Fixed move controls
   // ============================================================
 
-  const fixedMoves = document.createElement("div");
-
-  fixedMoves.style.display = "none";
-  fixedMoves.style.marginTop = "4px";
-  fixedMoves.style.marginBottom = "8px";
-
-  const fixedMoveNames = [
-    "Front:",
-    "Back:",
-    "Right:",
-    "Left:",
-    "Up:",
-    "Down:",
-    "Slice:",
-  ];
-
-  const MOVE_BUTTON_WIDTH = "45px";
-  const MOVE_BUTTON_HEIGHT = "27px";
-
-  function createMoveButton(text) {
-    const button = document.createElement("button");
-
-    button.type = "button";
-    button.textContent = text;
-
-    button.style.width = MOVE_BUTTON_WIDTH;
-    button.style.height = MOVE_BUTTON_HEIGHT;
-    button.style.padding = "2px";
-    button.style.cursor = "pointer";
-    button.style.fontSize = "11px";
-    button.style.boxSizing = "border-box";
-    button.style.whiteSpace = "nowrap";
-    button.style.flexShrink = "0";
-
-    return button;
-  }
-
   // ============================================================
   // Execute standardized move
   // ============================================================
@@ -3314,185 +3278,11 @@ export function createUI({
     });
   }
 
-  // ============================================================
-  // Two-row move buttons
-  // ============================================================
+  const fixedMoveControls = createFixedMoveControls({
+    onMoveSelected: executeMove,
+  });
 
-  function createTwoRowButtons(topMoves, bottomMoves, thirdMoves = null) {
-    const container = document.createElement("div");
-
-    container.style.flex = "1";
-    container.style.minWidth = "0";
-    container.style.display = "flex";
-    container.style.flexDirection = "column";
-    container.style.alignItems = "center";
-    container.style.gap = "4px";
-
-    function createButtonRow(moves) {
-      const row = document.createElement("div");
-
-      row.style.width = "100%";
-      row.style.display = "flex";
-      row.style.justifyContent = "center";
-      row.style.gap = "4px";
-
-      for (const move of moves) {
-        const button = createMoveButton(move);
-
-        button.addEventListener("click", async () => {
-          await executeMove(move);
-        });
-
-        row.appendChild(button);
-      }
-
-      return row;
-    }
-
-    container.appendChild(createButtonRow(topMoves));
-    container.appendChild(createButtonRow(bottomMoves));
-
-    if (thirdMoves) {
-      container.appendChild(createButtonRow(thirdMoves));
-    }
-
-    return container;
-  }
-
-  // ============================================================
-  // Create fixed move rows
-  // ============================================================
-
-  for (const moveName of fixedMoveNames) {
-    const moveRow = document.createElement("div");
-
-    moveRow.style.display = "flex";
-    moveRow.style.alignItems = "flex-start";
-    moveRow.style.marginBottom = "7px";
-
-    const moveText = document.createElement("span");
-
-    moveText.textContent = moveName;
-    moveText.style.display = "inline-block";
-    moveText.style.width = "48px";
-    moveText.style.flexShrink = "0";
-    moveText.style.fontWeight = "bold";
-    moveText.style.lineHeight = MOVE_BUTTON_HEIGHT;
-    moveText.style.textAlign = "left";
-
-    let moveButtons;
-
-    // ----------------------------------------------------------
-    // Front
-    // ----------------------------------------------------------
-
-    if (moveName === "Front:") {
-      moveButtons = createTwoRowButtons(
-        ["F", "F'", "F2"],
-        ["Fw", "Fw'", "Fw2"],
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Back
-    // ----------------------------------------------------------
-    else if (moveName === "Back:") {
-      moveButtons = createTwoRowButtons(
-        ["B", "B'", "B2"],
-        ["Bw", "Bw'", "Bw2"],
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Right
-    // ----------------------------------------------------------
-    else if (moveName === "Right:") {
-      moveButtons = createTwoRowButtons(
-        ["R", "R'", "R2"],
-        ["Rw", "Rw'", "Rw2"],
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Left
-    // ----------------------------------------------------------
-    else if (moveName === "Left:") {
-      moveButtons = createTwoRowButtons(
-        ["L", "L'", "L2"],
-        ["Lw", "Lw'", "Lw2"],
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Up
-    // ----------------------------------------------------------
-    else if (moveName === "Up:") {
-      moveButtons = createTwoRowButtons(
-        ["U", "U'", "U2"],
-        ["Uw", "Uw'", "Uw2"],
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Down
-    // ----------------------------------------------------------
-    else if (moveName === "Down:") {
-      moveButtons = createTwoRowButtons(
-        ["D", "D'", "D2"],
-        ["Dw", "Dw'", "Dw2"],
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Slice
-    // ----------------------------------------------------------
-    else {
-      moveButtons = createTwoRowButtons(
-        ["M", "M'", "M2"],
-        ["E", "E'", "E2"],
-        ["S", "S'", "S2"],
-      );
-    }
-
-    moveRow.appendChild(moveText);
-    moveRow.appendChild(moveButtons);
-
-    fixedMoves.appendChild(moveRow);
-  }
-
-  // ============================================================
-  // Cube rotation controls
-  // ============================================================
-
-  const cubeRotationRow = document.createElement("div");
-
-  cubeRotationRow.style.display = "flex";
-  cubeRotationRow.style.alignItems = "flex-start";
-  cubeRotationRow.style.marginBottom = "8px";
-
-  const cubeRotationText = document.createElement("span");
-
-  cubeRotationText.textContent = "Cube:";
-
-  cubeRotationText.style.display = "inline-block";
-  cubeRotationText.style.width = "48px";
-  cubeRotationText.style.flexShrink = "0";
-  cubeRotationText.style.fontWeight = "bold";
-  cubeRotationText.style.lineHeight = MOVE_BUTTON_HEIGHT;
-  cubeRotationText.style.textAlign = "left";
-
-  const cubeRotationButtons = createTwoRowButtons(
-    ["x", "x'", "x2"],
-    ["y", "y'", "y2"],
-    ["z", "z'", "z2"],
-  );
-
-  cubeRotationRow.appendChild(cubeRotationText);
-  cubeRotationRow.appendChild(cubeRotationButtons);
-
-  fixedMoves.appendChild(cubeRotationRow);
-
-  rotationContent.appendChild(fixedMoves);
+  rotationContent.appendChild(fixedMoveControls.root);
 
   // ============================================================
   // Custom move controls
@@ -3940,7 +3730,7 @@ export function createUI({
 
     moveType = "fixed";
 
-    fixedMoves.style.display = "block";
+    fixedMoveControls.setVisible(true);
     customControls.style.display = "none";
     insertButton.style.display = "none";
     syncRotationBlockLayout();
@@ -3953,7 +3743,7 @@ export function createUI({
 
     moveType = "custom";
 
-    fixedMoves.style.display = "none";
+    fixedMoveControls.setVisible(false);
     customControls.style.display = "block";
     insertButton.style.display = "block";
     syncRotationBlockLayout();
@@ -9047,7 +8837,7 @@ export function createUI({
 
     moveType = null;
 
-    fixedMoves.style.display = "none";
+    fixedMoveControls.setVisible(false);
     customControls.style.display = "none";
     insertButton.style.display = "none";
   }
