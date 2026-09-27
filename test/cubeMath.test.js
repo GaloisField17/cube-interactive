@@ -15,6 +15,7 @@ import {
 import {
   getCustomMoveLabel,
   getCustomRotationAngle,
+  getRotationSequenceEditorState,
   normalizeWideMoveName,
 } from "../src/customRotation.js";
 import {
@@ -180,6 +181,34 @@ test("lowercase face moves normalize to wide moves for execution", () => {
   assert.equal(normalizeWideMoveName("d'"), "Dw'");
   assert.equal(normalizeWideMoveName("r2"), "Rw2");
   assert.equal(normalizeWideMoveName("L"), "L");
+});
+
+test("rotation editor accepts complete moves and a valid draft token", () => {
+  assert.deepEqual(getRotationSequenceEditorState("R U'", 4), {
+    moves: ["R", "U'"],
+    draft: null,
+    tokens: [
+      { text: "R", start: 0, end: 1 },
+      { text: "U'", start: 2, end: 4 },
+    ],
+    trailingWhitespace: false,
+  });
+  assert.deepEqual(getRotationSequenceEditorState("R F[33 U", 6), {
+    moves: ["R", "U"],
+    draft: { text: "F[33", start: 2, end: 6 },
+    tokens: [
+      { text: "R", start: 0, end: 1 },
+      { text: "F[33", start: 2, end: 6 },
+      { text: "U", start: 7, end: 8 },
+    ],
+    trailingWhitespace: false,
+  });
+  assert.equal(getRotationSequenceEditorState("R Q", 3), null);
+  assert.equal(getRotationSequenceEditorState("r[33", 4)?.draft?.text, "r[33");
+  assert.deepEqual(getRotationSequenceEditorState("(R U)", 5)?.moves, [
+    "(R",
+    "U)",
+  ]);
 });
 
 test("face definitions preserve colors, normals, and material indices", () => {

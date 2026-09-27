@@ -47,7 +47,10 @@ import { getFaceFromNormal } from "./cubeMath.js";
 import {
   getCustomMoveLabel,
   getCustomRotationAngle,
+  getRotationSequenceEditorState,
   normalizeWideMoveName,
+  parseCustomMove,
+  stripCustomMoveParentheses,
 } from "./customRotation.js";
 import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
@@ -819,8 +822,10 @@ export function createUI({
   rotationText.style.fontSize = `${DEFAULT_ROTATION_TEXT_FONT_SIZE}px`;
   rotationText.style.lineHeight = "1.2";
   rotationText.style.fontWeight = "bold";
-  rotationText.style.display = "none";
+  rotationText.style.display = "block";
   rotationText.style.width = "fit-content";
+  rotationText.style.minWidth = "180px";
+  rotationText.style.minHeight = "38px";
   rotationText.style.maxWidth = "none";
   rotationText.style.right = "560px";
   rotationText.style.whiteSpace = "normal";
@@ -831,15 +836,22 @@ export function createUI({
   rotationText.style.borderRadius = "3px";
   rotationText.style.boxSizing = "border-box";
   rotationText.style.position = "absolute";
+  rotationText.style.cursor = "text";
+  rotationText.style.userSelect = "text";
   rotationText.style.top = "20px";
   rotationText.style.left = "248px";
   rotationText.setAttribute("role", "listbox");
   rotationText.setAttribute("aria-label", "Rotation Sequence");
+  rotationText.setAttribute("tabindex", "0");
+  rotationText.setAttribute("contenteditable", "true");
+  rotationText.setAttribute("spellcheck", "false");
+  rotationText.dataset.empty = "true";
 
   const rotationStartTarget = document.createElement("span");
 
   rotationStartTarget.className = "rotation-start-target";
   rotationStartTarget.setAttribute("aria-hidden", "true");
+  rotationStartTarget.contentEditable = "false";
   rotationStartTarget.style.display = "inline-block";
   rotationStartTarget.style.width = "8px";
   rotationStartTarget.style.height = "1em";
@@ -849,6 +861,7 @@ export function createUI({
 
   rotationCursor.className = "rotation-cursor";
   rotationCursor.setAttribute("aria-hidden", "true");
+  rotationCursor.contentEditable = "false";
   rotationCursor.style.display = "none";
   rotationCursor.style.width = "2px";
   rotationCursor.style.height = "1em";
@@ -1029,7 +1042,7 @@ export function createUI({
       ...bounds.map((rect) => rect.right),
     );
     const rotationTextBounds =
-      getRotationEntries().length > 0
+      rotationText.style.display !== "none"
         ? rotationText.getBoundingClientRect()
         : null;
     const contentBottomOffset = Math.max(
@@ -1544,11 +1557,11 @@ export function createUI({
     syncRotationBlockLayout();
   }
 
-  function appendRotationEntry(moveText) {
-    const entries = getRotationEntries();
-
+  function createRotationEntry(moveText) {
     const entry = document.createElement("span");
 
+    entry.className = "rotation-entry";
+    entry.contentEditable = "false";
     entry.textContent = moveText;
     entry.setAttribute("role", "option");
     entry.setAttribute("aria-selected", "false");
@@ -1560,11 +1573,20 @@ export function createUI({
       setCursorRotationEntry(entry);
     });
 
+    return entry;
+  }
+
+  function appendRotationEntry(moveText) {
+    const entries = getRotationEntries();
+    const entry = createRotationEntry(moveText);
+
     if (entries.length === 0) {
       rotationText.insertBefore(entry, rotationCursor);
     } else {
       entries.at(-1).after(document.createTextNode(" "), entry);
     }
+
+    rotationText.dataset.empty = "false";
 
     return entry;
   }
@@ -1615,6 +1637,9 @@ export function createUI({
     const hasActiveRotation = pendingRotationEntries.length > 0;
     const hasQueuedRotations = queuedRotationActions.length > 0;
     const isRebuilding = rebuildInProgress;
+    const canEditSequence = !hasActiveRotation && !isAnimating && !isPaused;
+
+    rotationText.contentEditable = String(canEditSequence);
 
     copyRotationButton.disabled = !hasRotations;
     undoRotationButton.disabled = !hasRotations || hasActiveRotation;
@@ -1670,6 +1695,469 @@ export function createUI({
     ];
   }
 
+  function canEditRotationSequence() {
+    return (
+      pendingRotationEntries.length === 0 &&
+      rotationPlaybackState !== "playing" &&
+      rotationPlaybackState !== "paused" &&
+      !rebuildInProgress
+    );
+  }
+
+  function getRotationEditorText() {
+    return rotationText.textContent
+      .replace(/\u00a0/gu, " ")
+      .replace(/[\r\n]+/gu, " ");
+  }
+
+  function getRotationSelectionOffsets() {
+    const selection = window.getSelection();
+
+    if (
+      !selection?.rangeCount ||
+      !rotationText.contains(selection.anchorNode) ||
+      !rotationText.contains(selection.focusNode)
+    ) {
+      return null;
+    }
+
+    function getTextOffset(node, offset) {
+      const range = document.createRange();
+
+      range.selectNodeContents(rotationText);
+      range.setEnd(node, offset);
+
+      return range.toString().length;
+    }
+
+    const anchorOffset = getTextOffset(
+      selection.anchorNode,
+      selection.anchorOffset,
+    );
+    const focusOffset = getTextOffset(
+      selection.focusNode,
+      selection.focusOffset,
+    );
+
+    return {
+      start: Math.min(anchorOffset, focusOffset),
+      end: Math.max(anchorOffset, focusOffset),
+      focus: focusOffset,
+    };
+  }
+
+  function setRotationEditorCaret(textOffset) {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    const nodes = [...rotationText.childNodes];
+    let currentOffset = 0;
+
+    for (const [index, node] of nodes.entries()) {
+      if (node === rotationStartTarget || node === rotationCursor) {
+        continue;
+      }
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        const nextOffset = currentOffset + node.textContent.length;
+
+        if (textOffset <= nextOffset) {
+          range.setStart(node, Math.max(0, textOffset - currentOffset));
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return;
+        }
+
+        currentOffset = nextOffset;
+        continue;
+      }
+
+      const nodeLength = node.textContent.length;
+      const nextOffset = currentOffset + nodeLength;
+
+      if (textOffset <= nextOffset) {
+        const isAfterNode = textOffset - currentOffset >= nodeLength;
+
+        range.setStart(rotationText, index + Number(isAfterNode));
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+
+      currentOffset = nextOffset;
+    }
+
+    range.setStart(rotationText, rotationText.childNodes.length);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function renderRotationEditor(state, actions) {
+    rotationStartTarget.textContent = "";
+    rotationCursor.textContent = "";
+    rotationText.replaceChildren(rotationStartTarget);
+
+    let actionIndex = 0;
+
+    for (const [tokenIndex, token] of state.tokens.entries()) {
+      if (tokenIndex > 0) {
+        rotationText.appendChild(document.createTextNode(" "));
+      }
+
+      if (token === state.draft) {
+        rotationText.appendChild(document.createTextNode(token.text));
+        continue;
+      }
+
+      const action = actions[actionIndex++];
+      const entry = createRotationEntry(token.text);
+
+      if (action) {
+        action.entry = entry;
+      }
+
+      rotationText.appendChild(entry);
+    }
+
+    if (state.trailingWhitespace) {
+      rotationText.appendChild(document.createTextNode(" "));
+    }
+
+    rotationText.appendChild(rotationCursor);
+    rotationText.dataset.empty = String(state.tokens.length === 0);
+  }
+
+  function getEditedPlaybackBoundary(state, snapshot, previousActions) {
+    if (!snapshot) {
+      return 0;
+    }
+
+    const previousBoundaryCount = snapshot.boundaryCount;
+    const previousBoundaryOffset = previousActions
+      .slice(0, previousBoundaryCount)
+      .map((action) => action.label)
+      .join(" ").length;
+    let diffStart = 0;
+
+    while (
+      diffStart < snapshot.text.length &&
+      diffStart < snapshot.nextText.length &&
+      snapshot.text[diffStart] === snapshot.nextText[diffStart]
+    ) {
+      diffStart += 1;
+    }
+
+    let commonSuffix = 0;
+
+    while (
+      commonSuffix < snapshot.text.length - diffStart &&
+      commonSuffix < snapshot.nextText.length - diffStart &&
+      snapshot.text[snapshot.text.length - commonSuffix - 1] ===
+        snapshot.nextText[snapshot.nextText.length - commonSuffix - 1]
+    ) {
+      commonSuffix += 1;
+    }
+
+    const previousDiffEnd = snapshot.text.length - commonSuffix;
+    const nextDiffEnd = snapshot.nextText.length - commonSuffix;
+    let nextBoundaryOffset = previousBoundaryOffset;
+
+    if (previousBoundaryOffset > diffStart) {
+      if (previousBoundaryOffset >= previousDiffEnd) {
+        nextBoundaryOffset += nextDiffEnd - previousDiffEnd;
+      } else {
+        nextBoundaryOffset = diffStart;
+      }
+    }
+
+    return Math.min(
+      state.moves.length,
+      state.tokens.reduce(
+        (count, token) =>
+          token !== state.draft && token.end <= nextBoundaryOffset
+            ? count + 1
+            : count,
+        0,
+      ),
+    );
+  }
+
+  function restoreRotationEditorSnapshot(snapshot) {
+    const state = getRotationSequenceEditorState(
+      snapshot.text,
+      snapshot.selection.focus,
+    );
+
+    if (!state) {
+      return;
+    }
+
+    renderRotationEditor(state, rotationActions);
+    cursorRotationEntry =
+      rotationActions[snapshot.boundaryCount - 1]?.entry ?? null;
+    queuedRotationActions = rotationActions.slice(snapshot.boundaryCount);
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+    setRotationEditorCaret(snapshot.selection.focus);
+  }
+
+  function handleRotationEditorInput(
+    snapshot = null,
+    editedValue = null,
+    editedCaretOffset = null,
+  ) {
+    const value = editedValue ?? getRotationEditorText();
+    const selection = getRotationSelectionOffsets();
+    const caretOffset = editedCaretOffset ?? selection?.focus ?? value.length;
+    const state = getRotationSequenceEditorState(value, caretOffset);
+
+    if (!state) {
+      if (snapshot) {
+        restoreRotationEditorSnapshot(snapshot);
+      }
+
+      return;
+    }
+
+    const previousActions = rotationActions.slice();
+    const previousBoundaryCount = cursorRotationEntry
+      ? Math.max(getRotationEntries().indexOf(cursorRotationEntry) + 1, 0)
+      : 0;
+    const nextActions = parseCustomSequence(state.moves.join(" ")).map(
+      (move, index) => ({
+        label: state.moves[index],
+        run: move.run,
+        inverse: {
+          label: move.inverseLabel,
+          run: move.inverse,
+        },
+      }),
+    );
+
+    const nextBoundaryCount = getEditedPlaybackBoundary(
+      state,
+      snapshot
+        ? { ...snapshot, nextText: value }
+        : {
+            boundaryCount: previousBoundaryCount,
+            text: previousActions.map((action) => action.label).join(" "),
+            nextText: value,
+          },
+      previousActions,
+    );
+    const previousCompleted = previousActions
+      .slice(0, previousBoundaryCount)
+      .map((action) => action.label);
+    const nextCompleted = nextActions
+      .slice(0, nextBoundaryCount)
+      .map((action) => action.label);
+    const completedHistoryChanged =
+      previousCompleted.length !== nextCompleted.length ||
+      previousCompleted.some((label, index) => label !== nextCompleted[index]);
+    const actionHistoryChanged =
+      previousActions.length !== nextActions.length ||
+      previousActions.some(
+        (action, index) => action.label !== nextActions[index]?.label,
+      );
+
+    rotationActions.splice(0, rotationActions.length, ...nextActions);
+    queuedRotationActions = nextActions.slice(nextBoundaryCount);
+    renderRotationEditor(state, nextActions);
+    cursorRotationEntry = nextActions[nextBoundaryCount - 1]?.entry ?? null;
+    queuedRotationActions = nextActions.slice(nextBoundaryCount);
+    rotationText.style.display = "block";
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+    setRotationEditorCaret(caretOffset);
+    syncRotationBlockLayout();
+
+    if (actionHistoryChanged) {
+      markSetupChanged();
+    }
+
+    if (completedHistoryChanged) {
+      void rebuildCubeToCursor();
+    }
+  }
+
+  function captureRotationEditorBeforeInput() {
+    const selection = getRotationSelectionOffsets();
+    const boundaryCount = cursorRotationEntry
+      ? Math.max(getRotationEntries().indexOf(cursorRotationEntry) + 1, 0)
+      : 0;
+
+    return {
+      text: getRotationEditorText(),
+      selection: selection ?? {
+        start: 0,
+        end: 0,
+        focus: getRotationEditorText().length,
+      },
+      boundaryCount,
+    };
+  }
+
+  function insertRotationEditorText(text) {
+    if (!canEditRotationSequence()) {
+      return;
+    }
+
+    const snapshot = captureRotationEditorBeforeInput();
+    const { start, end } = snapshot.selection;
+    const nextText =
+      snapshot.text.slice(0, start) + text + snapshot.text.slice(end);
+
+    handleRotationEditorInput(snapshot, nextText, start + text.length);
+  }
+
+  function getRotationDeletionRange(snapshot, isBackward) {
+    const { start, end } = snapshot.selection;
+
+    if (start !== end) {
+      return { start, end };
+    }
+
+    const tokens = [...snapshot.text.matchAll(/\S+/gu)].map((match) => ({
+      start: match.index,
+      end: match.index + match[0].length,
+    }));
+
+    if (isBackward) {
+      const previousToken = tokens.filter((token) => token.end <= start).at(-1);
+
+      if (previousToken && start <= previousToken.end + 1) {
+        return previousToken;
+      }
+
+      return start > 0 ? { start: start - 1, end: start } : null;
+    }
+
+    const nextToken = tokens.find((token) => token.end > start);
+
+    if (nextToken && start <= nextToken.end) {
+      return nextToken;
+    }
+
+    return null;
+  }
+
+  function deleteRotationEditorText(isBackward) {
+    if (!canEditRotationSequence()) {
+      return;
+    }
+
+    const snapshot = captureRotationEditorBeforeInput();
+    const range = getRotationDeletionRange(snapshot, isBackward);
+
+    if (!range) {
+      return;
+    }
+
+    const nextText =
+      snapshot.text.slice(0, range.start) + snapshot.text.slice(range.end);
+
+    handleRotationEditorInput(snapshot, nextText, range.start);
+  }
+
+  rotationText.addEventListener("beforeinput", (event) => {
+    if (!canEditRotationSequence()) {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.inputType.startsWith("insert")) {
+      event.preventDefault();
+
+      if (
+        event.inputType === "insertParagraph" ||
+        event.inputType === "insertLineBreak"
+      ) {
+        insertRotationEditorText(" ");
+      } else if (event.data !== null) {
+        insertRotationEditorText(event.data);
+      }
+
+      return;
+    }
+
+    if (
+      event.inputType === "deleteContentBackward" ||
+      event.inputType === "deleteContentForward" ||
+      event.inputType === "deleteByCut"
+    ) {
+      event.preventDefault();
+      deleteRotationEditorText(event.inputType !== "deleteContentForward");
+      return;
+    }
+
+    event.preventDefault();
+  });
+
+  rotationText.addEventListener("keydown", (event) => {
+    if (!canEditRotationSequence()) {
+      if (
+        event.key.length === 1 ||
+        event.key === "Backspace" ||
+        event.key === "Delete"
+      ) {
+        event.preventDefault();
+      }
+
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      insertRotationEditorText(" ");
+    } else if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      deleteRotationEditorText(event.key === "Backspace");
+    }
+  });
+
+  rotationText.addEventListener("paste", (event) => {
+    if (!canEditRotationSequence()) {
+      event.preventDefault();
+      return;
+    }
+
+    event.preventDefault();
+    insertRotationEditorText(
+      event.clipboardData?.getData("text/plain").replace(/\s+/gu, " ") ?? "",
+    );
+  });
+
+  rotationText.addEventListener("blur", () => {
+    const editorText = getRotationEditorText();
+    const editorState = getRotationSequenceEditorState(
+      editorText,
+      editorText.length,
+    );
+
+    if (editorState?.draft) {
+      const completedState = getRotationSequenceEditorState(
+        rotationActions.map((action) => action.label).join(" "),
+        Number.MAX_SAFE_INTEGER,
+      );
+
+      if (completedState) {
+        renderRotationEditor(completedState, rotationActions);
+        const boundaryCount = cursorRotationEntry
+          ? Math.max(getRotationEntries().indexOf(cursorRotationEntry) + 1, 0)
+          : 0;
+
+        cursorRotationEntry = rotationActions[boundaryCount - 1]?.entry ?? null;
+        queuedRotationActions = rotationActions.slice(boundaryCount);
+      }
+    }
+
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+    syncRotationBlockLayout();
+  });
+
   function setCursorRotationEntry(entry) {
     markSetupChanged();
     cursorRotationEntry = entry;
@@ -1683,8 +2171,12 @@ export function createUI({
     const cursorEntry = activeEntry ?? cursorRotationEntry;
     const isCursorMode =
       rotationPlaybackState === "idle" || rotationPlaybackState === "stopped";
+    const isEditorFocused =
+      document.activeElement === rotationText && canEditRotationSequence();
 
-    if (isCursorMode) {
+    if (isEditorFocused) {
+      rotationCursor.style.display = "none";
+    } else if (isCursorMode) {
       if (cursorEntry) {
         cursorEntry.after(rotationCursor);
       } else {
@@ -1724,6 +2216,11 @@ export function createUI({
   rotationStartTarget.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
     setCursorRotationEntry(null);
+    rotationText.focus({ preventScroll: true });
+  });
+
+  rotationText.addEventListener("focus", () => {
+    highlightActiveRotation();
   });
 
   rotationText.addEventListener("pointerdown", (event) => {
@@ -1734,6 +2231,7 @@ export function createUI({
     const entries = getRotationEntries();
 
     if (entries.length === 0) {
+      rotationText.focus({ preventScroll: true });
       return;
     }
 
@@ -1760,6 +2258,7 @@ export function createUI({
     });
 
     setCursorRotationEntry(closestEntry);
+    rotationText.focus({ preventScroll: true });
   });
 
   function queueRotationAction(
@@ -2137,7 +2636,9 @@ export function createUI({
   }
 
   copyRotationButton.addEventListener("click", async () => {
-    const rotationTextValue = rotationText.textContent;
+    const rotationTextValue = rotationActions
+      .map((action) => action.label)
+      .join(" ");
 
     copyIconImage.src = copiedIcon;
 
@@ -2196,9 +2697,7 @@ export function createUI({
     removeRotationEntry(latestEntry);
     cursorRotationEntry = previousEntry;
 
-    if (getRotationEntries().length === 0) {
-      rotationBlock.text.style.display = "none";
-    }
+    rotationBlock.text.style.display = "block";
 
     syncRotationBlockLayout();
     highlightActiveRotation();
@@ -3246,42 +3745,6 @@ export function createUI({
   customSequenceInputRow.style.boxSizing = "border-box";
   customSequenceInputRow.appendChild(customSequenceInput);
   customSequenceInputRow.appendChild(customSequenceStatusImage);
-
-  function parseCustomMove(value) {
-    const match = value.match(
-      /^(.+?)(?:\(([+-]?\d+(?:\.\d+)?)(?:degrees?|degs?|°)\)|\[([+-]?\d+(?:\.\d+)?)(?:degrees?|degs?|°)\])$/,
-    );
-
-    if (!match) {
-      return null;
-    }
-
-    return {
-      moveName: match[1],
-      angle: Number(match[2] ?? match[3]),
-    };
-  }
-
-  function stripCustomMoveParentheses(move) {
-    let normalizedMove = move;
-
-    while (normalizedMove.startsWith("(") || normalizedMove.endsWith(")")) {
-      if (
-        getRotationDefinition(normalizeWideMoveName(normalizedMove)) ||
-        parseCustomMove(normalizedMove)
-      ) {
-        return normalizedMove;
-      }
-
-      if (normalizedMove.startsWith("(")) {
-        normalizedMove = normalizedMove.slice(1);
-      } else {
-        normalizedMove = normalizedMove.slice(0, -1);
-      }
-    }
-
-    return normalizedMove;
-  }
 
   function getCustomSequenceMoves(value) {
     return value
@@ -9593,7 +10056,9 @@ export function createUI({
     rotationCursor.style.display = "none";
     pendingRotationCount = 0;
     setRotationControlVisibility();
-    rotationText.style.display = "none";
+    rotationText.replaceChildren(rotationStartTarget, rotationCursor);
+    rotationText.dataset.empty = "true";
+    rotationText.style.display = "block";
     copyIconImage.src = copyIcon;
     syncRotationBlockLayout();
 
