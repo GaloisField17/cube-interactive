@@ -22,10 +22,8 @@ import {
   default as invalidColorIcon,
   default as mixedColorIcon,
 } from "./assets/cross-transparent.png";
-import sequenceInvalidIcon from "./assets/cross.png";
 import startStateIcon from "./assets/cube-state-0.svg";
 import expandCubeIcon from "./assets/expand.svg";
-import infoIcon from "./assets/info.png";
 import nextRotationIcon from "./assets/next.svg";
 import pauseIcon from "./assets/pause.svg";
 import placeholderIcon from "./assets/placeholder.svg";
@@ -37,11 +35,7 @@ import stopIcon from "./assets/stop.svg";
 import toEndIcon from "./assets/toend.svg";
 import toStartIcon from "./assets/tostart.svg";
 import undoIcon from "./assets/undo.png";
-import sequencePendingIcon from "./assets/yes-pending.png";
-import {
-  default as copiedIcon,
-  default as sequenceValidIcon,
-} from "./assets/yes.png";
+import { default as copiedIcon } from "./assets/yes.png";
 import { getNamedColorOrHex } from "./colorNames.js";
 import { getFaceFromNormal } from "./cubeMath.js";
 import {
@@ -58,6 +52,7 @@ import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
 import { createCubePanel } from "./ui/cubePanel.js";
 import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
+import { createCustomMoveControls } from "./ui/customMoveControls.js";
 import { openSetupImportDialog } from "./ui/setupImportDialog.js";
 
 const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
@@ -2743,18 +2738,6 @@ export function createUI({
   buttonContainer.style.gap = "8px";
   buttonContainer.style.marginBottom = "10px";
 
-  const insertButton = document.createElement("button");
-
-  let lastRotationEdit = "move";
-
-  insertButton.type = "button";
-  insertButton.textContent = "Insert";
-
-  insertButton.style.display = "none";
-  insertButton.style.width = "100%";
-  insertButton.style.padding = "8px";
-  insertButton.style.cursor = "pointer";
-
   // ============================================================
   // Duration
   // ============================================================
@@ -3288,313 +3271,12 @@ export function createUI({
   // Custom move controls
   // ============================================================
 
-  const customControls = document.createElement("div");
-
-  customControls.style.display = "none";
-
-  rotationContent.appendChild(customControls);
-
-  // ============================================================
-  // Move selector
-  // ============================================================
-
-  const moveLabel = createLabel("Move:");
-
-  moveLabel.style.marginBottom = "0";
-  moveLabel.style.flexShrink = "0";
-
-  const moveControlRow = document.createElement("div");
-
-  moveControlRow.style.display = "flex";
-  moveControlRow.style.alignItems = "center";
-  moveControlRow.style.gap = "8px";
-  moveControlRow.style.marginBottom = "14px";
-
-  moveControlRow.appendChild(moveLabel);
-
-  const moveSelect = document.createElement("select");
-
-  moveSelect.style.flex = "1";
-  moveSelect.style.minWidth = "0";
-  moveSelect.style.padding = "6px";
-  moveSelect.style.boxSizing = "border-box";
-
-  const emptyMove = document.createElement("option");
-
-  emptyMove.value = "";
-  emptyMove.textContent = "Select Move";
-  emptyMove.disabled = true;
-  emptyMove.selected = true;
-
-  moveSelect.appendChild(emptyMove);
-
-  const moves = [
-    ["F", "F - Front"],
-    ["Fw", "Fw - Front wide"],
-
-    ["B", "B - Back"],
-    ["Bw", "Bw - Back wide"],
-
-    ["R", "R - Right"],
-    ["Rw", "Rw - Right wide"],
-
-    ["L", "L - Left"],
-    ["Lw", "Lw - Left wide"],
-
-    ["U", "U - Up"],
-    ["Uw", "Uw - Up wide"],
-
-    ["D", "D - Down"],
-    ["Dw", "Dw - Down wide"],
-
-    ["S", "S - Standing"],
-    ["M", "M - Middle"],
-    ["E", "E - Equator"],
-
-    ["x", "x - Cube rotation ↑"],
-    ["y", "y - Cube rotation ←"],
-    ["z", "z - Cube rotation ↘"],
-  ];
-
-  for (const [value, text] of moves) {
-    const option = document.createElement("option");
-
-    option.value = value;
-    option.textContent = text;
-
-    moveSelect.appendChild(option);
-  }
-
-  moveControlRow.appendChild(moveSelect);
-
-  // ============================================================
-  // Direction
-  // ============================================================
-
-  const directionLabel = createLabel("Rotation Angle (degrees)");
-
-  const directionContainer = document.createElement("div");
-
-  directionContainer.style.display = "flex";
-  directionContainer.style.alignItems = "center";
-  directionContainer.style.gap = "6px";
-  directionContainer.style.marginBottom = "16px";
-  directionContainer.style.width = "100%";
-  directionContainer.style.boxSizing = "border-box";
-
-  const directionSlider = document.createElement("input");
-
-  directionSlider.type = "range";
-  directionSlider.min = "-360";
-  directionSlider.max = "360";
-  directionSlider.step = "0.1";
-  directionSlider.value = "90";
-
-  directionSlider.style.flex = "1";
-  directionSlider.style.minWidth = "0";
-
-  const directionValue = document.createElement("input");
-
-  directionValue.type = "text";
-  directionValue.value = "90";
-
-  directionValue.style.width = "40px";
-  directionValue.style.minWidth = "40px";
-  directionValue.style.maxWidth = "40px";
-  directionValue.style.flexShrink = "0";
-  directionValue.style.boxSizing = "border-box";
-  directionValue.style.textAlign = "center";
-  directionValue.style.padding = "3px";
-
-  const degreeSymbol = document.createElement("span");
-
-  degreeSymbol.textContent = "°";
-
-  function getDirection() {
-    return normalizeAngle(directionValue.value);
-  }
-
-  directionSlider.addEventListener("input", () => {
-    directionValue.value = directionSlider.value;
-  });
-
-  directionValue.addEventListener("input", () => {
-    const raw = directionValue.value;
-
-    lastRotationEdit = "move";
-    updateRotateButtonState();
-
-    if (raw === "" || raw === "-" || raw === "." || raw === "-.") {
-      return;
-    }
-
-    if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw)) {
-      directionValue.value = raw
-        .replace(/[^\d.-]/g, "")
-        .replace(/(?!^)-/g, "")
-        .replace(/(\..*)\./g, "$1");
-      return;
-    }
-
-    const decimalIndex = raw.indexOf(".");
-    const sign = raw.startsWith("-") ? "-" : "";
-    const unsignedRaw = sign ? raw.slice(1) : raw;
-    const unsignedDecimalIndex = unsignedRaw.indexOf(".");
-    const integerPart = (
-      unsignedDecimalIndex === -1
-        ? unsignedRaw
-        : unsignedRaw.slice(0, unsignedDecimalIndex)
-    ).replace(/[^\d]/g, "");
-    const fractionalPart = (
-      unsignedDecimalIndex === -1
-        ? ""
-        : unsignedRaw.slice(unsignedDecimalIndex + 1)
-    ).slice(0, 3);
-    const normalized = `${sign}${integerPart}${decimalIndex === -1 ? "" : `.${fractionalPart}`}`;
-
-    if (normalized !== raw) {
-      directionValue.value = normalized;
-    }
-
-    const angle = normalizeAngle(normalized);
-
-    directionSlider.value = angle;
-  });
-
-  directionValue.addEventListener("blur", () => {
-    lastRotationEdit = "move";
-
-    const raw = directionValue.value;
-    const decimalIndex = raw.indexOf(".");
-    const sign = raw.startsWith("-") ? "-" : "";
-    const unsignedRaw = sign ? raw.slice(1) : raw;
-    const unsignedDecimalIndex = unsignedRaw.indexOf(".");
-    const integerPart = (
-      unsignedDecimalIndex === -1
-        ? unsignedRaw
-        : unsignedRaw.slice(0, unsignedDecimalIndex)
-    ).replace(/[^\d]/g, "");
-    const fractionalPart = (
-      unsignedDecimalIndex === -1
-        ? ""
-        : unsignedRaw.slice(unsignedDecimalIndex + 1)
-    ).slice(0, 3);
-    const normalized = `${sign}${integerPart}${decimalIndex === -1 ? "" : `.${fractionalPart}`}`;
-    const angle = normalizeAngle(normalized);
-
-    directionValue.value = angle;
-    directionSlider.value = angle;
-    updateRotateButtonState();
-  });
-
-  directionValue.addEventListener("click", () => {
-    lastRotationEdit = "move";
-    updateRotateButtonState();
-  });
-  directionValue.addEventListener("focus", () => {
-    lastRotationEdit = "move";
-    updateRotateButtonState();
-  });
-
-  directionContainer.appendChild(directionSlider);
-  directionContainer.appendChild(directionValue);
-  directionContainer.appendChild(degreeSymbol);
-
-  const customSequenceLabel = createLabel("Custom Sequence");
-
-  customSequenceLabel.style.display = "flex";
-  customSequenceLabel.style.alignItems = "center";
-  customSequenceLabel.style.justifyContent = "space-between";
-
-  const customSequenceInfoButton = document.createElement("button");
-
-  customSequenceInfoButton.className = "compact-icon-button";
-  customSequenceInfoButton.type = "button";
-  customSequenceInfoButton.title =
-    "Enter moves separated by spaces, such as R U R' or F[33°]";
-  customSequenceInfoButton.setAttribute(
-    "aria-label",
-    "Enter moves separated by spaces, such as R U R' or F[33°]",
-  );
-  customSequenceInfoButton.style.width = "22px";
-  customSequenceInfoButton.style.height = "22px";
-  customSequenceInfoButton.style.padding = "2px";
-  customSequenceInfoButton.style.boxSizing = "border-box";
-  customSequenceInfoButton.style.cursor = "pointer";
-
-  const customSequenceInfoImage = document.createElement("img");
-
-  customSequenceInfoImage.src = infoIcon;
-  customSequenceInfoImage.alt = "";
-  customSequenceInfoImage.style.width = "100%";
-  customSequenceInfoImage.style.height = "100%";
-  customSequenceInfoImage.style.display = "block";
-  customSequenceInfoImage.style.pointerEvents = "none";
-
-  customSequenceInfoButton.appendChild(customSequenceInfoImage);
-  customSequenceLabel.appendChild(customSequenceInfoButton);
-
-  const customSequenceInput = document.createElement("input");
-
-  customSequenceInput.type = "text";
-  customSequenceInput.placeholder = ROTATION_SEQUENCE_PLACEHOLDER;
-  customSequenceInput.style.flex = "1";
-  customSequenceInput.style.minWidth = "0";
-  customSequenceInput.style.padding = "6px";
-  customSequenceInput.style.boxSizing = "border-box";
-
-  const customSequenceStatusImage = document.createElement("img");
-
-  customSequenceStatusImage.alt = "";
-  customSequenceStatusImage.style.display = "none";
-  customSequenceStatusImage.style.width = "18px";
-  customSequenceStatusImage.style.height = "18px";
-  customSequenceStatusImage.style.objectFit = "contain";
-  customSequenceStatusImage.style.flexShrink = "0";
-
-  const customSequenceInputRow = document.createElement("div");
-
-  customSequenceInputRow.style.display = "flex";
-  customSequenceInputRow.style.alignItems = "center";
-  customSequenceInputRow.style.gap = "6px";
-  customSequenceInputRow.style.width = "100%";
-  customSequenceInputRow.style.marginBottom = "14px";
-  customSequenceInputRow.style.boxSizing = "border-box";
-  customSequenceInputRow.appendChild(customSequenceInput);
-  customSequenceInputRow.appendChild(customSequenceStatusImage);
-
   function getCustomSequenceMoves(value) {
     return value
       .trim()
       .split(/\s+/)
       .filter(Boolean)
       .map(stripCustomMoveParentheses);
-  }
-
-  function isValidCustomSequence(value) {
-    const sequence = value.trim();
-
-    if (sequence === "") {
-      return true;
-    }
-
-    return getCustomSequenceMoves(sequence).every((move) => {
-      const normalizedMove = normalizeWideMoveName(move);
-
-      if (getRotationDefinition(normalizedMove)) {
-        return true;
-      }
-
-      const customMove = parseCustomMove(move);
-
-      if (!customMove) {
-        return false;
-      }
-
-      return Boolean(
-        getRotationDefinition(normalizeWideMoveName(customMove.moveName)),
-      );
-    });
   }
 
   function parseCustomSequence(value) {
@@ -3639,85 +3321,14 @@ export function createUI({
     });
   }
 
-  function validateCustomSequence({ updateLastRotationEdit = true } = {}) {
-    const isValid = isValidCustomSequence(customSequenceInput.value);
-    const hasSequence = customSequenceInput.value.trim() !== "";
-
-    if (updateLastRotationEdit && hasSequence && isValid) {
-      lastRotationEdit = "sequence";
-    }
-
-    customSequenceInput.setCustomValidity(
-      isValid
-        ? ""
-        : "Use valid rotation moves separated by spaces, such as R U R' or F[33°].",
-    );
-    customSequenceInput.setAttribute("aria-invalid", String(!isValid));
-    customSequenceInput.style.borderColor = isValid ? "" : "#c00";
-    updateRotateButtonState();
-
-    return isValid;
-  }
-
-  function updateRotateButtonState() {
-    const sequence = customSequenceInput.value.trim();
-    const hasMove = Boolean(moveSelect.value);
-    const hasSequence = sequence !== "";
-    const hasValidSequence = hasSequence && isValidCustomSequence(sequence);
-    const requiresMoveSelection = lastRotationEdit === "move" && !hasMove;
-    const isDisabled = requiresMoveSelection || (!hasMove && !hasValidSequence);
-    const selectedOption = moveSelect.options[moveSelect.selectedIndex];
-    const moveName = selectedOption?.value;
-    const moveNotation = moveName
-      ? getCustomMoveLabel(moveName, getDirection())
-      : "";
-    const rotationLabel =
-      lastRotationEdit === "move" && moveNotation
-        ? `Insert ${moveNotation}`
-        : `Insert ${lastRotationEdit}`;
-
-    customSequenceStatusImage.style.display = hasSequence ? "block" : "none";
-    customSequenceStatusImage.src = !hasValidSequence
-      ? sequenceInvalidIcon
-      : lastRotationEdit === "move"
-        ? sequencePendingIcon
-        : sequenceValidIcon;
-    customSequenceStatusImage.alt = !hasValidSequence
-      ? "Invalid sequence"
-      : lastRotationEdit === "move"
-        ? "Valid sequence pending"
-        : "Valid sequence";
-    insertButton.disabled = isDisabled;
-    insertButton.textContent = isDisabled
-      ? requiresMoveSelection
-        ? "Select move or sequence"
-        : "Invalid sequence"
-      : rotationLabel;
-    insertButton.style.opacity = isDisabled ? "0.5" : "1";
-    insertButton.style.cursor = isDisabled ? "not-allowed" : "pointer";
-  }
-
-  customSequenceInput.addEventListener("input", validateCustomSequence);
-  customSequenceInput.addEventListener("click", () => {
-    lastRotationEdit = "sequence";
-    updateRotateButtonState();
-  });
-  customSequenceInput.addEventListener("focus", () => {
-    lastRotationEdit = "sequence";
-    updateRotateButtonState();
-  });
-  moveSelect.addEventListener("change", () => {
-    lastRotationEdit = "move";
-    updateRotateButtonState();
+  const customMoveControls = createCustomMoveControls({
+    createLabel,
+    sequencePlaceholder: ROTATION_SEQUENCE_PLACEHOLDER,
+    scheduleSubmission: scheduleRotationInsertion,
+    onInsertRequest: insertRotation,
   });
 
-  customControls.appendChild(customSequenceLabel);
-  customControls.appendChild(customSequenceInputRow);
-  customControls.appendChild(moveControlRow);
-  customControls.appendChild(directionLabel);
-  customControls.appendChild(directionContainer);
-  customControls.appendChild(insertButton);
-  updateRotateButtonState();
+  rotationContent.appendChild(customMoveControls.root);
 
   // ============================================================
   // Move type behavior
@@ -3731,8 +3342,7 @@ export function createUI({
     moveType = "fixed";
 
     fixedMoveControls.setVisible(true);
-    customControls.style.display = "none";
-    insertButton.style.display = "none";
+    customMoveControls.setVisible(false);
     syncRotationBlockLayout();
   });
 
@@ -3744,8 +3354,7 @@ export function createUI({
     moveType = "custom";
 
     fixedMoveControls.setVisible(false);
-    customControls.style.display = "block";
-    insertButton.style.display = "block";
+    customMoveControls.setVisible(true);
     syncRotationBlockLayout();
   });
 
@@ -8699,18 +8308,13 @@ export function createUI({
   // Rotate button
   // ============================================================
 
-  async function insertRotation() {
+  async function insertRotation(request) {
     if (!moveType) {
       return;
     }
 
-    if (!validateCustomSequence({ updateLastRotationEdit: false })) {
-      customSequenceInput.reportValidity();
-      return;
-    }
-
-    if (lastRotationEdit === "sequence") {
-      const sequence = parseCustomSequence(customSequenceInput.value);
+    if (request.type === "sequence") {
+      const sequence = parseCustomSequence(request.value);
 
       if (!sequence?.length || sequence.some((move) => !move)) {
         return;
@@ -8744,13 +8348,12 @@ export function createUI({
     // Custom
     // --------------------------------------------------------
 
-    if (moveType === "custom" && !moveSelect.value) {
+    if (moveType === "custom" && !request.moveName) {
       return;
     }
 
-    const move = moveSelect.value;
-
-    const angle = getDirection();
+    const move = request.moveName;
+    const angle = request.angle;
 
     if (!move) {
       return;
@@ -8765,12 +8368,8 @@ export function createUI({
     // The standardized fixed moves use rotateMove().
     // --------------------------------------------------------
 
-    const selectedOption = moveSelect.options[moveSelect.selectedIndex];
-
-    if (selectedOption) {
-      const shortName = selectedOption.textContent.split(" - ")[0].trim();
-
-      const moveText = getCustomMoveLabel(shortName, angle);
+    if (request.shortName !== undefined) {
+      const moveText = getCustomMoveLabel(request.shortName, angle);
       const rotationAngle = getCustomRotationAngle(move, angle);
 
       if (moveText) {
@@ -8778,17 +8377,13 @@ export function createUI({
           label: moveText,
           run: (duration) => rotateSlice(move, rotationAngle, duration),
           inverse: {
-            label: getCustomMoveLabel(shortName, -angle),
+            label: getCustomMoveLabel(request.shortName, -angle),
             run: (duration) => rotateSlice(move, -rotationAngle, duration),
           },
         });
       }
     }
   }
-
-  insertButton.addEventListener("click", () => {
-    scheduleRotationInsertion(insertRotation);
-  });
 
   // ============================================================
   // Reset
@@ -8798,13 +8393,7 @@ export function createUI({
     resetCubeOrientation();
     resetCameraView();
 
-    moveSelect.value = "";
-    lastRotationEdit = "move";
-    customSequenceInput.value = "";
-    validateCustomSequence();
-
-    directionSlider.value = "90";
-    directionValue.value = "90";
+    customMoveControls.reset();
 
     durationSlider.value = "1";
     durationValue.value = "1";
@@ -8838,8 +8427,7 @@ export function createUI({
     moveType = null;
 
     fixedMoveControls.setVisible(false);
-    customControls.style.display = "none";
-    insertButton.style.display = "none";
+    customMoveControls.setVisible(false);
   }
 
   function resetEverythingInterface() {
