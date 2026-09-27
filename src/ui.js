@@ -42,6 +42,7 @@ import {
   default as copiedIcon,
   default as sequenceValidIcon,
 } from "./assets/yes.png";
+import { getNamedColorOrHex } from "./colorNames.js";
 import { getFaceFromNormal } from "./cubeMath.js";
 import {
   getCustomMoveLabel,
@@ -3804,7 +3805,7 @@ export function createUI({
     }
 
     function previewPickedColor() {
-      input.value = picker.value;
+      input.value = getNamedColorOrHex(picker.value);
       applyColor();
     }
 
@@ -3815,7 +3816,7 @@ export function createUI({
 
       pickerSelectionCommitted = true;
       pickerOpen = false;
-      input.value = picker.value;
+      input.value = getNamedColorOrHex(picker.value);
       applyColor();
     }
 
@@ -5297,6 +5298,7 @@ export function createUI({
     showRotationArrowsCheckbox.checked = false;
     rotationArrowGroup.visible = false;
     rotationArrowVisibilityControl.style.display = "none";
+    updateRotationArrowDirectionControlVisibility();
     rotationArrowRadiusControl.style.display = "none";
     setAllRotationArrowVisibility(true);
     rotationArrowDepthControl.style.display = "none";
@@ -8176,6 +8178,11 @@ export function createUI({
     }
   }
 
+  function updateRotationArrowDirectionControlVisibility() {
+    rotationArrowDirectionControl.style.display =
+      showRotationArrowsCheckbox.checked ? "block" : "none";
+  }
+
   showRotationArrowsCheckbox.addEventListener("change", () => {
     rotationArrowGroup.visible = showRotationArrowsCheckbox.checked;
     rotationArrowVisibilityControl.style.display =
@@ -8188,8 +8195,7 @@ export function createUI({
     rotationArrowDepthControl.style.display = showRotationArrowsCheckbox.checked
       ? "block"
       : "none";
-    rotationArrowDirectionControl.style.display =
-      showRotationArrowsCheckbox.checked ? "block" : "none";
+    updateRotationArrowDirectionControlVisibility();
     rotationArrowThicknessControl.style.display =
       showRotationArrowsCheckbox.checked ? "block" : "none";
     rotationArrowRadiusControl.style.display =

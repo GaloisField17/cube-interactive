@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { getNamedColorOrHex } from "../src/colorNames.js";
 import {
   DEFAULT_COLORS,
   DEFAULT_GAP,
@@ -94,6 +95,13 @@ test("export filenames use the local YYYYMMDDTHHMMSS prefix", () => {
     prefixWithLocalTimestamp("cube-setup.json", date),
     "20260907T040506-cube-setup.json",
   );
+});
+
+test("named picker colors use the first CSS name and preserve unnamed hex", () => {
+  assert.equal(getNamedColorOrHex("#000000"), "black");
+  assert.equal(getNamedColorOrHex("#808080"), "grey");
+  assert.equal(getNamedColorOrHex("#00FFFF"), "cyan");
+  assert.equal(getNamedColorOrHex("#123456"), "#123456");
 });
 
 test("cloneVector returns an independent vector", () => {
