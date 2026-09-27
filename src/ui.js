@@ -144,6 +144,7 @@ export function createUI({
   let labelsPanel = null;
   let viewPanel = null;
   let setupPanel = null;
+  let syncRightPanelChevron = () => {};
   let updateFaceletLabelTransforms = () => {};
   let updateAxisHelperScale = () => {};
   let ghostStickersVisibility = ALWAYS_VISIBLE;
@@ -8562,6 +8563,7 @@ export function createUI({
         setupPanel.style.right = "";
       }
 
+      syncRightPanelChevron();
       syncRotationBlockLayout();
       return;
     }
@@ -8597,6 +8599,7 @@ export function createUI({
       setupPanel.style.right = "20px";
     }
 
+    syncRightPanelChevron();
     syncRotationBlockLayout();
   }
 
@@ -9615,6 +9618,93 @@ export function createUI({
   historyButton.style.boxSizing = "border-box";
 
   controlsRoot.appendChild(historyButton);
+
+  const rightSidePanels = [
+    cubePanel,
+    viewPanel,
+    colorsPanel,
+    labelsPanel,
+    setupPanel,
+  ];
+  let rightPanelsCollapsed = false;
+  const rightPanelsChevron = document.createElement("button");
+
+  rightPanelsChevron.className = "right-panels-chevron";
+  rightPanelsChevron.type = "button";
+  rightPanelsChevron.style.position = "absolute";
+  rightPanelsChevron.style.right = "0";
+  rightPanelsChevron.style.width = "20px";
+  rightPanelsChevron.style.padding = "0";
+  rightPanelsChevron.style.border = "1px solid rgba(0, 0, 0, 0.2)";
+  rightPanelsChevron.style.borderLeft = "0";
+  rightPanelsChevron.style.borderRadius = "0 6px 6px 0";
+  rightPanelsChevron.style.background = UI_PANEL_BACKGROUND;
+  rightPanelsChevron.style.boxShadow = UI_PANEL_BOX_SHADOW;
+  rightPanelsChevron.style.fontSize = "20px";
+  rightPanelsChevron.style.lineHeight = "1";
+  rightPanelsChevron.style.cursor = "pointer";
+  rightPanelsChevron.style.zIndex = "2";
+  rightPanelsChevron.style.boxSizing = "border-box";
+  rightPanelsChevron.style.transition = "height 180ms ease";
+  controlsRoot.appendChild(rightPanelsChevron);
+
+  syncRightPanelChevron = () => {
+    if (window.innerWidth <= 900) {
+      rightPanelsCollapsed = false;
+      rightSidePanels.forEach((panel) => {
+        panel.style.transform = "";
+      });
+      rightPanelsChevron.style.display = "none";
+      return;
+    }
+
+    const bounds = rightSidePanels.map((panel) =>
+      panel.getBoundingClientRect(),
+    );
+    const stackTop = Math.min(...bounds.map((rect) => rect.top));
+    const stackBottom = Math.max(...bounds.map((rect) => rect.bottom));
+
+    rightPanelsChevron.style.display = "flex";
+    rightPanelsChevron.style.alignItems = "center";
+    rightPanelsChevron.style.justifyContent = "center";
+    rightPanelsChevron.style.top = `${stackTop + window.scrollY}px`;
+    rightPanelsChevron.style.height = `${stackBottom - stackTop}px`;
+    rightPanelsChevron.textContent = rightPanelsCollapsed ? "<" : ">";
+    rightPanelsChevron.title = rightPanelsCollapsed
+      ? "Expand Right Panels"
+      : "Collapse Right Panels";
+    rightPanelsChevron.setAttribute("aria-label", rightPanelsChevron.title);
+    rightPanelsChevron.setAttribute(
+      "aria-expanded",
+      String(!rightPanelsCollapsed),
+    );
+
+    for (const panel of rightSidePanels) {
+      panel.style.transition = "transform 220ms ease";
+      panel.style.transform = rightPanelsCollapsed
+        ? "translateX(calc(100% + 20px))"
+        : "";
+    }
+  };
+
+  rightPanelsChevron.addEventListener("click", () => {
+    rightPanelsCollapsed = !rightPanelsCollapsed;
+    syncRightPanelChevron();
+    syncRotationBlockLayout();
+  });
+
+  for (const panel of rightSidePanels) {
+    panel.addEventListener("transitionend", (event) => {
+      if (event.propertyName === "transform") {
+        syncRotationBlockLayout();
+      }
+    });
+  }
+
+  const rightPanelsResizeObserver = new ResizeObserver(syncRightPanelChevron);
+  rightSidePanels.forEach((panel) => rightPanelsResizeObserver.observe(panel));
+  window.addEventListener("resize", syncRightPanelChevron);
+  syncRightPanelChevron();
 
   updateCubePanelPosition();
 }
