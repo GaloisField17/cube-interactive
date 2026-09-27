@@ -1,9 +1,7 @@
 import infoIcon from "../assets/info.png";
 import sequenceInvalidIcon from "../assets/cross.png";
 import sequencePendingIcon from "../assets/yes-pending.png";
-import {
-  default as sequenceValidIcon,
-} from "../assets/yes.png";
+import { default as sequenceValidIcon } from "../assets/yes.png";
 import { normalizeAngle } from "../cubeMath.js";
 import {
   getCustomMoveLabel,
