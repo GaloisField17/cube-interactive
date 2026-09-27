@@ -144,7 +144,6 @@ export function createUI({
   let labelsPanel = null;
   let viewPanel = null;
   let setupPanel = null;
-  let exportSvgButton = null;
   let updateFaceletLabelTransforms = () => {};
   let updateAxisHelperScale = () => {};
   let ghostStickersVisibility = ALWAYS_VISIBLE;
@@ -7753,7 +7752,7 @@ export function createUI({
 
   const setupTitle = document.createElement("span");
 
-  setupTitle.textContent = "Setup";
+  setupTitle.textContent = "Export / Import";
   setupTitle.style.fontSize = "18px";
   setupTitle.style.fontWeight = "bold";
 
@@ -7790,6 +7789,23 @@ export function createUI({
   }
 
   setupContent.appendChild(setupButtonRow);
+
+  const exportSvgButton = document.createElement("button");
+  exportSvgButton.type = "button";
+  exportSvgButton.textContent = "Export SVG";
+  exportSvgButton.style.width = "100%";
+  exportSvgButton.style.marginTop = "8px";
+  exportSvgButton.style.padding = "8px";
+  exportSvgButton.style.cursor = "pointer";
+  exportSvgButton.style.boxSizing = "border-box";
+  exportSvgButton.addEventListener("click", async () => {
+    try {
+      await exportSvgArchive();
+    } catch (error) {
+      console.error("Unable to export SVG archive.", error);
+    }
+  });
+  setupContent.appendChild(exportSvgButton);
 
   let setupCollapsed = true;
 
@@ -8455,11 +8471,6 @@ export function createUI({
         setupPanel.style.right = "";
       }
 
-      if (exportSvgButton) {
-        exportSvgButton.style.top = "";
-        exportSvgButton.style.right = "";
-      }
-
       syncRotationBlockLayout();
       return;
     }
@@ -8493,15 +8504,6 @@ export function createUI({
         10
       }px`;
       setupPanel.style.right = "20px";
-    }
-
-    if (exportSvgButton) {
-      exportSvgButton.style.top = `${
-        (setupPanel ?? labelsPanel ?? colorsPanel).offsetTop +
-        (setupPanel ?? labelsPanel ?? colorsPanel).offsetHeight +
-        10
-      }px`;
-      exportSvgButton.style.right = "20px";
     }
 
     syncRotationBlockLayout();
@@ -9445,27 +9447,6 @@ export function createUI({
   historyButton.style.boxSizing = "border-box";
 
   controlsRoot.appendChild(historyButton);
-
-  exportSvgButton = document.createElement("button");
-
-  exportSvgButton.type = "button";
-  exportSvgButton.textContent = "Export SVG";
-  exportSvgButton.style.position = "absolute";
-  exportSvgButton.style.top = "20px";
-  exportSvgButton.style.right = "20px";
-  exportSvgButton.style.width = "280px";
-  exportSvgButton.style.padding = "8px";
-  exportSvgButton.style.cursor = "pointer";
-
-  exportSvgButton.addEventListener("click", async () => {
-    try {
-      await exportSvgArchive();
-    } catch (error) {
-      console.error("Unable to export SVG archive.", error);
-    }
-  });
-
-  controlsRoot.insertBefore(exportSvgButton, resetEverythingButton);
 
   updateCubePanelPosition();
 }
