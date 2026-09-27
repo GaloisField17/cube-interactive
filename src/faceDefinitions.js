@@ -180,6 +180,9 @@ export function createFacelet(
     solvedPosition: position ? { ...position } : null,
     type: "facelet",
     sticker: null,
+    userData: {
+      peekVisible: false,
+    },
   };
 
   facelet.sticker = facelet;

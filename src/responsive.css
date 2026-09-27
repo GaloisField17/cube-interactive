@@ -1,3 +1,13 @@
+@media (min-width: 901px) {
+  html {
+    scrollbar-gutter: stable;
+  }
+}
+
+html.cube-viewport-collapsed {
+  background-color: #dadada;
+}
+
 .cube-viewport canvas {
   display: block;
   width: 100%;
@@ -6,6 +16,12 @@
 }
 
 @media (max-width: 900px) {
+  html,
+  body {
+    overflow: hidden !important;
+    height: 100% !important;
+  }
+
   .cube-viewport {
     height: var(--cube-viewport-height) !important;
   }
@@ -21,9 +37,10 @@
     flex-direction: column;
     gap: 12px;
     overflow-y: auto;
+    overflow-x: hidden;
     touch-action: pan-y;
     overscroll-behavior: contain;
-    padding-top: 112px;
+    padding-top: 176px;
     padding-bottom: env(safe-area-inset-bottom);
     box-sizing: border-box;
   }
@@ -51,50 +68,22 @@
 
   .rotation-sequence {
     position: fixed !important;
-    top: calc(var(--cube-viewport-height) + 12px) !important;
-    right: 12px !important;
-    left: 12px !important;
+    right: auto !important;
     width: auto !important;
-    max-width: none !important;
-    max-height: 48px !important;
-    overflow-x: auto;
-    overflow-y: hidden;
-    white-space: nowrap;
+    max-width: calc(100vw - 24px) !important;
     z-index: 20;
   }
 
+  .rotation-start-state-control,
   .rotation-copy-control,
   .rotation-undo-control {
     position: fixed !important;
-    top: calc(var(--cube-viewport-height) + 68px) !important;
-    right: 12px !important;
-    left: auto !important;
     z-index: 20;
-  }
-
-  .rotation-copy-control {
-    right: 66px !important;
   }
 
   .rotation-control {
-    top: calc(var(--cube-viewport-height) + 68px) !important;
+    position: fixed !important;
     z-index: 20;
-  }
-
-  .rotation-control-start {
-    left: 12px !important;
-  }
-
-  .rotation-control-play {
-    left: 64px !important;
-  }
-
-  .rotation-control-stop {
-    left: 116px !important;
-  }
-
-  .rotation-control-end {
-    left: 168px !important;
   }
 
   .responsive-controls input:not([type="range"]):not([type="radio"]),

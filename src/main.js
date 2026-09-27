@@ -18,7 +18,15 @@ import { FACE_ROTATIONS, ROTATIONS } from "./rotationDefinitions.js";
 import { createScene } from "./sceneSetup.js";
 import { createUI } from "./ui.js";
 
-const { scene, camera, renderer, controls, resize } = createScene();
+const {
+  scene,
+  camera,
+  renderer,
+  controls,
+  resize,
+  setCubeViewportCollapsed,
+  resetCameraView,
+} = createScene();
 
 // ============================================================
 // Cube colors
@@ -376,7 +384,7 @@ async function processRotationQueue() {
   while (rotationQueue.length > 0) {
     const rotation = rotationQueue.shift();
 
-    await performRotation(
+    const completed = await performRotation(
       rotation.axis,
       rotation.layers,
       rotation.angleDegrees,
@@ -384,7 +392,7 @@ async function processRotationQueue() {
       rotation.updateLogicalState,
     );
 
-    rotation.resolve(true);
+    rotation.resolve(completed !== false);
 
     if (animationDuration.stopAfterCurrent) {
       const canceledRotations = rotationQueue.splice(0);
@@ -508,37 +516,21 @@ function performRotation(
   const targetAngle = MathUtils.degToRad(normalizedAngle);
 
   return new Promise((resolve) => {
-    function animateRotation(time) {
-      if (duration.paused) {
-        requestAnimationFrame(animateRotation);
+    let rotationFrameId = null;
+    let isCompleted = false;
+    let cancelCurrentRotation;
+    let finishStartedAt = null;
+    let finishStartAngle = 0;
+
+    function completeRotation(commitRotation = true) {
+      if (isCompleted) {
         return;
       }
 
-      if (
-        duration.pauseStartedAt !== null &&
-        duration.pauseStartedAt !== undefined
-      ) {
-        start += time - duration.pauseStartedAt;
-        duration.pauseStartedAt = null;
-      }
+      isCompleted = true;
 
-      const elapsed = time - start;
-      const currentDuration =
-        typeof duration === "object" ? duration.value : duration;
-
-      const progress =
-        currentDuration === 0 ? 1 : Math.min(elapsed / currentDuration, 1);
-
-      const eased =
-        progress < 0.5
-          ? 2 * progress * progress
-          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-
-      group.rotation[axis] = targetAngle * eased;
-
-      if (progress < 1) {
-        requestAnimationFrame(animateRotation);
-        return;
+      if (rotationFrameId !== null) {
+        cancelAnimationFrame(rotationFrameId);
       }
 
       // ------------------------------------------------------
@@ -551,7 +543,11 @@ function performRotation(
 
       scene.remove(group);
 
-      if (updateLogicalState && isExactQuarterTurn(normalizedAngle)) {
+      if (
+        commitRotation &&
+        updateLogicalState &&
+        isExactQuarterTurn(normalizedAngle)
+      ) {
         // ----------------------------------------------------
         // Update logical cube state
         // ----------------------------------------------------
@@ -568,11 +564,106 @@ function performRotation(
       }
 
       rotating = false;
-
-      resolve();
+      if (
+        typeof duration === "object" &&
+        duration.cancelCurrentRotation === cancelCurrentRotation
+      ) {
+        duration.cancelCurrentRotation = null;
+      }
+      if (typeof duration === "object") {
+        duration.finishCurrentRotationWithin = null;
+      }
+      resolve(commitRotation);
     }
 
-    requestAnimationFrame(animateRotation);
+    cancelCurrentRotation = () => {
+      if (isCompleted) {
+        return;
+      }
+
+      group.rotation[axis] = 0;
+      completeRotation(false);
+    };
+
+    if (typeof duration === "object") {
+      duration.cancelCurrentRotation = cancelCurrentRotation;
+    }
+
+    const currentDuration =
+      typeof duration === "object" ? duration.value : duration;
+
+    if (currentDuration === 0) {
+      group.rotation[axis] = targetAngle;
+      completeRotation();
+      return;
+    }
+
+    function animateRotation(time) {
+      if (duration.paused) {
+        requestAnimationFrame(animateRotation);
+        return;
+      }
+
+      if (
+        duration.pauseStartedAt !== null &&
+        duration.pauseStartedAt !== undefined
+      ) {
+        start += time - duration.pauseStartedAt;
+        duration.pauseStartedAt = null;
+      }
+
+      const elapsed = time - start;
+      const progress =
+        currentDuration === 0 ? 1 : Math.min(elapsed / currentDuration, 1);
+
+      const finishDuration =
+        typeof duration === "object"
+          ? duration.finishCurrentRotationWithin
+          : null;
+
+      if (finishDuration !== null && finishDuration !== undefined) {
+        if (finishStartedAt === null) {
+          finishStartedAt = time;
+          finishStartAngle = group.rotation[axis];
+        }
+
+        const finishProgress = Math.min(
+          (time - finishStartedAt) / finishDuration,
+          1,
+        );
+        const finishEased =
+          finishProgress < 0.5
+            ? 2 * finishProgress * finishProgress
+            : 1 - Math.pow(-2 * finishProgress + 2, 2) / 2;
+
+        group.rotation[axis] =
+          finishStartAngle + (targetAngle - finishStartAngle) * finishEased;
+
+        if (finishProgress < 1) {
+          rotationFrameId = requestAnimationFrame(animateRotation);
+          return;
+        }
+
+        completeRotation();
+        return;
+      }
+
+      const eased =
+        progress < 0.5
+          ? 2 * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+      group.rotation[axis] = targetAngle * eased;
+
+      if (progress < 1) {
+        rotationFrameId = requestAnimationFrame(animateRotation);
+        return;
+      }
+
+      completeRotation();
+    }
+
+    rotationFrameId = requestAnimationFrame(animateRotation);
   });
 }
 
@@ -886,6 +977,8 @@ createUI({
   renderer,
   camera,
   controls,
+  resetCameraView,
+  setCubeViewportCollapsed,
   cubies,
   facelets,
   colors,
@@ -935,6 +1028,10 @@ function animate() {
   requestAnimationFrame(animate);
 
   controls.update();
+
+  if (rotating || scene.userData.shouldRefreshHiddenStickerState) {
+    scene.userData.refreshHiddenStickerState?.();
+  }
 
   renderer.render(scene, camera);
 }

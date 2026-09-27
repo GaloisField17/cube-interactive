@@ -12,6 +12,10 @@ import {
   rotateVector,
 } from "../src/cubeMath.js";
 import {
+  getCustomMoveLabel,
+  getCustomRotationAngle,
+} from "../src/customRotation.js";
+import {
   createFaceDefinitions,
   createSticker,
   getFaceletLabel,
@@ -21,7 +25,10 @@ import {
   MATERIAL_INDEX_BY_FACE,
 } from "../src/faceDefinitions.js";
 import { createJsonExport } from "../src/jsonExport.js";
-import { getCubeViewportHeight } from "../src/responsiveLayout.js";
+import {
+  getCubeViewportDisplayHeight,
+  getCubeViewportHeight,
+} from "../src/responsiveLayout.js";
 import { ROTATIONS } from "../src/rotationDefinitions.js";
 
 test("JSON export keeps intentional falsy changes and UTC seconds", () => {
@@ -105,6 +112,13 @@ test("rotateVector applies exact quarter turns", () => {
     assert.equal(getCubeViewportHeight(768, 1024), 634.88);
     assert.equal(getCubeViewportHeight(1440, 900), 900);
     assert.equal(getCubeViewportHeight(320, 500), 280);
+
+    assert.equal(getCubeViewportDisplayHeight(320, 568), 232.15296);
+    assert.equal(getCubeViewportDisplayHeight(390, 844), 344.95968);
+    assert.ok(
+      Math.abs(getCubeViewportDisplayHeight(768, 1024) - 499.01568) < 1e-9,
+    );
+    assert.equal(getCubeViewportDisplayHeight(1440, 900), 900);
   });
   assert.deepEqual(rotateVector(vector, "x", 90), { x: 1, y: -3, z: 2 });
   assert.deepEqual(rotateVector(vector, "y", -90), { x: -3, y: 2, z: 1 });
@@ -130,6 +144,14 @@ test("each generated move has inverse and half-turn variants", () => {
   }
 });
 
+test("custom move labels and signed angles stay tied to the entered partial turn", () => {
+  assert.equal(getCustomMoveLabel("F", 55), "F[55°]");
+  assert.equal(getCustomMoveLabel("F", -55), "F[-55°]");
+  assert.equal(getCustomRotationAngle("F", 55), -55);
+  assert.equal(getCustomRotationAngle("F", -55), 55);
+  assert.equal(getCustomRotationAngle("R", 33), -33);
+});
+
 test("face definitions preserve colors, normals, and material indices", () => {
   const faceDefinitions = createFaceDefinitions(DEFAULT_COLORS);
   const sticker = createSticker("F", faceDefinitions);
@@ -146,6 +168,7 @@ test("face definitions preserve colors, normals, and material indices", () => {
   assert.equal(Object.isFrozen(faceDefinitions.F.normal), true);
   assert.notStrictEqual(sticker.normal, faceDefinitions.F.normal);
   assert.equal(MATERIAL_INDEX_BY_FACE.F, 4);
+  assert.deepEqual(sticker.userData, { peekVisible: false });
 });
 
 test("solved-state piece keys stay fixed to the original piece identity", () => {

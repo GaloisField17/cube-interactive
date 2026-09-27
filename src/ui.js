@@ -4,28 +4,33 @@ import {
   CatmullRomCurve3,
   Color,
   CylinderGeometry,
+  DoubleSide,
   Group,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
+  PlaneGeometry,
   Sprite,
   SpriteMaterial,
   TubeGeometry,
   Vector3,
 } from "three";
-import pausedRotationImage from "./assets/3x3cubePaused.png";
-import rotationAnimation from "./assets/3x3cubeSolveAnim.gif";
-import stoppedRotationImage from "./assets/3x3cubeStopped.png";
 import copyIcon from "./assets/copy.png";
 import {
   default as invalidColorIcon,
   default as mixedColorIcon,
 } from "./assets/cross-transparent.png";
 import sequenceInvalidIcon from "./assets/cross.png";
+import startStateIcon from "./assets/cube-state-0.svg";
+import expandCubeIcon from "./assets/expand.svg";
 import infoIcon from "./assets/info.png";
+import nextRotationIcon from "./assets/next.svg";
 import pauseIcon from "./assets/pause.svg";
+import placeholderIcon from "./assets/placeholder.svg";
 import playIcon from "./assets/play.svg";
+import previousRotationIcon from "./assets/previous.svg";
 import resetIcon from "./assets/reset.png";
+import shrinkCubeIcon from "./assets/shrink.svg";
 import stopIcon from "./assets/stop.svg";
 import toEndIcon from "./assets/toend.svg";
 import toStartIcon from "./assets/tostart.svg";
@@ -35,31 +40,79 @@ import {
   default as copiedIcon,
   default as sequenceValidIcon,
 } from "./assets/yes.png";
-import { getFaceletLabel } from "./faceDefinitions.js";
+import { getFaceFromNormal } from "./cubeMath.js";
+import {
+  getCustomMoveLabel,
+  getCustomRotationAngle,
+} from "./customRotation.js";
+import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
 
 const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
 const UI_FONT_FAMILY = "Arial, sans-serif";
 const UI_FONT_SIZE = "14px";
+const DEFAULT_ROTATION_TEXT_FONT_SIZE = 28;
+const MIN_ROTATION_TEXT_FONT_SIZE = 16;
+const ROTATION_TEXT_FONT_SIZE_STEP = 4;
+const ROTATION_TEXT_MAX_ROWS = 2;
+const MAX_NUMERIC_EDIT_VALUE = 100;
+const COMPACT_ROTATION_TEXT_TOP_OFFSET = 168;
+const DESKTOP_ROTATION_TEXT_TOP_OFFSET = 60;
+const ROTATION_TOOLBAR_FRAME_INSET = 7;
+const RESIZE_CONTROL_SIZE = 20;
+const RESIZE_CONTROL_GAP = 8;
+const RESIZE_CUBE_COLLAPSE_ICON = shrinkCubeIcon;
+const RESIZE_CUBE_EXPAND_ICON = expandCubeIcon;
+const RESIZE_ROTATION_TEXT_ICON = placeholderIcon;
 const UI_PANEL_BACKGROUND = "rgba(255, 255, 255, 0.95)";
 const UI_PANEL_BORDER_RADIUS = "8px";
 const UI_PANEL_BOX_SHADOW = "0 2px 10px rgba(0, 0, 0, 0.2)";
 const DEFAULT_LABEL_DEPTH = 0.25;
 const DEFAULT_AXIS_DEPTH = 0;
-const DEFAULT_ROTATION_ARROW_DEPTH = 0.72;
-const DEFAULT_ROTATION_ARROW_THICKNESS = 0.01;
-const DEFAULT_ROTATION_ARROW_RADIUS = 0.58;
+const DEFAULT_ROTATION_ARROW_DEPTH = 0.65;
+const DEFAULT_ROTATION_ARROW_THICKNESS = 0.015;
+const DEFAULT_ROTATION_ARROW_RADIUS = 0.5;
 const NAVIGATION_DURATION = 0;
-const DEFAULT_APP_URL = "https://galoisfield17.github.io/cube-interactive/";
+const STOP_ROTATION_FINISH_DURATION = 500;
 const ALWAYS_VISIBLE = "always-visible";
 const HIDDEN_BEHIND_CUBE = "hidden-behind-cube";
+
+function syncSliderFromEditValue(
+  slider,
+  valueInput,
+  value,
+  {
+    min = Number.NEGATIVE_INFINITY,
+    max = Math.max(MAX_NUMERIC_EDIT_VALUE, Number(slider.max)),
+  } = {},
+) {
+  const sliderMin = Number(slider.min);
+  const sliderMax = Number(slider.max);
+  const acceptedValue = Math.min(Math.max(value, min), max);
+
+  slider.value = String(MathUtils.clamp(acceptedValue, sliderMin, sliderMax));
+
+  if (acceptedValue !== value) {
+    valueInput.value = String(acceptedValue);
+  }
+
+  return acceptedValue;
+}
+
+function syncEditValueFromSlider(slider, valueInput) {
+  valueInput.value = slider.value;
+
+  return Number(valueInput.value);
+}
 
 export function createUI({
   scene,
   renderer,
   camera,
   controls,
+  resetCameraView,
+  setCubeViewportCollapsed,
   cubies,
   facelets,
   colors,
@@ -89,20 +142,164 @@ export function createUI({
   let gap = initialGap;
   let labelDepth = DEFAULT_LABEL_DEPTH;
   let labelsPanel = null;
+  let viewPanel = null;
   let setupPanel = null;
   let exportSvgButton = null;
-  let exportUrlButton = null;
-  let exportUrlCopying = false;
-  let exportUrlDirty = true;
   let updateFaceletLabelTransforms = () => {};
   let updateAxisHelperScale = () => {};
+  let ghostStickersVisibility = ALWAYS_VISIBLE;
+  let peekStickersVisibility = ALWAYS_VISIBLE;
+  let peekStickersDepth = 0.2;
+  let peekStickersHideWhenColor = "";
+
+  function dimColorForGhostEffect(color) {
+    const baseColor = new Color(color);
+
+    return `#${baseColor.multiplyScalar(0.28).getHexString()}`;
+  }
+
+  function updateGhostStickerVisibility() {
+    scene.userData.shouldRefreshHiddenStickerState =
+      ghostStickersVisibility !== ALWAYS_VISIBLE ||
+      peekStickersVisibility !== ALWAYS_VISIBLE;
+
+    if (!facelets.length) {
+      return;
+    }
+
+    scene.updateMatrixWorld(true);
+
+    const cameraPosition = camera.getWorldPosition(new Vector3());
+    const cubieWorldPositions = new Map();
+
+    for (const cubie of cubies) {
+      cubieWorldPositions.set(
+        cubie,
+        new Vector3().setFromMatrixPosition(cubie.matrixWorld),
+      );
+
+      for (const material of cubie.material) {
+        material.visible = true;
+        material.opacity = 1;
+        material.transparent = false;
+        material.depthTest = true;
+        material.depthWrite = true;
+        material.side = 0;
+      }
+    }
+
+    const activePeekOverlayIds = new Set();
+
+    for (const facelet of facelets) {
+      const face = getFaceFromNormal(facelet.normal);
+
+      if (!face) {
+        continue;
+      }
+
+      const materialIndex = MATERIAL_INDEX_BY_FACE[face];
+
+      if (materialIndex === undefined) {
+        continue;
+      }
+
+      const cubie = facelet.cubie;
+      const material = cubie.material[materialIndex];
+      if (!facelet.userData) {
+        facelet.userData = {};
+      }
+      const worldNormal = new Vector3(
+        facelet.normal.x,
+        facelet.normal.y,
+        facelet.normal.z,
+      ).transformDirection(cubie.matrixWorld);
+      const worldPosition = cubieWorldPositions
+        .get(cubie)
+        .clone()
+        .add(worldNormal.clone().multiplyScalar(0.62));
+      const toCamera = cameraPosition.clone().sub(worldPosition).normalize();
+      const isFacingCamera = worldNormal.dot(toCamera) > 0.01;
+      const isHiddenFromView = !isFacingCamera;
+      const originalColor =
+        facelet.currentColor ?? facelet.defaultColor ?? facelet.color;
+      const shouldApplyGhostTint =
+        ghostStickersVisibility === HIDDEN_BEHIND_CUBE && isHiddenFromView;
+      const shouldShowPeek =
+        peekStickersVisibility === HIDDEN_BEHIND_CUBE && isHiddenFromView;
+      const nextColor = shouldApplyGhostTint
+        ? dimColorForGhostEffect(originalColor)
+        : originalColor;
+
+      material.color.set(nextColor);
+      material.visible = true;
+      material.transparent = shouldApplyGhostTint;
+      material.opacity = shouldApplyGhostTint ? 0.38 : 1;
+      material.depthTest = !shouldApplyGhostTint;
+      material.depthWrite = !shouldApplyGhostTint;
+      material.side = shouldApplyGhostTint ? DoubleSide : 0;
+
+      if (!cubie.userData.peekStickerOverlays) {
+        cubie.userData.peekStickerOverlays = new Map();
+      }
+
+      let overlay = cubie.userData.peekStickerOverlays.get(facelet.id);
+
+      if (!overlay) {
+        overlay = new Mesh(
+          new PlaneGeometry(0.96, 0.96),
+          new MeshBasicMaterial({
+            color: originalColor,
+            side: DoubleSide,
+            transparent: false,
+            depthTest: true,
+            depthWrite: false,
+          }),
+        );
+        overlay.renderOrder = 1;
+        cubie.add(overlay);
+        cubie.userData.peekStickerOverlays.set(facelet.id, overlay);
+      }
+
+      const localNormal = new Vector3(
+        facelet.normal.x,
+        facelet.normal.y,
+        facelet.normal.z,
+      ).normalize();
+
+      overlay.visible = shouldShowPeek;
+      overlay.position.copy(
+        localNormal.clone().multiplyScalar(0.62 + peekStickersDepth),
+      );
+      overlay.quaternion.setFromUnitVectors(
+        new Vector3(0, 0, 1),
+        localNormal.clone().normalize(),
+      );
+      overlay.material.color.set(originalColor);
+      overlay.material.transparent = false;
+      overlay.material.opacity = 1;
+      overlay.material.depthTest = true;
+      overlay.material.depthWrite = false;
+      facelet.userData.peekVisible = shouldShowPeek;
+      activePeekOverlayIds.add(`${cubie.uuid}:${facelet.id}`);
+    }
+
+    for (const cubie of cubies) {
+      const overlays = cubie.userData.peekStickerOverlays;
+
+      if (!overlays) {
+        continue;
+      }
+
+      for (const [faceletId, overlay] of overlays.entries()) {
+        if (!activePeekOverlayIds.has(`${cubie.uuid}:${faceletId}`)) {
+          overlay.visible = false;
+        }
+      }
+    }
+  }
 
   function markSetupChanged() {
-    exportUrlDirty = true;
-
-    if (exportUrlButton && !exportUrlCopying) {
-      exportUrlButton.disabled = false;
-    }
+    updateGhostStickerVisibility();
   }
 
   function updateCubeDimensions(...args) {
@@ -134,9 +331,17 @@ export function createUI({
 
   controlsRoot.className = "responsive-controls";
   document.body.appendChild(controlsRoot);
+  scene.userData.refreshHiddenStickerState = updateGhostStickerVisibility;
+  scene.userData.shouldRefreshHiddenStickerState = false;
+  const peekStickerGroup = new Group();
+  const peekStickerOverlays = new Map();
+
+  peekStickerGroup.renderOrder = 1;
+  scene.add(peekStickerGroup);
   document.addEventListener("input", markSetupChanged, true);
   document.addEventListener("change", markSetupChanged, true);
   controls.addEventListener("change", markSetupChanged);
+  controls.addEventListener("change", updateGhostStickerVisibility);
 
   // ============================================================
   // Rotation panel
@@ -313,52 +518,6 @@ export function createUI({
     fontWeight: "bold",
   });
 
-  const rotationLeftColumn = document.createElement("div");
-
-  setStyles(rotationLeftColumn, {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: "8px",
-    width: "50%",
-  });
-
-  const rotationAnimationImage = document.createElement("img");
-
-  rotationAnimationImage.src = rotationAnimation;
-  rotationAnimationImage.alt = "";
-  setStyles(rotationAnimationImage, {
-    display: "none",
-    width: "18px",
-    height: "18px",
-    objectFit: "cover",
-    flexShrink: "0",
-  });
-
-  const rotationPausedImage = document.createElement("img");
-
-  rotationPausedImage.src = pausedRotationImage;
-  rotationPausedImage.alt = "";
-  setStyles(rotationPausedImage, {
-    display: "none",
-    width: "18px",
-    height: "18px",
-    objectFit: "cover",
-    flexShrink: "0",
-  });
-
-  const rotationStoppedImage = document.createElement("img");
-
-  rotationStoppedImage.src = stoppedRotationImage;
-  rotationStoppedImage.alt = "";
-  setStyles(rotationStoppedImage, {
-    display: "none",
-    width: "18px",
-    height: "18px",
-    objectFit: "cover",
-    flexShrink: "0",
-  });
-
   const rotationHeader = document.createElement("div");
 
   setStyles(rotationHeader, {
@@ -366,7 +525,6 @@ export function createUI({
     alignItems: "center",
     justifyContent: "space-between",
     gap: "8px",
-    marginBottom: "12px",
     userSelect: "none",
   });
 
@@ -376,6 +534,8 @@ export function createUI({
     display: "flex",
     alignItems: "center",
     gap: "6px",
+    flex: "1",
+    minWidth: "0",
   });
 
   const resetRotationButton = createResetButton("Reset Rotation", () =>
@@ -384,11 +544,7 @@ export function createUI({
 
   rotationTitleRow.appendChild(resetRotationButton);
   rotationTitleRow.appendChild(rotationTitle);
-  rotationLeftColumn.appendChild(rotationTitleRow);
-  rotationHeader.appendChild(rotationLeftColumn);
-  rotationHeader.appendChild(rotationAnimationImage);
-  rotationHeader.appendChild(rotationPausedImage);
-  rotationHeader.appendChild(rotationStoppedImage);
+  rotationHeader.appendChild(rotationTitleRow);
   panel.appendChild(rotationHeader);
 
   const rotationContent = document.createElement("div");
@@ -400,42 +556,25 @@ export function createUI({
   let rotationCollapsed = window.innerWidth <= 900;
   rotationContent.style.display = rotationCollapsed ? "none" : "block";
 
-  const rotationToggleButton = document.createElement("button");
+  const rotationToggleButton = document.createElement("span");
 
-  rotationToggleButton.type = "button";
+  rotationToggleButton.setAttribute("role", "button");
+  rotationToggleButton.tabIndex = 0;
   rotationToggleButton.title = "Collapse Or Expand Rotation Controls";
   rotationToggleButton.setAttribute(
     "aria-label",
     "Collapse Or Expand Rotation Controls",
   );
   rotationToggleButton.setAttribute("aria-controls", rotationContent.id);
-  rotationToggleButton.style.display = "flex";
-  rotationToggleButton.style.alignItems = "center";
-  rotationToggleButton.style.justifyContent = "center";
-  rotationToggleButton.style.width = "100%";
-  rotationToggleButton.style.height = "22px";
-  rotationToggleButton.style.marginTop = "8px";
-  rotationToggleButton.style.padding = "0";
-  rotationToggleButton.style.border = "0";
-  rotationToggleButton.style.background = "transparent";
+  rotationToggleButton.style.fontSize = "20px";
+  rotationToggleButton.style.lineHeight = "1";
+  rotationToggleButton.style.flexShrink = "0";
   rotationToggleButton.style.cursor = "pointer";
-  rotationToggleButton.style.boxSizing = "border-box";
-
-  const rotationToggleIcon = document.createElement("span");
-
-  rotationToggleIcon.style.width = "8px";
-  rotationToggleIcon.style.height = "8px";
-  rotationToggleIcon.style.borderRight = "2px solid currentColor";
-  rotationToggleIcon.style.borderBottom = "2px solid currentColor";
-  rotationToggleIcon.style.transition = "transform 120ms ease";
-
-  rotationToggleButton.appendChild(rotationToggleIcon);
-  panel.appendChild(rotationToggleButton);
+  rotationToggleButton.textContent = rotationCollapsed ? "+" : "−";
+  rotationHeader.appendChild(rotationToggleButton);
 
   function updateRotationToggle() {
-    rotationToggleIcon.style.transform = rotationCollapsed
-      ? "rotate(45deg)"
-      : "rotate(225deg)";
+    rotationToggleButton.textContent = rotationCollapsed ? "+" : "−";
     rotationToggleButton.setAttribute(
       "aria-expanded",
       String(!rotationCollapsed),
@@ -453,6 +592,7 @@ export function createUI({
 
     rotationContent.style.display = rotationCollapsed ? "none" : "block";
     updateRotationToggle();
+    syncRotationBlockLayout();
   }
 
   rotationToggleButton.addEventListener("click", toggleRotationPanel);
@@ -470,27 +610,15 @@ export function createUI({
   const rotationStatus = {
     idle: {
       label: "Rotation",
-      image: rotationAnimation,
-      display: "none",
-      size: "18px",
     },
     playing: {
       label: "Rotating...",
-      image: rotationAnimation,
-      display: "block",
-      size: "64px",
     },
     paused: {
       label: "Paused",
-      image: pausedRotationImage,
-      display: "block",
-      size: "64px",
     },
     stopped: {
       label: "Stopped",
-      image: stoppedRotationImage,
-      display: "block",
-      size: "64px",
     },
   };
 
@@ -498,19 +626,6 @@ export function createUI({
     const status = rotationStatus[state] ?? rotationStatus.idle;
 
     rotationTitle.textContent = status.label;
-    rotationAnimationImage.style.display =
-      state === "playing" ? "block" : "none";
-    rotationPausedImage.style.display = state === "paused" ? "block" : "none";
-    rotationStoppedImage.style.display = state === "stopped" ? "block" : "none";
-
-    for (const image of [
-      rotationAnimationImage,
-      rotationPausedImage,
-      rotationStoppedImage,
-    ]) {
-      image.style.width = status.size;
-      image.style.height = status.size;
-    }
   }
 
   function markRotationStarted() {
@@ -535,7 +650,8 @@ export function createUI({
   rotationText.className = "rotation-sequence";
   rotationText.textContent = "";
 
-  rotationText.style.fontSize = "28px";
+  rotationText.style.fontSize = `${DEFAULT_ROTATION_TEXT_FONT_SIZE}px`;
+  rotationText.style.lineHeight = "1.2";
   rotationText.style.fontWeight = "bold";
   rotationText.style.display = "none";
   rotationText.style.width = "fit-content";
@@ -581,22 +697,60 @@ export function createUI({
 
   document.body.appendChild(rotationText);
 
+  const startStateButton = document.createElement("button");
+
+  startStateButton.className = "rotation-start-state-control";
+  startStateButton.type = "button";
+  startStateButton.title = "Start State";
+  startStateButton.setAttribute("aria-label", "Start State");
+  startStateButton.style.display = "inline-flex";
+  startStateButton.style.alignItems = "center";
+  startStateButton.style.justifyContent = "center";
+  startStateButton.style.position = "absolute";
+  startStateButton.style.top = "20px";
+  startStateButton.style.left = "198px";
+  startStateButton.style.width = "48px";
+  startStateButton.style.height = "48px";
+  startStateButton.style.minWidth = "48px";
+  startStateButton.style.minHeight = "48px";
+  startStateButton.style.maxWidth = "48px";
+  startStateButton.style.maxHeight = "48px";
+  startStateButton.style.padding = "0";
+  startStateButton.style.background = "#f5f5f5";
+  startStateButton.style.boxSizing = "border-box";
+  startStateButton.style.cursor = "pointer";
+  addHoverEffect(startStateButton, "#edf4ff");
+
+  const startStateIconImage = document.createElement("img");
+
+  startStateIconImage.src = startStateIcon;
+  startStateIconImage.alt = "";
+  startStateIconImage.style.width = "22px";
+  startStateIconImage.style.height = "22px";
+  startStateIconImage.style.display = "block";
+  startStateIconImage.style.pointerEvents = "none";
+  startStateButton.appendChild(startStateIconImage);
+  document.body.appendChild(startStateButton);
+
   const copyRotationButton = document.createElement("button");
 
   copyRotationButton.className = "rotation-copy-control";
   copyRotationButton.type = "button";
   copyRotationButton.title = "Copy Rotations To Clipboard";
   copyRotationButton.setAttribute("aria-label", "Copy Rotations To Clipboard");
-  copyRotationButton.style.display = "none";
+  copyRotationButton.style.display = "inline-flex";
+  copyRotationButton.style.alignItems = "center";
+  copyRotationButton.style.justifyContent = "center";
+  copyRotationButton.disabled = true;
   copyRotationButton.style.position = "absolute";
   copyRotationButton.style.top = "20px";
   copyRotationButton.style.left = "248px";
-  copyRotationButton.style.width = "42px";
-  copyRotationButton.style.height = "42px";
-  copyRotationButton.style.minWidth = "42px";
-  copyRotationButton.style.minHeight = "42px";
-  copyRotationButton.style.maxWidth = "42px";
-  copyRotationButton.style.maxHeight = "42px";
+  copyRotationButton.style.width = "48px";
+  copyRotationButton.style.height = "48px";
+  copyRotationButton.style.minWidth = "48px";
+  copyRotationButton.style.minHeight = "48px";
+  copyRotationButton.style.maxWidth = "48px";
+  copyRotationButton.style.maxHeight = "48px";
   copyRotationButton.style.padding = "0";
   copyRotationButton.style.background = "#f5f5f5";
   copyRotationButton.style.fontSize = "22px";
@@ -624,22 +778,393 @@ export function createUI({
   undoRotationButton.type = "button";
   undoRotationButton.title = "Undo Latest Rotation";
   undoRotationButton.setAttribute("aria-label", "Undo Latest Rotation");
-  undoRotationButton.style.display = "none";
+  undoRotationButton.style.display = "inline-flex";
+  undoRotationButton.style.alignItems = "center";
+  undoRotationButton.style.justifyContent = "center";
+  undoRotationButton.disabled = true;
   undoRotationButton.style.position = "absolute";
   undoRotationButton.style.top = "70px";
   undoRotationButton.style.left = "248px";
-  undoRotationButton.style.width = "42px";
-  undoRotationButton.style.height = "42px";
-  undoRotationButton.style.minWidth = "42px";
-  undoRotationButton.style.minHeight = "42px";
-  undoRotationButton.style.maxWidth = "42px";
-  undoRotationButton.style.maxHeight = "42px";
+  undoRotationButton.style.width = "48px";
+  undoRotationButton.style.height = "48px";
+  undoRotationButton.style.minWidth = "48px";
+  undoRotationButton.style.minHeight = "48px";
+  undoRotationButton.style.maxWidth = "48px";
+  undoRotationButton.style.maxHeight = "48px";
   undoRotationButton.style.padding = "0";
   undoRotationButton.style.background = "#f5f5f5";
   undoRotationButton.style.lineHeight = "1";
   undoRotationButton.style.boxSizing = "border-box";
   undoRotationButton.style.cursor = "pointer";
   addHoverEffect(undoRotationButton, "#edf4ff");
+
+  const rotationBlock = {
+    text: rotationText,
+    copyButton: copyRotationButton,
+    undoButton: undoRotationButton,
+  };
+
+  const rotationToolbarFrame = document.createElement("div");
+
+  rotationToolbarFrame.setAttribute("aria-hidden", "true");
+  setStyles(rotationToolbarFrame, {
+    position: "absolute",
+    display: "none",
+    border: "1px solid rgba(0, 0, 0, 0.2)",
+    borderRadius: UI_PANEL_BORDER_RADIUS,
+    boxSizing: "border-box",
+    pointerEvents: "none",
+    zIndex: "1",
+  });
+  document.body.appendChild(rotationToolbarFrame);
+
+  function getRotationTextHeightLimits() {
+    const textStyles = getComputedStyle(rotationText);
+    const verticalPadding =
+      Number.parseFloat(textStyles.paddingTop) +
+      Number.parseFloat(textStyles.paddingBottom);
+    const verticalBorders =
+      Number.parseFloat(textStyles.borderTopWidth) +
+      Number.parseFloat(textStyles.borderBottomWidth);
+    const maximumContentHeight =
+      DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2 * ROTATION_TEXT_MAX_ROWS + 2;
+
+    return {
+      verticalPadding,
+      maximumContentHeight,
+      maximumBoxHeight: Math.ceil(
+        maximumContentHeight + verticalPadding + verticalBorders,
+      ),
+    };
+  }
+
+  function updateRotationToolbarFrame(
+    navigationButtons,
+    { rotationBlockTop, rotationTextLeft, availableRight },
+  ) {
+    const elements = [
+      startStateButton,
+      copyRotationButton,
+      undoRotationButton,
+      ...navigationButtons,
+    ];
+
+    const bounds = elements
+      .filter((element) => getComputedStyle(element).display !== "none")
+      .map((element) => element.getBoundingClientRect());
+    const maximumTextWidth = Math.max(0, availableRight - rotationTextLeft);
+    const contentLeft = Math.min(
+      rotationTextLeft,
+      ...bounds.map((rect) => rect.left),
+    );
+    const contentRight = Math.max(
+      rotationTextLeft + maximumTextWidth,
+      ...bounds.map((rect) => rect.right),
+    );
+    const rotationTextBounds =
+      getRotationEntries().length > 0
+        ? rotationText.getBoundingClientRect()
+        : null;
+    const contentBottomOffset = Math.max(
+      ...bounds.map((rect) => rect.bottom + window.scrollY - rotationBlockTop),
+      ...(rotationTextBounds
+        ? [rotationTextBounds.bottom + window.scrollY - rotationBlockTop]
+        : []),
+    );
+    const frameHeight = contentBottomOffset + ROTATION_TOOLBAR_FRAME_INSET * 2;
+
+    rotationToolbarFrame.style.display = "block";
+    rotationToolbarFrame.style.left = `${
+      contentLeft + window.scrollX - ROTATION_TOOLBAR_FRAME_INSET
+    }px`;
+    rotationToolbarFrame.style.top = `${
+      rotationBlockTop - ROTATION_TOOLBAR_FRAME_INSET
+    }px`;
+    rotationToolbarFrame.style.width = `${
+      contentRight - contentLeft + ROTATION_TOOLBAR_FRAME_INSET * 2
+    }px`;
+    rotationToolbarFrame.style.height = `${frameHeight}px`;
+  }
+
+  function fitRotationText() {
+    if (rotationText.style.display === "none") {
+      return;
+    }
+
+    rotationText.style.whiteSpace = "normal";
+    rotationText.style.overflowWrap = "break-word";
+    rotationText.style.overflowX = "hidden";
+    rotationText.style.minHeight = "";
+
+    const { verticalPadding, maximumContentHeight, maximumBoxHeight } =
+      getRotationTextHeightLimits();
+
+    rotationText.style.maxHeight = `${maximumBoxHeight}px`;
+    rotationText.style.overflowY = "auto";
+
+    for (
+      let fontSize = DEFAULT_ROTATION_TEXT_FONT_SIZE;
+      fontSize >= MIN_ROTATION_TEXT_FONT_SIZE;
+      fontSize -= ROTATION_TEXT_FONT_SIZE_STEP
+    ) {
+      rotationText.style.fontSize = `${fontSize}px`;
+      rotationText.style.lineHeight = `${fontSize * 1.2}px`;
+
+      const lineHeight = Number.parseFloat(
+        getComputedStyle(rotationText).lineHeight,
+      );
+      const contentHeight = rotationText.scrollHeight - verticalPadding;
+
+      if (contentHeight <= maximumContentHeight) {
+        if (contentHeight > lineHeight + 2) {
+          rotationText.style.minHeight = `${maximumBoxHeight}px`;
+        }
+
+        return;
+      }
+    }
+
+    rotationText.style.minHeight = `${maximumBoxHeight}px`;
+  }
+
+  function syncRotationBlockLayout() {
+    const hasRotationEntries = getRotationEntries().length > 0;
+
+    resizeRotationTextControl.button.style.display = hasRotationEntries
+      ? "flex"
+      : "none";
+    resizeRotationTextControl.button.setAttribute(
+      "aria-pressed",
+      String(hasRotationEntries && rotationText.style.display !== "none"),
+    );
+
+    const compactLayout = window.innerWidth <= 900;
+    const rightInset = compactLayout ? 12 : 20;
+    const compactToolbarTop =
+      Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--cube-viewport-height",
+        ),
+      ) + 12;
+    const rotationBlockTop = compactLayout
+      ? compactToolbarTop
+      : Math.max(20, window.innerHeight - 200) + window.scrollY;
+    const navigationButtons = [
+      toStartButton,
+      previousRotationButton,
+      playPauseButton,
+      stopRotationButton,
+      nextRotationButton,
+      toEndButton,
+    ];
+    const navigationGap = 4;
+    const navigationWidth = navigationButtons.reduce(
+      (width, button) => width + parseFloat(button.style.width),
+      navigationGap * (navigationButtons.length - 1),
+    );
+    const availableCompactWidth = window.innerWidth - rightInset - 12;
+    const actionButtonsWidth =
+      parseFloat(startStateButton.style.width) +
+      parseFloat(copyRotationButton.style.width) +
+      parseFloat(undoRotationButton.style.width) +
+      24;
+    const actionToNavigationGap = 8;
+    const resizeControlReserve = RESIZE_CONTROL_SIZE + RESIZE_CONTROL_GAP;
+    const shareCompactRow =
+      compactLayout &&
+      actionButtonsWidth +
+        actionToNavigationGap +
+        navigationWidth +
+        resizeControlReserve <=
+        availableCompactWidth;
+    const navigationFitsOneRow =
+      navigationWidth + resizeControlReserve <= availableCompactWidth;
+    const navigationRows = compactLayout
+      ? shareCompactRow || navigationFitsOneRow
+        ? [navigationButtons]
+        : [
+            [toStartButton, previousRotationButton, playPauseButton],
+            [stopRotationButton, nextRotationButton, toEndButton],
+          ]
+      : [navigationButtons];
+    const navigationRowOffsets = shareCompactRow
+      ? [0]
+      : navigationRows.length === 1
+        ? [56]
+        : [56, 112];
+    const historyTopOffset = shareCompactRow
+      ? 56
+      : navigationRows.length === 1
+        ? 112
+        : COMPACT_ROTATION_TEXT_TOP_OFFSET;
+    const rotationTextTop = compactLayout
+      ? rotationBlockTop + historyTopOffset
+      : rotationBlockTop + DESKTOP_ROTATION_TEXT_TOP_OFFSET;
+    const navigationAnchorOffset =
+      parseFloat(toStartButton.style.width) +
+      navigationGap +
+      parseFloat(previousRotationButton.style.width) +
+      navigationGap +
+      parseFloat(playPauseButton.style.width) +
+      navigationGap / 2;
+    const defaultActionButtonsLeft = compactLayout
+      ? 12
+      : panel.getBoundingClientRect().right + 12;
+    let actionButtonsLeft = defaultActionButtonsLeft;
+    let availableRight = window.innerWidth - rightInset;
+
+    for (let pass = 0; pass <= controlsRoot.children.length; pass += 1) {
+      const rotationTextLeft = compactLayout ? 12 : actionButtonsLeft;
+
+      rotationText.style.maxWidth = `${Math.max(
+        0,
+        availableRight - rotationTextLeft,
+      )}px`;
+      fitRotationText();
+
+      const textBottom =
+        rotationText.style.display === "none"
+          ? rotationBlockTop
+          : rotationTextTop + rotationText.getBoundingClientRect().height;
+      const toolbarBottom = Math.max(rotationBlockTop + 48, textBottom);
+      let nextAvailableRight = window.innerWidth - rightInset;
+      let nextActionButtonsLeft = defaultActionButtonsLeft;
+
+      if (!compactLayout) {
+        for (const box of controlsRoot.children) {
+          const bounds = box.getBoundingClientRect();
+
+          if (
+            getComputedStyle(box).display === "none" ||
+            bounds.width === 0 ||
+            bounds.height === 0
+          ) {
+            continue;
+          }
+
+          if (bounds.left < window.innerWidth / 2) {
+            if (
+              bounds.bottom <= rotationBlockTop ||
+              bounds.top >= toolbarBottom
+            ) {
+              continue;
+            }
+
+            nextActionButtonsLeft = Math.max(
+              nextActionButtonsLeft,
+              bounds.right + 12,
+            );
+          } else {
+            nextAvailableRight = Math.min(nextAvailableRight, bounds.left - 12);
+          }
+        }
+      }
+
+      if (
+        nextAvailableRight >= availableRight &&
+        nextActionButtonsLeft <= actionButtonsLeft
+      ) {
+        break;
+      }
+
+      availableRight = Math.min(availableRight, nextAvailableRight);
+      actionButtonsLeft = Math.max(actionButtonsLeft, nextActionButtonsLeft);
+    }
+
+    const rotationTextLeft = compactLayout ? 12 : actionButtonsLeft;
+    const startStateLeft = compactLayout ? 12 : actionButtonsLeft;
+    const copyButtonLeft = compactLayout ? 72 : actionButtonsLeft + 56;
+    const undoButtonLeft = compactLayout ? 132 : actionButtonsLeft + 112;
+    const actionButtonsRight = compactLayout ? 180 : undoButtonLeft + 48;
+    const minimumNavigationLeft =
+      compactLayout && !shareCompactRow ? 12 : actionButtonsRight + 8;
+    const maximumNavigationLeft =
+      availableRight - navigationWidth - resizeControlReserve;
+    const centeredNavigationLeft =
+      window.innerWidth / 2 - navigationAnchorOffset;
+    let navigationLeft = Math.max(
+      minimumNavigationLeft,
+      Math.min(centeredNavigationLeft, maximumNavigationLeft),
+    );
+
+    copyRotationButton.style.top = `${rotationBlockTop}px`;
+    copyRotationButton.style.left = `${copyButtonLeft}px`;
+    startStateButton.style.top = `${rotationBlockTop}px`;
+    startStateButton.style.left = `${startStateLeft}px`;
+    undoRotationButton.style.top = `${rotationBlockTop}px`;
+    undoRotationButton.style.left = `${undoButtonLeft}px`;
+    rotationText.style.top = `${rotationTextTop}px`;
+    rotationText.style.left = `${rotationTextLeft}px`;
+    rotationText.style.right = "auto";
+    rotationText.style.maxWidth = `${Math.max(
+      0,
+      availableRight - rotationTextLeft,
+    )}px`;
+
+    const toolbarClearance = compactLayout
+      ? Number.parseFloat(getComputedStyle(controlsRoot).rowGap) * 2
+      : 0;
+
+    if (compactLayout) {
+      for (const [rowIndex, row] of navigationRows.entries()) {
+        const rowWidth = row.reduce(
+          (width, button) => width + parseFloat(button.style.width),
+          navigationGap * (row.length - 1),
+        );
+        let rowLeft = shareCompactRow
+          ? navigationLeft
+          : (window.innerWidth - rowWidth) / 2;
+
+        for (const button of row) {
+          button.style.top = `${
+            rotationBlockTop + navigationRowOffsets[rowIndex]
+          }px`;
+          button.style.left = `${rowLeft}px`;
+          rowLeft += parseFloat(button.style.width) + navigationGap;
+        }
+      }
+
+      controlsRoot.style.paddingTop = "0px";
+    } else {
+      controlsRoot.style.top = "";
+      controlsRoot.style.paddingTop = "";
+
+      for (const button of navigationButtons) {
+        const buttonWidth = parseFloat(button.style.width);
+
+        button.style.top = `${rotationBlockTop}px`;
+        button.style.left = `${navigationLeft}px`;
+        navigationLeft += buttonWidth + navigationGap;
+      }
+    }
+
+    const startStateTop = Number.parseFloat(startStateButton.style.top);
+    const startStateHeight = startStateButton.getBoundingClientRect().height;
+    const resizeControlLeft = availableRight - RESIZE_CONTROL_SIZE;
+
+    resizeCubeControl.button.style.top = `${startStateTop}px`;
+    resizeCubeControl.button.style.left = `${resizeControlLeft}px`;
+    resizeRotationTextControl.button.style.top = `${
+      startStateTop + startStateHeight - RESIZE_CONTROL_SIZE
+    }px`;
+    resizeRotationTextControl.button.style.left = `${resizeControlLeft}px`;
+
+    updateRotationToolbarFrame(navigationButtons, {
+      rotationBlockTop,
+      rotationTextLeft,
+      availableRight,
+    });
+
+    if (compactLayout) {
+      controlsRoot.style.top = `${
+        rotationToolbarFrame.getBoundingClientRect().bottom + toolbarClearance
+      }px`;
+    }
+  }
+
+  window.addEventListener("scroll", syncRotationBlockLayout, {
+    passive: true,
+  });
 
   function setUndoPreview(isPreviewing) {
     const latestEntry = rotationActions.at(-1)?.entry;
@@ -680,14 +1205,8 @@ export function createUI({
   document.body.appendChild(undoRotationButton);
 
   function showRotationStatus() {
-    rotationText.style.display = "block";
-    copyRotationButton.style.display = "inline-flex";
-    undoRotationButton.style.display = "inline-flex";
-    copyRotationButton.style.alignItems = "center";
-    copyRotationButton.style.justifyContent = "center";
-    undoRotationButton.style.alignItems = "center";
-    undoRotationButton.style.justifyContent = "center";
-    rotationText.style.left = "298px";
+    rotationBlock.text.style.display = "block";
+    syncRotationBlockLayout();
   }
 
   function appendRotationEntry(moveText) {
@@ -703,9 +1222,6 @@ export function createUI({
     entry.style.transition = "background-color 120ms ease, color 120ms ease";
     entry.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
-      setCursorRotationEntry(entry);
-    });
-    entry.addEventListener("click", () => {
       setCursorRotationEntry(entry);
     });
 
@@ -724,6 +1240,7 @@ export function createUI({
   let cursorRotationEntry = null;
   let rotationPlaybackState = "idle";
   let rotationStopRequested = false;
+  let stopRotationPromise = null;
   const rotationStopWaiters = [];
 
   function resolveRotationStopWaiters() {
@@ -742,38 +1259,63 @@ export function createUI({
   function updateRotationMediaControlState() {
     const entries = getRotationEntries();
     const currentCursor = pendingRotationEntries[0] ?? cursorRotationEntry;
+    const currentCursorIndex = currentCursor
+      ? entries.indexOf(currentCursor)
+      : -1;
     const hasRotations = entries.length > 0;
     const isAnimating = rotationPlaybackState === "playing";
     const isPaused = rotationPlaybackState === "paused";
+    const isRotationAnimating =
+      isAnimating ||
+      (pendingRotationEntries.length > 0 && !durationState.paused);
     const isStopped =
       rotationPlaybackState === "idle" || rotationPlaybackState === "stopped";
     const isAtStartPosition = currentCursor === null;
     const isAtLastEntry = currentCursor === entries[entries.length - 1];
-    const hasQueuedAnimations = pendingRotationEntries.length > 0;
-    const hasPreparedAnimations = queuedRotationActions.length > 0;
+    const hasNextRotation =
+      currentCursorIndex < entries.length - 1 ||
+      queuedRotationActions.some(
+        (action) => entries.indexOf(action.entry) > currentCursorIndex,
+      );
+    const hasActiveRotation = pendingRotationEntries.length > 0;
+    const hasQueuedRotations = queuedRotationActions.length > 0;
     const isRebuilding = rebuildInProgress;
+
+    copyRotationButton.disabled = !hasRotations;
+    undoRotationButton.disabled = !hasRotations || hasActiveRotation;
+    playPauseButton.style.display = "block";
 
     for (const entry of entries) {
       entry.setAttribute("aria-selected", String(entry === currentCursor));
     }
 
     toStartButton.disabled = !hasRotations || isAtStartPosition;
+    previousRotationButton.disabled =
+      !hasRotations || isAtStartPosition || isRotationAnimating || isRebuilding;
     toEndButton.disabled =
-      !hasRotations || (isStopped && isAtLastEntry && !hasQueuedAnimations);
+      !hasRotations || (isStopped && isAtLastEntry && !hasActiveRotation);
+    nextRotationButton.disabled =
+      !hasRotations ||
+      !hasNextRotation ||
+      isRotationAnimating ||
+      hasActiveRotation ||
+      isRebuilding;
     playPauseButton.disabled =
       !hasRotations ||
       isRebuilding ||
-      (isStopped &&
-        isAtLastEntry &&
-        !hasQueuedAnimations &&
-        !hasPreparedAnimations);
+      (isStopped && isAtLastEntry && !hasActiveRotation && !hasQueuedRotations);
     stopRotationButton.disabled =
-      !hasRotations || (!isAnimating && !isPaused) || !hasQueuedAnimations;
+      !hasRotations || (!isAnimating && !isPaused) || !hasActiveRotation;
 
     for (const button of [
+      startStateButton,
+      copyRotationButton,
+      undoRotationButton,
       toStartButton,
+      previousRotationButton,
       playPauseButton,
       stopRotationButton,
+      nextRotationButton,
       toEndButton,
     ]) {
       button.style.opacity = button.disabled ? "0.5" : "1";
@@ -1042,60 +1584,80 @@ export function createUI({
     setRotationStatus("stopped");
   }
 
-  async function stopRotationAndWait() {
-    if (
-      rotationPlaybackState === "idle" ||
-      rotationPlaybackState === "stopped"
-    ) {
-      return;
+  function stopRotationAndWait({ force = false, finishWithin = null } = {}) {
+    if (pendingRotationEntries.length === 0) {
+      return Promise.resolve();
+    }
+
+    if (stopRotationPromise) {
+      if (force) {
+        durationState.cancelCurrentRotation?.();
+      }
+
+      return stopRotationPromise;
     }
 
     const configuredDuration = durationState.value;
 
+    durationState.finishCurrentRotationWithin =
+      !force && finishWithin !== null && configuredDuration > finishWithin
+        ? finishWithin
+        : null;
     durationState.value = NAVIGATION_DURATION;
     stopRotationAfterCurrent();
 
-    if (
-      rotationPlaybackState === "stopped" &&
-      pendingRotationEntries.length === 0
-    ) {
-      durationState.value = configuredDuration;
-      return;
-    }
-
-    await new Promise((resolve) => {
+    stopRotationPromise = new Promise((resolve) => {
       rotationStopWaiters.push(resolve);
+    }).finally(() => {
+      durationState.value = configuredDuration;
+      durationState.finishCurrentRotationWithin = null;
+      stopRotationPromise = null;
     });
 
-    durationState.value = configuredDuration;
+    if (force) {
+      durationState.cancelCurrentRotation?.();
+    }
+
+    return stopRotationPromise;
+  }
+
+  function finishCurrentRotationForNavigation() {
+    return stopRotationAndWait({
+      finishWithin: STOP_ROTATION_FINISH_DURATION,
+    });
   }
 
   let rebuildGeneration = 0;
   let rebuildInProgress = false;
 
   async function rebuildCubeToCursor() {
-    if (pendingRotationEntries.length > 0) {
-      return;
-    }
-
     const generation = ++rebuildGeneration;
-    const entries = getRotationEntries();
-    const cursorIndex = cursorRotationEntry
-      ? entries.indexOf(cursorRotationEntry)
-      : -1;
-    const prefixLength = Math.max(cursorIndex + 1, 0);
-    const rebuildDuration = {
-      ...durationState,
-      value: NAVIGATION_DURATION,
-      paused: false,
-      pauseStartedAt: null,
-    };
+    let prefixLength = 0;
 
     rebuildInProgress = true;
     updateRotationMediaControlState();
-    resetCubeOrientation();
 
     try {
+      await stopRotationAndWait();
+
+      if (generation !== rebuildGeneration) {
+        return;
+      }
+
+      const entries = getRotationEntries();
+      const cursorIndex = cursorRotationEntry
+        ? entries.indexOf(cursorRotationEntry)
+        : -1;
+      prefixLength = Math.max(cursorIndex + 1, 0);
+      const rebuildDuration = {
+        ...durationState,
+        value: NAVIGATION_DURATION,
+        paused: false,
+        pauseStartedAt: null,
+      };
+
+      resetCube();
+
       for (let index = 0; index < prefixLength; index += 1) {
         await rotationActions[index]?.run(rebuildDuration);
 
@@ -1192,23 +1754,6 @@ export function createUI({
     return `${moveName}'`;
   }
 
-  function getCustomMoveLabel(
-    shortName,
-    angle,
-    { preserveEnteredAngle = false } = {},
-  ) {
-    const normalized = preserveEnteredAngle
-      ? Math.trunc(angle * 1000) / 1000
-      : normalizeAngle(angle);
-
-    if (normalized === 90) return shortName;
-    if (normalized === -90) return `${shortName}'`;
-    if (normalized === 180 || normalized === -180) return `${shortName}2`;
-    if (normalized !== 0) return `${shortName}[${normalized}°]`;
-
-    return "";
-  }
-
   function getCurrentFaceletColor(facelet) {
     return (
       facelet?.currentColor ?? facelet?.defaultColor ?? facelet?.color ?? ""
@@ -1254,12 +1799,6 @@ export function createUI({
       cubie?.userData?.innerColor ??
       ""
     );
-  }
-
-  function getCustomRotationAngle(moveName, angle) {
-    const definition = getRotationDefinition(moveName);
-
-    return definition ? Math.sign(definition.angle) * angle : angle;
   }
 
   copyRotationButton.addEventListener("click", async () => {
@@ -1323,12 +1862,10 @@ export function createUI({
     cursorRotationEntry = previousEntry;
 
     if (getRotationEntries().length === 0) {
-      rotationText.style.display = "none";
-      copyRotationButton.style.display = "none";
-      undoRotationButton.style.display = "none";
-      rotationText.style.left = "248px";
+      rotationBlock.text.style.display = "none";
     }
 
+    syncRotationBlockLayout();
     highlightActiveRotation();
     updateRotationMediaControlState();
   });
@@ -1403,12 +1940,7 @@ export function createUI({
   }
 
   durationSlider.addEventListener("input", () => {
-    const currentDuration = Number(durationValue.value);
-
-    if (Number.isFinite(currentDuration) && currentDuration <= 5) {
-      durationValue.value = durationSlider.value;
-    }
-
+    syncEditValueFromSlider(durationSlider, durationValue);
     updateDurationState();
   });
 
@@ -1437,9 +1969,7 @@ export function createUI({
       return;
     }
 
-    const duration = Number(normalized);
-
-    durationSlider.value = String(Math.min(duration, 5));
+    syncSliderFromEditValue(durationSlider, durationValue, Number(normalized));
     updateDurationState();
   });
 
@@ -1447,8 +1977,12 @@ export function createUI({
     const raw = Number(durationValue.value);
     const duration = Number.isFinite(raw) ? Math.max(raw, 0) : 1;
 
-    durationValue.value = String(duration);
-    durationSlider.value = String(Math.min(duration, 5));
+    const acceptedDuration = syncSliderFromEditValue(
+      durationSlider,
+      durationValue,
+      duration,
+    );
+    durationValue.value = String(acceptedDuration);
     updateDurationState();
   });
 
@@ -1479,12 +2013,12 @@ export function createUI({
   stopRotationButton.setAttribute("aria-label", "Stop Rotation");
   stopRotationButton.style.display = "block";
   stopRotationButton.style.position = "absolute";
-  stopRotationButton.style.width = "48px";
-  stopRotationButton.style.height = "48px";
-  stopRotationButton.style.minWidth = "48px";
-  stopRotationButton.style.minHeight = "48px";
-  stopRotationButton.style.maxWidth = "48px";
-  stopRotationButton.style.maxHeight = "48px";
+  stopRotationButton.style.width = "42px";
+  stopRotationButton.style.height = "42px";
+  stopRotationButton.style.minWidth = "42px";
+  stopRotationButton.style.minHeight = "42px";
+  stopRotationButton.style.maxWidth = "42px";
+  stopRotationButton.style.maxHeight = "42px";
   stopRotationButton.style.padding = "0";
   stopRotationButton.style.border = "0";
   stopRotationButton.style.background = "transparent";
@@ -1505,7 +2039,7 @@ export function createUI({
   document.body.appendChild(stopRotationButton);
 
   stopRotationButton.addEventListener("click", async () => {
-    await stopRotationAndWait();
+    await finishCurrentRotationForNavigation();
   });
 
   const toEndButton = document.createElement("button");
@@ -1541,8 +2075,86 @@ export function createUI({
   toEndButton.appendChild(toEndImage);
   document.body.appendChild(toEndButton);
 
+  function createResizeControl(label, className, iconSource) {
+    const button = document.createElement("button");
+
+    button.className = `rotation-control ${className}`;
+    button.type = "button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.style.display = "flex";
+    button.style.alignItems = "center";
+    button.style.justifyContent = "center";
+    button.style.position = "absolute";
+    button.style.width = `${RESIZE_CONTROL_SIZE}px`;
+    button.style.height = `${RESIZE_CONTROL_SIZE}px`;
+    button.style.minWidth = `${RESIZE_CONTROL_SIZE}px`;
+    button.style.minHeight = `${RESIZE_CONTROL_SIZE}px`;
+    button.style.maxWidth = `${RESIZE_CONTROL_SIZE}px`;
+    button.style.maxHeight = `${RESIZE_CONTROL_SIZE}px`;
+    button.style.padding = "0";
+    button.style.border = "0";
+    button.style.background = "transparent";
+    button.style.boxSizing = "border-box";
+    button.style.cursor = "pointer";
+    addHoverEffect(button, "rgba(59, 130, 246, 0.1)");
+
+    const image = document.createElement("img");
+
+    image.src = iconSource;
+    image.alt = "";
+    image.style.display = "block";
+    image.style.width = `${RESIZE_CONTROL_SIZE}px`;
+    image.style.height = `${RESIZE_CONTROL_SIZE}px`;
+    image.style.pointerEvents = "none";
+    button.appendChild(image);
+    document.body.appendChild(button);
+
+    return { button, image };
+  }
+
+  const resizeCubeControl = createResizeControl(
+    "Collapse The Cube",
+    "rotation-resize-cube",
+    RESIZE_CUBE_COLLAPSE_ICON,
+  );
+  resizeCubeControl.button.setAttribute("aria-pressed", "false");
+
+  function updateCubeResizeButton(isCollapsed) {
+    const label = isCollapsed ? "Expand The Cube" : "Collapse The Cube";
+
+    resizeCubeControl.button.title = label;
+    resizeCubeControl.button.setAttribute("aria-label", label);
+    resizeCubeControl.button.setAttribute("aria-pressed", String(isCollapsed));
+    resizeCubeControl.image.src = isCollapsed
+      ? RESIZE_CUBE_EXPAND_ICON
+      : RESIZE_CUBE_COLLAPSE_ICON;
+    setCubeViewportCollapsed(isCollapsed);
+    syncRotationBlockLayout();
+  }
+
+  resizeCubeControl.button.addEventListener("click", () => {
+    const isCollapsed =
+      resizeCubeControl.button.getAttribute("aria-pressed") !== "true";
+
+    updateCubeResizeButton(isCollapsed);
+  });
+
+  const resizeRotationTextControl = createResizeControl(
+    "Resize Rotation Text",
+    "rotation-resize-text",
+    RESIZE_ROTATION_TEXT_ICON,
+  );
+  resizeRotationTextControl.button.style.display = "none";
+  resizeRotationTextControl.button.setAttribute("aria-pressed", "false");
+  resizeRotationTextControl.button.addEventListener("click", () => {
+    rotationText.style.display =
+      rotationText.style.display === "none" ? "block" : "none";
+    syncRotationBlockLayout();
+  });
+
   toEndButton.addEventListener("click", async () => {
-    await stopRotationAndWait();
+    await finishCurrentRotationForNavigation();
 
     const entries = getRotationEntries();
 
@@ -1604,37 +2216,97 @@ export function createUI({
 
   const toStartButton = createRotationControlButton(toStartIcon, "Go To Start");
   toStartButton.classList.add("rotation-control-start");
+  toStartButton.title = "Go To Solved State";
+  toStartButton.setAttribute("aria-label", "Go To Solved State");
 
   toStartButton.addEventListener("click", async () => {
-    await stopRotationAndWait();
+    await finishCurrentRotationForNavigation();
     setCursorRotationEntry(null);
   });
 
-  function updateStopRotationButtonPosition() {
-    const buttonSize = parseFloat(stopRotationButton.style.width);
-    const buttonGap = 4;
-    const left = 20;
-    const top = 70;
+  const previousRotationButton = createRotationControlButton(
+    previousRotationIcon,
+    "Previous Rotation",
+  );
+  previousRotationButton.classList.add("rotation-control-previous");
 
-    toStartButton.style.left = `${left}px`;
-    toStartButton.style.top = `${top}px`;
-    playPauseButton.style.left = `${left + buttonSize + buttonGap}px`;
-    playPauseButton.style.top = `${top}px`;
-    stopRotationButton.style.left = `${left + (buttonSize + buttonGap) * 2}px`;
-    stopRotationButton.style.top = `${top}px`;
-    toEndButton.style.left = `${left + (buttonSize + buttonGap) * 3}px`;
-    toEndButton.style.top = `${top}px`;
+  async function playNextQueuedRotation() {
+    if (
+      pendingRotationEntries.length > 0 ||
+      queuedRotationActions.length === 0
+    ) {
+      return false;
+    }
+
+    const action = queuedRotationActions.shift();
+
+    rotationStopRequested = true;
+    durationState.stopAfterCurrent = true;
+    rotationPlaybackState = "playing";
+
+    await queueRotationAction(action, {
+      record: false,
+      display: false,
+      animationEntry: action.entry,
+    });
+
+    return true;
   }
+
+  previousRotationButton.addEventListener("click", async () => {
+    if (pendingRotationEntries.length > 0 || rebuildInProgress) {
+      return;
+    }
+
+    const entries = getRotationEntries();
+    const cursorIndex = entries.indexOf(cursorRotationEntry);
+    const currentAction = rotationActions[cursorIndex];
+
+    if (cursorIndex < 0 || !currentAction?.inverse) {
+      return;
+    }
+
+    const currentEntry = entries[cursorIndex];
+    const previousEntry = entries[cursorIndex - 1] ?? null;
+
+    currentEntry.dataset.undoPending = "true";
+    queuedRotationActions.unshift({
+      ...currentAction.inverse,
+      entry: currentEntry,
+    });
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+    markSetupChanged();
+
+    await playNextQueuedRotation();
+
+    currentEntry.dataset.undoPending = "false";
+    cursorRotationEntry = previousEntry;
+    queuedRotationActions = rotationActions.slice(cursorIndex);
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+  });
+
+  const nextRotationButton = createRotationControlButton(
+    nextRotationIcon,
+    "Next Rotation",
+  );
+  nextRotationButton.classList.add("rotation-control-next");
+
+  nextRotationButton.addEventListener("click", async () => {
+    await playNextQueuedRotation();
+  });
 
   function setRotationControlVisibility() {
     toStartButton.style.display = "block";
-    playPauseButton.style.display = "block";
+    previousRotationButton.style.display = "block";
     stopRotationButton.style.display = "block";
+    nextRotationButton.style.display = "block";
     toEndButton.style.display = "block";
   }
 
-  window.addEventListener("resize", updateStopRotationButtonPosition);
-  updateStopRotationButtonPosition();
+  window.addEventListener("resize", syncRotationBlockLayout);
+  syncRotationBlockLayout();
   updateRotationMediaControlState();
 
   // ============================================================
@@ -2274,6 +2946,35 @@ export function createUI({
     };
   }
 
+  function stripCustomMoveParentheses(move) {
+    let normalizedMove = move;
+
+    while (normalizedMove.startsWith("(") || normalizedMove.endsWith(")")) {
+      if (
+        getRotationDefinition(normalizeCustomMoveName(normalizedMove)) ||
+        parseCustomMove(normalizedMove)
+      ) {
+        return normalizedMove;
+      }
+
+      if (normalizedMove.startsWith("(")) {
+        normalizedMove = normalizedMove.slice(1);
+      } else {
+        normalizedMove = normalizedMove.slice(0, -1);
+      }
+    }
+
+    return normalizedMove;
+  }
+
+  function getCustomSequenceMoves(value) {
+    return value
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(stripCustomMoveParentheses);
+  }
+
   function isValidCustomSequence(value) {
     const sequence = value.trim();
 
@@ -2281,7 +2982,7 @@ export function createUI({
       return true;
     }
 
-    return sequence.split(/\s+/).every((move) => {
+    return getCustomSequenceMoves(sequence).every((move) => {
       const normalizedMove = normalizeCustomMoveName(move);
 
       if (getRotationDefinition(normalizedMove)) {
@@ -2301,49 +3002,45 @@ export function createUI({
   }
 
   function parseCustomSequence(value) {
-    return value
-      .trim()
-      .split(/\s+/)
-      .map((move) => {
-        const normalizedMove = normalizeCustomMoveName(move);
+    return getCustomSequenceMoves(value).map((move) => {
+      const normalizedMove = normalizeCustomMoveName(move);
 
-        if (getRotationDefinition(normalizedMove)) {
-          const inverse = getInverseMoveName(normalizedMove);
-
-          return {
-            label: normalizedMove,
-            run: (duration) => rotateMove(normalizedMove, duration),
-            inverse: (duration) => rotateMove(inverse, duration),
-            inverseLabel: inverse,
-          };
-        }
-
-        const customMove = parseCustomMove(move);
-
-        const moveName = customMove
-          ? normalizeCustomMoveName(customMove.moveName)
-          : null;
-
-        if (!customMove || !getRotationDefinition(moveName)) {
-          return null;
-        }
-
-        const angle = customMove.angle;
-        const displayedAngle = Math.trunc(normalizeAngle(angle) * 1000) / 1000;
-        const rotationAngle = getCustomRotationAngle(moveName, displayedAngle);
+      if (getRotationDefinition(normalizedMove)) {
+        const inverse = getInverseMoveName(normalizedMove);
 
         return {
-          label: getCustomMoveLabel(moveName, displayedAngle, {
-            preserveEnteredAngle: true,
-          }),
-          run: (duration) => rotateSlice(moveName, rotationAngle, duration),
-          inverse: (duration) =>
-            rotateSlice(moveName, -rotationAngle, duration),
-          inverseLabel: getCustomMoveLabel(moveName, -displayedAngle, {
-            preserveEnteredAngle: true,
-          }),
+          label: normalizedMove,
+          run: (duration) => rotateMove(normalizedMove, duration),
+          inverse: (duration) => rotateMove(inverse, duration),
+          inverseLabel: inverse,
         };
-      });
+      }
+
+      const customMove = parseCustomMove(move);
+
+      const moveName = customMove
+        ? normalizeCustomMoveName(customMove.moveName)
+        : null;
+
+      if (!customMove || !getRotationDefinition(moveName)) {
+        return null;
+      }
+
+      const angle = customMove.angle;
+      const displayedAngle = Math.trunc(normalizeAngle(angle) * 1000) / 1000;
+      const rotationAngle = getCustomRotationAngle(moveName, displayedAngle);
+
+      return {
+        label: getCustomMoveLabel(moveName, displayedAngle, {
+          preserveEnteredAngle: true,
+        }),
+        run: (duration) => rotateSlice(moveName, rotationAngle, duration),
+        inverse: (duration) => rotateSlice(moveName, -rotationAngle, duration),
+        inverseLabel: getCustomMoveLabel(moveName, -displayedAngle, {
+          preserveEnteredAngle: true,
+        }),
+      };
+    });
   }
 
   function validateCustomSequence({ updateLastRotationEdit = true } = {}) {
@@ -2437,11 +3134,10 @@ export function createUI({
 
     moveType = "fixed";
 
-    resetVisualRotations();
-
     fixedMoves.style.display = "block";
     customControls.style.display = "none";
     insertButton.style.display = "none";
+    syncRotationBlockLayout();
   });
 
   customRadio.addEventListener("change", () => {
@@ -2454,7 +3150,122 @@ export function createUI({
     fixedMoves.style.display = "none";
     customControls.style.display = "block";
     insertButton.style.display = "block";
+    syncRotationBlockLayout();
   });
+
+  // ============================================================
+  // View panel
+  // ============================================================
+
+  viewPanel = document.createElement("div");
+
+  viewPanel.style.position = "absolute";
+  viewPanel.style.top = "20px";
+  viewPanel.style.right = "20px";
+  viewPanel.style.width = "280px";
+  viewPanel.style.padding = "16px";
+  viewPanel.style.background = UI_PANEL_BACKGROUND;
+  viewPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
+  viewPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
+  viewPanel.style.fontFamily = UI_FONT_FAMILY;
+  viewPanel.style.fontSize = UI_FONT_SIZE;
+  viewPanel.style.boxSizing = "border-box";
+
+  const viewHeader = document.createElement("div");
+
+  viewHeader.style.display = "flex";
+  viewHeader.style.alignItems = "center";
+  viewHeader.style.justifyContent = "space-between";
+  viewHeader.style.gap = "8px";
+  viewHeader.style.cursor = "pointer";
+  viewHeader.style.userSelect = "none";
+
+  const viewTitleRow = document.createElement("div");
+
+  viewTitleRow.style.display = "flex";
+  viewTitleRow.style.alignItems = "center";
+  viewTitleRow.style.gap = "6px";
+
+  function syncPeekDepthVisibility() {
+    const shouldShow = peekStickersVisibility === HIDDEN_BEHIND_CUBE;
+
+    peekStickersDepthControl.style.display = shouldShow ? "block" : "none";
+    peekStickersHideWhenControl.style.display = shouldShow ? "block" : "none";
+    requestAnimationFrame(scheduleCubePanelPositionUpdate);
+  }
+
+  function resetViewState() {
+    ghostStickersVisibility = ALWAYS_VISIBLE;
+    peekStickersVisibility = ALWAYS_VISIBLE;
+    peekStickersDepth = 0.2;
+    peekStickersHideWhenColor = "";
+    ghostStickersVisibilityControl.setVisibilityMode(ghostStickersVisibility);
+    peekStickersVisibilityControl.setVisibilityMode(peekStickersVisibility);
+    peekStickersDepthSlider.value = String(peekStickersDepth);
+    peekStickersDepthValue.value = String(peekStickersDepth);
+    peekStickersHideWhenInput.value = "";
+    syncPeekStickersHideWhenColorPreview();
+    syncPeekDepthVisibility();
+    updateGhostStickerVisibility();
+    scheduleCubePanelPositionUpdate();
+  }
+
+  const resetViewButton = createResetButton("Reset View", resetViewState);
+
+  const viewTitle = document.createElement("span");
+
+  viewTitle.textContent = "View";
+  viewTitle.style.fontSize = "18px";
+  viewTitle.style.fontWeight = "bold";
+
+  const viewCollapseIcon = document.createElement("span");
+
+  viewCollapseIcon.textContent = "+";
+  viewCollapseIcon.style.fontSize = "20px";
+  viewCollapseIcon.style.lineHeight = "1";
+
+  viewTitleRow.appendChild(resetViewButton);
+  viewTitleRow.appendChild(viewTitle);
+  viewHeader.appendChild(viewTitleRow);
+  viewHeader.appendChild(viewCollapseIcon);
+  viewHeader.setAttribute("role", "button");
+  viewHeader.setAttribute("aria-expanded", "false");
+  viewHeader.tabIndex = 0;
+
+  const viewContent = document.createElement("div");
+
+  viewContent.id = "view-panel-content";
+  viewContent.style.marginTop = "12px";
+
+  let viewCollapsed = true;
+  viewContent.style.display = "none";
+
+  function toggleViewPanel() {
+    viewCollapsed = !viewCollapsed;
+
+    if (!viewCollapsed) {
+      collapseOtherPanels("view");
+    }
+
+    viewContent.style.display = viewCollapsed ? "none" : "block";
+    viewCollapseIcon.textContent = viewCollapsed ? "+" : "−";
+    viewHeader.setAttribute("aria-expanded", String(!viewCollapsed));
+    scheduleCubePanelPositionUpdate();
+  }
+
+  viewHeader.setAttribute("aria-controls", viewContent.id);
+  viewHeader.addEventListener("click", toggleViewPanel);
+  viewHeader.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    toggleViewPanel();
+  });
+
+  viewPanel.appendChild(viewHeader);
+  viewPanel.appendChild(viewContent);
 
   // ============================================================
   // Colors panel
@@ -2521,6 +3332,9 @@ export function createUI({
   colorsHeader.setAttribute("role", "button");
   colorsHeader.setAttribute("aria-expanded", "false");
   colorsHeader.tabIndex = 0;
+
+  controlsRoot.appendChild(colorsPanel);
+  controlsRoot.insertBefore(viewPanel, colorsPanel);
 
   colorsPanel.appendChild(colorsHeader);
 
@@ -4124,7 +4938,7 @@ export function createUI({
   labelsTitleRow.style.alignItems = "center";
   labelsTitleRow.style.gap = "6px";
 
-  const resetLabelsButton = createResetButton("Reset Labels", () => {
+  function resetLabelsState() {
     showFaceletLabelsCheckbox.checked = false;
     showAxisLabelsCheckbox.checked = false;
     showAxisArrowsCheckbox.checked = false;
@@ -4198,7 +5012,9 @@ export function createUI({
     labelDepthSlider.value = String(labelDepth);
     labelDepthValue.value = String(labelDepth);
     updateFaceletLabelVisibility();
-  });
+  }
+
+  const resetLabelsButton = createResetButton("Reset Labels", resetLabelsState);
 
   const labelsTitle = document.createElement("span");
 
@@ -5514,6 +6330,305 @@ export function createUI({
     return control;
   }
 
+  const ghostStickersVisibilityControl = document.createElement("div");
+
+  ghostStickersVisibilityControl.style.marginTop = "10px";
+  ghostStickersVisibilityControl.style.marginBottom = "10px";
+
+  const ghostStickersTitle = document.createElement("div");
+
+  ghostStickersTitle.textContent = "Transparent Stickers";
+  ghostStickersTitle.style.fontSize = "14px";
+  ghostStickersTitle.style.fontWeight = "600";
+  ghostStickersTitle.style.color = "#374151";
+  ghostStickersTitle.style.marginBottom = "5px";
+
+  const ghostStickersOptions = document.createElement("div");
+
+  ghostStickersOptions.style.display = "flex";
+  ghostStickersOptions.style.gap = "12px";
+
+  for (const [value, text] of [
+    [ALWAYS_VISIBLE, "Disabled"],
+    [HIDDEN_BEHIND_CUBE, "Enabled"],
+  ]) {
+    const label = document.createElement("label");
+
+    label.style.display = "flex";
+    label.style.alignItems = "center";
+    label.style.gap = "5px";
+    label.style.cursor = "pointer";
+
+    const radio = document.createElement("input");
+
+    radio.type = "radio";
+    radio.name = "ghost-stickers-visibility";
+    radio.value = value;
+    radio.checked = value === ghostStickersVisibility;
+    radio.addEventListener("change", () => {
+      if (!radio.checked) {
+        return;
+      }
+
+      ghostStickersVisibility = value;
+      updateGhostStickerVisibility();
+      scene.userData.shouldRefreshHiddenStickerState =
+        ghostStickersVisibility !== ALWAYS_VISIBLE ||
+        peekStickersVisibility !== ALWAYS_VISIBLE;
+    });
+
+    const textElement = document.createElement("span");
+
+    textElement.textContent = text;
+    label.appendChild(radio);
+    label.appendChild(textElement);
+    ghostStickersOptions.appendChild(label);
+  }
+
+  ghostStickersVisibilityControl.setVisibilityMode = (value) => {
+    for (const radio of ghostStickersOptions.querySelectorAll("input")) {
+      radio.checked = radio.value === value;
+    }
+  };
+
+  ghostStickersVisibilityControl.appendChild(ghostStickersTitle);
+  ghostStickersVisibilityControl.appendChild(ghostStickersOptions);
+
+  const peekStickersVisibilityControl = document.createElement("div");
+
+  peekStickersVisibilityControl.style.marginTop = "10px";
+  peekStickersVisibilityControl.style.marginBottom = "10px";
+
+  const peekStickersTitle = document.createElement("div");
+
+  peekStickersTitle.textContent = "Peek Stickers";
+  peekStickersTitle.style.fontSize = "14px";
+  peekStickersTitle.style.fontWeight = "600";
+  peekStickersTitle.style.color = "#374151";
+  peekStickersTitle.style.marginBottom = "5px";
+
+  const peekStickersOptions = document.createElement("div");
+
+  peekStickersOptions.style.display = "flex";
+  peekStickersOptions.style.gap = "12px";
+
+  for (const [value, text] of [
+    [ALWAYS_VISIBLE, "Disabled"],
+    [HIDDEN_BEHIND_CUBE, "Enabled"],
+  ]) {
+    const label = document.createElement("label");
+
+    label.style.display = "flex";
+    label.style.alignItems = "center";
+    label.style.gap = "5px";
+    label.style.cursor = "pointer";
+
+    const radio = document.createElement("input");
+
+    radio.type = "radio";
+    radio.name = "peek-stickers-visibility";
+    radio.value = value;
+    radio.checked = value === peekStickersVisibility;
+    radio.addEventListener("change", () => {
+      if (!radio.checked) {
+        return;
+      }
+
+      peekStickersVisibility = value;
+      syncPeekDepthVisibility();
+      updateGhostStickerVisibility();
+      scene.userData.shouldRefreshHiddenStickerState =
+        ghostStickersVisibility !== ALWAYS_VISIBLE ||
+        peekStickersVisibility !== ALWAYS_VISIBLE;
+    });
+
+    const textElement = document.createElement("span");
+
+    textElement.textContent = text;
+    label.appendChild(radio);
+    label.appendChild(textElement);
+    peekStickersOptions.appendChild(label);
+  }
+
+  peekStickersVisibilityControl.setVisibilityMode = (value) => {
+    for (const radio of peekStickersOptions.querySelectorAll("input")) {
+      radio.checked = radio.value === value;
+    }
+  };
+
+  peekStickersVisibilityControl.appendChild(peekStickersTitle);
+  peekStickersVisibilityControl.appendChild(peekStickersOptions);
+
+  const peekStickersHideWhenControl = document.createElement("div");
+
+  peekStickersHideWhenControl.style.marginTop = "8px";
+  peekStickersHideWhenControl.style.marginBottom = "8px";
+
+  const peekStickersHideWhenRow = document.createElement("div");
+
+  peekStickersHideWhenRow.style.display = "flex";
+  peekStickersHideWhenRow.style.alignItems = "center";
+  peekStickersHideWhenRow.style.gap = "8px";
+  peekStickersHideWhenRow.style.width = "100%";
+
+  const peekStickersHideWhenLabel = document.createElement("div");
+
+  peekStickersHideWhenLabel.textContent = "Hidden For: ";
+  peekStickersHideWhenLabel.style.fontSize = "14px";
+  peekStickersHideWhenLabel.style.fontWeight = "normal";
+  peekStickersHideWhenLabel.style.color = "#374151";
+  peekStickersHideWhenLabel.style.flexShrink = "0";
+
+  const peekStickersHideWhenInput = document.createElement("input");
+
+  peekStickersHideWhenInput.type = "text";
+  peekStickersHideWhenInput.value = "";
+  peekStickersHideWhenInput.placeholder = "";
+  peekStickersHideWhenInput.style.width = "70px";
+  peekStickersHideWhenInput.style.flex = "1";
+  peekStickersHideWhenInput.style.minWidth = "0";
+  peekStickersHideWhenInput.style.padding = "3px";
+  peekStickersHideWhenInput.style.boxSizing = "border-box";
+
+  const peekStickersHideWhenPreview = document.createElement("span");
+
+  peekStickersHideWhenPreview.style.width = "18px";
+  peekStickersHideWhenPreview.style.height = "18px";
+  peekStickersHideWhenPreview.style.borderRadius = "50%";
+  peekStickersHideWhenPreview.style.border = "1px solid #999";
+  peekStickersHideWhenPreview.style.flexShrink = "0";
+  peekStickersHideWhenPreview.style.backgroundColor = "transparent";
+  peekStickersHideWhenPreview.style.backgroundImage = "none";
+  peekStickersHideWhenPreview.style.backgroundSize = "contain";
+  peekStickersHideWhenPreview.style.backgroundRepeat = "no-repeat";
+  peekStickersHideWhenPreview.style.backgroundPosition = "center";
+
+  function syncPeekStickersHideWhenColorPreview() {
+    const value = peekStickersHideWhenInput.value.trim();
+
+    if (!value) {
+      peekStickersHideWhenPreview.style.backgroundColor = "transparent";
+      peekStickersHideWhenPreview.style.backgroundImage = "none";
+      return;
+    }
+
+    const color = new Color();
+
+    if (!isValidColorValue(value)) {
+      showInvalidColor(peekStickersHideWhenPreview);
+      return;
+    }
+
+    color.set(value);
+    peekStickersHideWhenPreview.style.backgroundImage = "none";
+    peekStickersHideWhenPreview.style.backgroundColor = value;
+  }
+
+  peekStickersHideWhenInput.addEventListener("input", () => {
+    peekStickersHideWhenColor = peekStickersHideWhenInput.value.trim();
+    syncPeekStickersHideWhenColorPreview();
+  });
+
+  peekStickersHideWhenInput.addEventListener("change", () => {
+    peekStickersHideWhenColor = peekStickersHideWhenInput.value.trim();
+    syncPeekStickersHideWhenColorPreview();
+  });
+
+  addColorPicker(
+    peekStickersHideWhenPreview,
+    peekStickersHideWhenInput,
+    () => {
+      peekStickersHideWhenColor = peekStickersHideWhenInput.value.trim();
+      syncPeekStickersHideWhenColorPreview();
+      updateGhostStickerVisibility();
+    },
+    () => "#000000",
+  );
+
+  peekStickersHideWhenRow.appendChild(peekStickersHideWhenLabel);
+  peekStickersHideWhenRow.appendChild(peekStickersHideWhenInput);
+  peekStickersHideWhenRow.appendChild(peekStickersHideWhenPreview);
+  peekStickersHideWhenControl.appendChild(peekStickersHideWhenRow);
+
+  const peekStickersDepthControl = document.createElement("div");
+
+  peekStickersDepthControl.style.marginTop = "8px";
+
+  const peekStickersDepthLabel = document.createElement("label");
+
+  peekStickersDepthLabel.textContent = "Peek Stickers Depth";
+  peekStickersDepthLabel.style.display = "block";
+  peekStickersDepthLabel.style.marginBottom = "5px";
+
+  const peekStickersDepthSlider = document.createElement("input");
+
+  peekStickersDepthSlider.type = "range";
+  peekStickersDepthSlider.min = "0";
+  peekStickersDepthSlider.max = "2";
+  peekStickersDepthSlider.step = "0.001";
+  peekStickersDepthSlider.value = String(peekStickersDepth);
+  peekStickersDepthSlider.style.flex = "1";
+  peekStickersDepthSlider.style.minWidth = "0";
+  peekStickersDepthSlider.setAttribute("aria-label", "Peek Stickers Depth");
+
+  const peekStickersDepthValue = document.createElement("input");
+
+  peekStickersDepthValue.type = "text";
+  peekStickersDepthValue.value = String(peekStickersDepth);
+  peekStickersDepthValue.style.width = "55px";
+  peekStickersDepthValue.style.boxSizing = "border-box";
+  peekStickersDepthValue.style.textAlign = "center";
+  peekStickersDepthValue.setAttribute(
+    "aria-label",
+    "Peek Stickers Depth Value",
+  );
+
+  const peekStickersDepthRow = document.createElement("div");
+
+  peekStickersDepthRow.style.display = "flex";
+  peekStickersDepthRow.style.alignItems = "center";
+  peekStickersDepthRow.style.gap = "8px";
+
+  function syncPeekStickersDepthValue(nextValue) {
+    const normalizedValue = Number.isFinite(nextValue)
+      ? Math.max(0, Number(nextValue))
+      : 0;
+    const safeValue = syncSliderFromEditValue(
+      peekStickersDepthSlider,
+      peekStickersDepthValue,
+      normalizedValue,
+    );
+
+    peekStickersDepth = safeValue;
+    peekStickersDepthValue.value = String(safeValue);
+    updateGhostStickerVisibility();
+  }
+
+  peekStickersDepthSlider.addEventListener("input", (event) => {
+    const value = syncEditValueFromSlider(event.target, peekStickersDepthValue);
+
+    peekStickersDepth = value;
+    updateGhostStickerVisibility();
+  });
+
+  peekStickersDepthValue.addEventListener("change", (event) => {
+    const value = Number(event.target.value);
+
+    syncPeekStickersDepthValue(value);
+  });
+
+  peekStickersDepthRow.appendChild(peekStickersDepthSlider);
+  peekStickersDepthRow.appendChild(peekStickersDepthValue);
+  peekStickersDepthControl.appendChild(peekStickersDepthLabel);
+  peekStickersDepthControl.appendChild(peekStickersDepthRow);
+
+  viewContent.appendChild(ghostStickersVisibilityControl);
+  viewContent.appendChild(peekStickersVisibilityControl);
+  viewContent.appendChild(peekStickersHideWhenControl);
+  viewContent.appendChild(peekStickersDepthControl);
+  syncPeekDepthVisibility();
+  updateGhostStickerVisibility();
+
   const faceletLabelsVisibilityControl = createVisibilityControl(
     "Facelet Labels Visibility",
     "facelet-labels-visibility",
@@ -6457,84 +7572,6 @@ export function createUI({
     return createJsonExport(getJsonExportSetup(), getDefaultJsonExportSetup());
   }
 
-  function encodeUrlSafeBase64(bytes) {
-    let binary = "";
-
-    for (const byte of bytes) {
-      binary += String.fromCharCode(byte);
-    }
-
-    return btoa(binary)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/u, "");
-  }
-
-  async function compressJsonExport(exportData) {
-    const compressionStream = new CompressionStream("gzip");
-    const writer = compressionStream.writable.getWriter();
-    const json = JSON.stringify(exportData);
-
-    await writer.write(new TextEncoder().encode(json));
-    await writer.close();
-
-    return new Uint8Array(
-      await new Response(compressionStream.readable).arrayBuffer(),
-    );
-  }
-
-  let exportUrlFeedbackTimeout = null;
-
-  async function copyUrlExport(button) {
-    if (exportUrlCopying) {
-      return;
-    }
-
-    const originalText = "Export URL";
-    const feedbackLabel = button.querySelector(".export-url-label");
-    const feedbackImage = button.querySelector(".export-url-feedback");
-    let clipboardTimeout;
-
-    exportUrlCopying = true;
-
-    try {
-      const compressed = await compressJsonExport(createCurrentJsonExport());
-      const encodedData = encodeUrlSafeBase64(compressed);
-      const appUrl = new URL(DEFAULT_APP_URL);
-
-      appUrl.search = "";
-      appUrl.searchParams.set("setup", encodedData);
-      await Promise.race([
-        navigator.clipboard.writeText(appUrl.toString()),
-        new Promise((_, reject) => {
-          clipboardTimeout = setTimeout(
-            () => reject(new Error("Clipboard write timed out")),
-            3000,
-          );
-        }),
-      ]);
-      exportUrlDirty = false;
-      feedbackLabel.textContent = "Copied!";
-      feedbackImage.src = sequenceValidIcon;
-      feedbackImage.alt = "Export URL copied";
-    } catch {
-      feedbackLabel.textContent = "Copy failed";
-      feedbackImage.src = sequenceInvalidIcon;
-      feedbackImage.alt = "Export URL copy failed";
-    } finally {
-      clearTimeout(clipboardTimeout);
-      feedbackImage.style.display = "block";
-      exportUrlCopying = false;
-      button.disabled = false;
-      button.disabled = !exportUrlDirty;
-      clearTimeout(exportUrlFeedbackTimeout);
-      exportUrlFeedbackTimeout = setTimeout(() => {
-        feedbackLabel.textContent = originalText;
-        feedbackImage.style.display = "none";
-      }, 1800);
-    }
-  }
-
   // ============================================================
   // Setup panel
   // ============================================================
@@ -6584,7 +7621,7 @@ export function createUI({
   setupButtonRow.style.display = "flex";
   setupButtonRow.style.gap = "8px";
 
-  for (const text of ["Export JSON", "Export URL", "Import JSON"]) {
+  for (const text of ["Export JSON", "Import JSON"]) {
     const button = document.createElement("button");
 
     button.type = "button";
@@ -6593,30 +7630,6 @@ export function createUI({
     button.style.padding = "6px";
     if (text === "Export JSON") {
       button.addEventListener("click", downloadJsonExport);
-    } else if (text === "Export URL") {
-      exportUrlButton = button;
-      button.style.position = "relative";
-
-      const feedbackLabel = document.createElement("span");
-
-      feedbackLabel.className = "export-url-label";
-      feedbackLabel.textContent = text;
-      button.textContent = "";
-      button.appendChild(feedbackLabel);
-
-      const feedbackImage = document.createElement("img");
-
-      feedbackImage.className = "export-url-feedback";
-      feedbackImage.alt = "";
-      feedbackImage.style.display = "none";
-      feedbackImage.style.position = "absolute";
-      feedbackImage.style.right = "2px";
-      feedbackImage.style.bottom = "2px";
-      feedbackImage.style.width = "16px";
-      feedbackImage.style.height = "16px";
-      feedbackImage.style.pointerEvents = "none";
-      button.appendChild(feedbackImage);
-      button.addEventListener("click", () => copyUrlExport(button));
     } else {
       button.addEventListener("click", openImportDialog);
     }
@@ -6863,8 +7876,10 @@ export function createUI({
   });
 
   rotationArrowDepthSlider.addEventListener("input", () => {
-    rotationArrowDepth = Number(rotationArrowDepthSlider.value);
-    rotationArrowDepthValue.value = String(rotationArrowDepth);
+    rotationArrowDepth = syncEditValueFromSlider(
+      rotationArrowDepthSlider,
+      rotationArrowDepthValue,
+    );
     updateRotationArrowDepth();
   });
 
@@ -6889,27 +7904,34 @@ export function createUI({
       return;
     }
 
-    rotationArrowDepth = value;
-    rotationArrowDepthSlider.value = String(Math.min(Math.max(value, 0), 2));
+    rotationArrowDepth = syncSliderFromEditValue(
+      rotationArrowDepthSlider,
+      rotationArrowDepthValue,
+      value,
+    );
     updateRotationArrowDepth();
   });
 
   rotationArrowDepthValue.addEventListener("blur", () => {
     const value = Number(rotationArrowDepthValue.value);
 
-    rotationArrowDepth = Number.isFinite(value)
+    const nextValue = Number.isFinite(value)
       ? value
       : DEFAULT_ROTATION_ARROW_DEPTH;
-    rotationArrowDepthValue.value = String(rotationArrowDepth);
-    rotationArrowDepthSlider.value = String(
-      Math.min(Math.max(rotationArrowDepth, 0), 2),
+    rotationArrowDepth = syncSliderFromEditValue(
+      rotationArrowDepthSlider,
+      rotationArrowDepthValue,
+      nextValue,
     );
+    rotationArrowDepthValue.value = String(rotationArrowDepth);
     updateRotationArrowDepth();
   });
 
   rotationArrowThicknessSlider.addEventListener("input", () => {
-    rotationArrowThickness = Number(rotationArrowThicknessSlider.value);
-    rotationArrowThicknessValue.value = String(rotationArrowThickness);
+    rotationArrowThickness = syncEditValueFromSlider(
+      rotationArrowThicknessSlider,
+      rotationArrowThicknessValue,
+    );
     updateRotationArrowThickness();
   });
 
@@ -6933,9 +7955,10 @@ export function createUI({
       return;
     }
 
-    rotationArrowThickness = value;
-    rotationArrowThicknessSlider.value = String(
-      Math.min(Math.max(value, 0.001), 0.1),
+    rotationArrowThickness = syncSliderFromEditValue(
+      rotationArrowThicknessSlider,
+      rotationArrowThicknessValue,
+      value,
     );
     updateRotationArrowThickness();
   });
@@ -6943,17 +7966,23 @@ export function createUI({
   rotationArrowThicknessValue.addEventListener("blur", () => {
     const value = Number(rotationArrowThicknessValue.value);
 
-    rotationArrowThickness = Number.isFinite(value)
-      ? Math.min(Math.max(value, 0.001), 0.1)
+    const nextValue = Number.isFinite(value)
+      ? Math.max(value, 0.001)
       : DEFAULT_ROTATION_ARROW_THICKNESS;
+    rotationArrowThickness = syncSliderFromEditValue(
+      rotationArrowThicknessSlider,
+      rotationArrowThicknessValue,
+      nextValue,
+    );
     rotationArrowThicknessValue.value = String(rotationArrowThickness);
-    rotationArrowThicknessSlider.value = String(rotationArrowThickness);
     updateRotationArrowThickness();
   });
 
   rotationArrowRadiusSlider.addEventListener("input", () => {
-    rotationArrowRadius = Number(rotationArrowRadiusSlider.value);
-    rotationArrowRadiusValue.value = String(rotationArrowRadius);
+    rotationArrowRadius = syncEditValueFromSlider(
+      rotationArrowRadiusSlider,
+      rotationArrowRadiusValue,
+    );
     updateRotationArrowRadius();
   });
 
@@ -6977,19 +8006,26 @@ export function createUI({
       return;
     }
 
-    rotationArrowRadius = value;
-    rotationArrowRadiusSlider.value = String(Math.min(value, 2));
+    rotationArrowRadius = syncSliderFromEditValue(
+      rotationArrowRadiusSlider,
+      rotationArrowRadiusValue,
+      value,
+    );
     updateRotationArrowRadius();
   });
 
   rotationArrowRadiusValue.addEventListener("blur", () => {
     const value = Number(rotationArrowRadiusValue.value);
 
-    rotationArrowRadius = Number.isFinite(value)
+    const nextValue = Number.isFinite(value)
       ? Math.max(value, 0.1)
       : DEFAULT_ROTATION_ARROW_RADIUS;
+    rotationArrowRadius = syncSliderFromEditValue(
+      rotationArrowRadiusSlider,
+      rotationArrowRadiusValue,
+      nextValue,
+    );
     rotationArrowRadiusValue.value = String(rotationArrowRadius);
-    rotationArrowRadiusSlider.value = String(Math.min(rotationArrowRadius, 2));
     updateRotationArrowRadius();
   });
 
@@ -7054,8 +8090,7 @@ export function createUI({
   }
 
   axisDepthSlider.addEventListener("input", () => {
-    axisDepth = Number(axisDepthSlider.value);
-    axisDepthValue.value = String(axisDepth);
+    axisDepth = syncEditValueFromSlider(axisDepthSlider, axisDepthValue);
     updateAxisDepth();
   });
 
@@ -7079,17 +8114,20 @@ export function createUI({
       return;
     }
 
-    axisDepth = value;
-    axisDepthSlider.value = String(Math.min(value, 1));
+    axisDepth = syncSliderFromEditValue(axisDepthSlider, axisDepthValue, value);
     updateAxisDepth();
   });
 
   axisDepthValue.addEventListener("blur", () => {
     const value = Number(axisDepthValue.value);
 
-    axisDepth = Number.isFinite(value) ? Math.max(value, 0) : 0;
+    const nextValue = Number.isFinite(value) ? Math.max(value, 0) : 0;
+    axisDepth = syncSliderFromEditValue(
+      axisDepthSlider,
+      axisDepthValue,
+      nextValue,
+    );
     axisDepthValue.value = String(axisDepth);
-    axisDepthSlider.value = String(Math.min(axisDepth, 1));
     updateAxisDepth();
   });
 
@@ -7111,8 +8149,10 @@ export function createUI({
   }
 
   axisLabelDepthSlider.addEventListener("input", () => {
-    axisLabelDepth = Number(axisLabelDepthSlider.value);
-    axisLabelDepthValue.value = String(axisLabelDepth);
+    axisLabelDepth = syncEditValueFromSlider(
+      axisLabelDepthSlider,
+      axisLabelDepthValue,
+    );
     updateAxisLabelDepth();
   });
 
@@ -7136,8 +8176,11 @@ export function createUI({
       return;
     }
 
-    axisLabelDepth = value;
-    axisLabelDepthSlider.value = String(Math.min(value, 1));
+    axisLabelDepth = syncSliderFromEditValue(
+      axisLabelDepthSlider,
+      axisLabelDepthValue,
+      value,
+    );
     updateAxisLabelDepth();
   });
 
@@ -7145,21 +8188,26 @@ export function createUI({
     const value = Number(axisLabelDepthValue.value);
 
     if (!Number.isFinite(value) || value <= 0) {
-      axisLabelDepth = DEFAULT_LABEL_DEPTH;
+      axisLabelDepth = syncSliderFromEditValue(
+        axisLabelDepthSlider,
+        axisLabelDepthValue,
+        DEFAULT_LABEL_DEPTH,
+      );
       axisLabelDepthValue.value = String(axisLabelDepth);
-      axisLabelDepthSlider.value = String(axisLabelDepth);
     } else {
-      axisLabelDepth = value;
-      axisLabelDepthValue.value = String(value);
-      axisLabelDepthSlider.value = String(Math.min(value, 1));
+      axisLabelDepth = syncSliderFromEditValue(
+        axisLabelDepthSlider,
+        axisLabelDepthValue,
+        value,
+      );
+      axisLabelDepthValue.value = String(axisLabelDepth);
     }
 
     updateAxisLabelDepth();
   });
 
   labelDepthSlider.addEventListener("input", () => {
-    labelDepth = Number(labelDepthSlider.value);
-    labelDepthValue.value = String(labelDepth);
+    labelDepth = syncEditValueFromSlider(labelDepthSlider, labelDepthValue);
     refreshFaceletLabels();
   });
 
@@ -7183,8 +8231,11 @@ export function createUI({
       return;
     }
 
-    labelDepth = value;
-    labelDepthSlider.value = String(Math.min(value, 1));
+    labelDepth = syncSliderFromEditValue(
+      labelDepthSlider,
+      labelDepthValue,
+      value,
+    );
     refreshFaceletLabels();
   });
 
@@ -7192,13 +8243,19 @@ export function createUI({
     const value = Number(labelDepthValue.value);
 
     if (!Number.isFinite(value) || value <= 0) {
-      labelDepth = DEFAULT_LABEL_DEPTH;
+      labelDepth = syncSliderFromEditValue(
+        labelDepthSlider,
+        labelDepthValue,
+        DEFAULT_LABEL_DEPTH,
+      );
       labelDepthValue.value = String(labelDepth);
-      labelDepthSlider.value = String(labelDepth);
     } else {
-      labelDepth = value;
-      labelDepthValue.value = String(value);
-      labelDepthSlider.value = String(Math.min(value, 1));
+      labelDepth = syncSliderFromEditValue(
+        labelDepthSlider,
+        labelDepthValue,
+        value,
+      );
+      labelDepthValue.value = String(labelDepth);
     }
 
     refreshFaceletLabels();
@@ -7228,6 +8285,10 @@ export function createUI({
     if (window.innerWidth <= 900) {
       cubePanel.style.top = "";
       cubePanel.style.right = "";
+      if (viewPanel) {
+        viewPanel.style.top = "";
+        viewPanel.style.right = "";
+      }
       colorsPanel.style.top = "";
       colorsPanel.style.right = "";
 
@@ -7246,18 +8307,30 @@ export function createUI({
         exportSvgButton.style.right = "";
       }
 
+      syncRotationBlockLayout();
       return;
     }
 
     cubePanel.style.top = "20px";
     cubePanel.style.right = "20px";
-    colorsPanel.style.top = `${cubePanel.offsetTop + cubePanel.offsetHeight + 10}px`;
+
+    if (viewPanel) {
+      viewPanel.style.top = `${cubePanel.offsetTop + cubePanel.offsetHeight + 10}px`;
+      viewPanel.style.right = "20px";
+    }
+
+    colorsPanel.style.top = `${
+      (viewPanel ?? cubePanel).offsetTop +
+      (viewPanel ?? cubePanel).offsetHeight +
+      10
+    }px`;
     colorsPanel.style.right = "20px";
 
     if (labelsPanel) {
       labelsPanel.style.top = `${
         colorsPanel.offsetTop + colorsPanel.offsetHeight + 10
       }px`;
+      labelsPanel.style.right = "20px";
     }
 
     if (setupPanel) {
@@ -7275,7 +8348,10 @@ export function createUI({
         (setupPanel ?? labelsPanel ?? colorsPanel).offsetHeight +
         10
       }px`;
+      exportSvgButton.style.right = "20px";
     }
+
+    syncRotationBlockLayout();
   }
 
   function scheduleCubePanelPositionUpdate() {
@@ -7349,6 +8425,13 @@ export function createUI({
       updateRotationToggle();
     }
 
+    if (activePanel !== "view" && !viewCollapsed) {
+      viewCollapsed = true;
+      viewContent.style.display = "none";
+      viewCollapseIcon.textContent = "+";
+      viewHeader.setAttribute("aria-expanded", "false");
+    }
+
     if (activePanel !== "colors" && !colorsCollapsed) {
       colorsCollapsed = true;
       colorsContent.style.display = "none";
@@ -7400,7 +8483,7 @@ export function createUI({
     toggleCubePanel();
   });
 
-  window.addEventListener("resize", updateCubePanelPosition);
+  window.addEventListener("resize", scheduleCubePanelPositionUpdate);
 
   // ============================================================
   // Cube gap mode
@@ -7518,9 +8601,7 @@ export function createUI({
   // ============================================================
 
   sizeControls.slider.addEventListener("input", () => {
-    size = Number(sizeControls.slider.value);
-
-    sizeControls.value.value = size;
+    size = syncEditValueFromSlider(sizeControls.slider, sizeControls.value);
 
     updateCubeDimensions(size, gap);
   });
@@ -7538,11 +8619,12 @@ export function createUI({
       return;
     }
 
-    const clamped = MathUtils.clamp(value, 0, 2);
-
-    size = clamped;
-
-    sizeControls.slider.value = clamped;
+    size = syncSliderFromEditValue(
+      sizeControls.slider,
+      sizeControls.value,
+      value,
+      { max: 10 },
+    );
 
     updateCubeDimensions(size, gap);
   });
@@ -7550,12 +8632,15 @@ export function createUI({
   sizeControls.value.addEventListener("blur", () => {
     const raw = Number(sizeControls.value.value);
 
-    const value = MathUtils.clamp(raw, 0, 2);
+    const value = Number.isFinite(raw) ? Math.max(raw, 0) : defaultSize;
 
-    size = Number.isFinite(value) ? value : defaultSize;
-
-    sizeControls.value.value = size;
-    sizeControls.slider.value = size;
+    size = syncSliderFromEditValue(
+      sizeControls.slider,
+      sizeControls.value,
+      value,
+      { max: 10 },
+    );
+    sizeControls.value.value = String(size);
 
     updateCubeDimensions(size, gap);
   });
@@ -7565,9 +8650,7 @@ export function createUI({
   // ============================================================
 
   gapControls.slider.addEventListener("input", () => {
-    gap = Number(gapControls.slider.value);
-
-    gapControls.value.value = gap;
+    gap = syncEditValueFromSlider(gapControls.slider, gapControls.value);
 
     updateCubeDimensions(size, gap);
   });
@@ -7585,11 +8668,12 @@ export function createUI({
       return;
     }
 
-    const clamped = MathUtils.clamp(value, 0, 1);
-
-    gap = clamped;
-
-    gapControls.slider.value = clamped;
+    gap = syncSliderFromEditValue(
+      gapControls.slider,
+      gapControls.value,
+      value,
+      { min: 0, max: 1 },
+    );
 
     updateCubeDimensions(size, gap);
   });
@@ -7597,12 +8681,15 @@ export function createUI({
   gapControls.value.addEventListener("blur", () => {
     const raw = Number(gapControls.value.value);
 
-    const value = MathUtils.clamp(raw, 0, 1);
+    const value = Number.isFinite(raw) ? Math.max(raw, 0) : defaultGap;
 
-    gap = Number.isFinite(value) ? value : defaultGap;
-
-    gapControls.value.value = gap;
-    gapControls.slider.value = gap;
+    gap = syncSliderFromEditValue(
+      gapControls.slider,
+      gapControls.value,
+      value,
+      { min: 0, max: 1 },
+    );
+    gapControls.value.value = String(gap);
 
     updateCubeDimensions(size, gap);
   });
@@ -7803,7 +8890,7 @@ export function createUI({
     styleUiTitle(title, { container: heading, marginBottom: "6px" });
 
     const controls = {
-      size: createGroupInput(group, "size", 0, 2),
+      size: createGroupInput(group, "size", 0, 10),
       gap: createGroupInput(group, "gap", 0, 1),
     };
 
@@ -7896,7 +8983,7 @@ export function createUI({
     name.style.fontFamily = "monospace";
 
     row.appendChild(name);
-    row.appendChild(createDimensionInput(cubie, "size", 0, 2));
+    row.appendChild(createDimensionInput(cubie, "size", 0, 10));
     row.appendChild(createDimensionInput(cubie, "gap", 0, 1));
     customDimensionsContent.appendChild(row);
   }
@@ -8064,12 +9151,7 @@ export function createUI({
 
   function resetRotationInterface() {
     resetCubeOrientation();
-
-    camera.position.set(5, 5, 7);
-
-    controls.target.set(0, 0, 0);
-
-    controls.update();
+    resetCameraView();
 
     moveSelect.value = "";
     lastRotationEdit = "move";
@@ -8100,10 +9182,8 @@ export function createUI({
     pendingRotationCount = 0;
     setRotationControlVisibility();
     rotationText.style.display = "none";
-    copyRotationButton.style.display = "none";
-    undoRotationButton.style.display = "none";
     copyIconImage.src = copyIcon;
-    rotationText.style.left = "248px";
+    syncRotationBlockLayout();
 
     fixedRadio.checked = false;
     customRadio.checked = false;
@@ -8116,68 +9196,33 @@ export function createUI({
   }
 
   function resetEverythingInterface() {
+    updateCubeResizeButton(false);
     resetCube();
     resetCubeInterface();
     resetColorsInterface();
     resetRotationInterface();
+    resetLabelsState();
+    resetViewState();
+
+    viewCollapsed = true;
+    viewContent.style.display = "none";
+    viewCollapseIcon.textContent = "+";
+    viewHeader.setAttribute("aria-expanded", "false");
 
     rotationCollapsed = window.innerWidth <= 900;
     rotationContent.style.display = rotationCollapsed ? "none" : "block";
     updateRotationToggle();
-
-    showFaceletLabelsCheckbox.checked = false;
-    showAxisLabelsCheckbox.checked = false;
-    showAxisArrowsCheckbox.checked = false;
-    axisGroup.visible = false;
-    axisLabelVisibilityControl.style.display = "none";
-    setAllAxisLabelVisibility(false);
-    axisArrowVisibilityControl.style.display = "none";
-    setAllAxisArrowVisibility(false);
-    showRotationArrowsCheckbox.checked = false;
-    rotationArrowGroup.visible = false;
-    rotationArrowVisibilityControl.style.display = "none";
-    rotationArrowRadiusControl.style.display = "none";
-    setAllRotationArrowVisibility(true);
-    rotationArrowDepthControl.style.display = "none";
-    rotationArrowThicknessControl.style.display = "none";
-    rotationArrowDepth = DEFAULT_ROTATION_ARROW_DEPTH;
-    rotationArrowDepthSlider.value = String(rotationArrowDepth);
-    rotationArrowDepthValue.value = String(rotationArrowDepth);
-    updateRotationArrowDepth();
-    rotationArrowThickness = DEFAULT_ROTATION_ARROW_THICKNESS;
-    rotationArrowThicknessSlider.value = String(rotationArrowThickness);
-    rotationArrowThicknessValue.value = String(rotationArrowThickness);
-    updateRotationArrowThickness();
-    rotationArrowRadius = DEFAULT_ROTATION_ARROW_RADIUS;
-    rotationArrowRadiusSlider.value = String(rotationArrowRadius);
-    rotationArrowRadiusValue.value = String(rotationArrowRadius);
-    updateRotationArrowRadius();
-    rotationArrowDirection = "clockwise";
-    rotationArrowDirectionSelect.value = rotationArrowDirection;
-    updateRotationArrowDirection();
-    axisLabelNameTitle.style.display = "none";
-    axisLabelModeContainer.style.display = "none";
-    selectAxisLabelMode("face");
-    axisDepthControl.style.display = "none";
-    axisDepth = 0;
-    axisDepthSlider.value = String(axisDepth);
-    axisDepthValue.value = String(axisDepth);
-    updateAxisDepth();
-    axisLabelDepthControl.style.display = "none";
-    axisLabelDepth = DEFAULT_LABEL_DEPTH;
-    axisLabelDepthSlider.value = String(axisLabelDepth);
-    axisLabelDepthValue.value = String(axisLabelDepth);
-    updateAxisLabelDepth();
-    labelDepth = DEFAULT_LABEL_DEPTH;
-    labelDepthSlider.value = String(labelDepth);
-    labelDepthValue.value = String(labelDepth);
-    updateFaceletLabelVisibility();
 
     globalGapRadio.checked = true;
     customGapRadio.checked = false;
     customDimensionsContent.style.display = "none";
     sizeControls.setting.style.display = "block";
     gapControls.setting.style.display = "block";
+
+    labelsCollapsed = true;
+    labelsContent.style.display = "none";
+    labelsCollapseIcon.textContent = "+";
+    labelsHeader.setAttribute("aria-expanded", "false");
 
     colorsCollapsed = true;
     colorsContent.style.display = "none";
@@ -8215,12 +9260,35 @@ export function createUI({
   resetEverythingButton.style.boxSizing = "border-box";
   addHoverEffect(resetEverythingButton, "#f3c7cc");
 
-  resetEverythingButton.addEventListener("click", () => {
-    resetEverythingInterface();
-    markSetupChanged();
+  resetEverythingButton.addEventListener("click", async () => {
+    resetEverythingButton.disabled = true;
+
+    try {
+      await stopRotationAndWait({ force: true });
+      resetEverythingInterface();
+      markSetupChanged();
+    } finally {
+      resetEverythingButton.disabled = false;
+    }
   });
 
   controlsRoot.appendChild(resetEverythingButton);
+
+  const historyButton = document.createElement("button");
+
+  historyButton.className = "history-control";
+  historyButton.type = "button";
+  historyButton.textContent = "History";
+  historyButton.style.position = "absolute";
+  historyButton.style.top = "70px";
+  historyButton.style.left = "20px";
+  historyButton.style.width = "220px";
+  historyButton.style.height = "42px";
+  historyButton.style.padding = "8px";
+  historyButton.style.cursor = "pointer";
+  historyButton.style.boxSizing = "border-box";
+
+  controlsRoot.appendChild(historyButton);
 
   exportSvgButton = document.createElement("button");
 

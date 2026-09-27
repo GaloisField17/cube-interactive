@@ -1,6 +1,12 @@
-import { Color, PerspectiveCamera, Scene, WebGLRenderer } from "three";
+import { Color, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { getCubeViewportHeight } from "./responsiveLayout.js";
+import {
+  getCubeViewportDisplayHeight,
+  getCubeViewportHeight,
+} from "./responsiveLayout.js";
+
+const DEFAULT_CAMERA_POSITION = new Vector3(5, 5, 7);
+const DEFAULT_CUBE_VIEW_LIFT = 1.1162;
 
 export function createScene() {
   document.documentElement.style.margin = "0";
@@ -23,7 +29,7 @@ export function createScene() {
   scene.background = new Color(0xe5e5e5);
 
   const camera = new PerspectiveCamera(45, 1, 0.1, 1000);
-  camera.position.set(5, 5, 7);
+  camera.position.copy(DEFAULT_CAMERA_POSITION);
   camera.lookAt(0, 0, 0);
 
   const renderer = new WebGLRenderer({
@@ -31,18 +37,36 @@ export function createScene() {
   });
   viewport.appendChild(renderer.domElement);
 
+  let cubeViewportCollapsed = false;
+
   function resize() {
     const width = Math.max(1, viewport.clientWidth || window.innerWidth);
-    const height = getCubeViewportHeight(window.innerWidth, window.innerHeight);
+    const renderHeight = getCubeViewportHeight(
+      window.innerWidth,
+      window.innerHeight,
+    );
+    const viewportHeight = cubeViewportCollapsed
+      ? 0
+      : getCubeViewportDisplayHeight(window.innerWidth, window.innerHeight);
 
+    viewport.style.height = `${viewportHeight}px`;
     document.documentElement.style.setProperty(
       "--cube-viewport-height",
-      `${height}px`,
+      `${viewportHeight}px`,
     );
 
-    camera.aspect = width / height;
+    camera.aspect = width / renderHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(width, height);
+    renderer.setSize(width, renderHeight);
+  }
+
+  function setCubeViewportCollapsed(collapsed) {
+    cubeViewportCollapsed = collapsed;
+    document.documentElement.classList.toggle(
+      "cube-viewport-collapsed",
+      collapsed,
+    );
+    resize();
   }
 
   resize();
@@ -50,5 +74,26 @@ export function createScene() {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
-  return { scene, camera, renderer, controls, resize };
+  const defaultViewOffset = new Vector3(0, 1, 0)
+    .applyQuaternion(camera.quaternion)
+    .normalize()
+    .multiplyScalar(-DEFAULT_CUBE_VIEW_LIFT);
+
+  function resetCameraView() {
+    camera.position.copy(DEFAULT_CAMERA_POSITION).add(defaultViewOffset);
+    controls.target.copy(defaultViewOffset);
+    controls.update();
+  }
+
+  resetCameraView();
+
+  return {
+    scene,
+    camera,
+    renderer,
+    controls,
+    resize,
+    setCubeViewportCollapsed,
+    resetCameraView,
+  };
 }
