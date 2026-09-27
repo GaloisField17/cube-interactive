@@ -58,6 +58,7 @@ import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
 
 const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
+const ROTATION_SEQUENCE_PLACEHOLDER = "e.g. R U R' U'";
 const UI_FONT_FAMILY = "Arial, sans-serif";
 const UI_FONT_SIZE = "14px";
 const DEFAULT_ROTATION_TEXT_FONT_SIZE = 28;
@@ -846,6 +847,7 @@ export function createUI({
   rotationText.setAttribute("contenteditable", "true");
   rotationText.setAttribute("spellcheck", "false");
   rotationText.dataset.empty = "true";
+  rotationText.dataset.placeholder = ROTATION_SEQUENCE_PLACEHOLDER;
 
   const rotationStartTarget = document.createElement("span");
 
@@ -2156,6 +2158,15 @@ export function createUI({
     highlightActiveRotation();
     updateRotationMediaControlState();
     syncRotationBlockLayout();
+
+    window.setTimeout(() => {
+      if (
+        document.activeElement !== rotationText &&
+        canEditRotationSequence()
+      ) {
+        resumeQueuedRotations();
+      }
+    }, 0);
   });
 
   function setCursorRotationEntry(entry) {
@@ -2568,6 +2579,10 @@ export function createUI({
     if (separator?.nodeType === Node.TEXT_NODE) {
       separator.remove();
     }
+
+    rotationText.dataset.empty = String(
+      getRotationEntries().length === 0 && !rotationText.textContent.trim(),
+    );
   }
 
   function clearRotationEntries() {
@@ -3720,7 +3735,7 @@ export function createUI({
   const customSequenceInput = document.createElement("input");
 
   customSequenceInput.type = "text";
-  customSequenceInput.placeholder = "e.g. R U R' U'";
+  customSequenceInput.placeholder = ROTATION_SEQUENCE_PLACEHOLDER;
   customSequenceInput.style.flex = "1";
   customSequenceInput.style.minWidth = "0";
   customSequenceInput.style.padding = "6px";
