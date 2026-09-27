@@ -1117,9 +1117,7 @@ export function createUI({
     undoRotationButton.style.top = `${rotationBlockTop}px`;
     undoRotationButton.style.left = `${undoButtonLeft}px`;
     rotationText.style.top = `${
-      narrowDesktopToolbar
-        ? rotationBlockTop + 112
-        : rotationTextTop
+      narrowDesktopToolbar ? rotationBlockTop + 112 : rotationTextTop
     }px`;
     rotationText.style.left = `${rotationTextLeft}px`;
     rotationText.style.right = "auto";
@@ -7589,11 +7587,15 @@ export function createUI({
 
     size = importedSetup.cube.size;
     gap = importedSetup.cube.gap;
+    updateAllCustomDimensionValues("size", size);
+    updateAllCustomDimensionValues("gap", gap);
     setNumericControl(sizeControls, size);
     setNumericControl(gapControls, gap);
+    syncGlobalDimensionControl("size");
+    syncGlobalDimensionControl("gap");
     globalGapRadio.checked = true;
     customGapRadio.checked = false;
-    updateCubeDimensions(size, gap);
+    updateCubeDimensions(size, gap, customDimensions);
     applyCubeState(importedSetup.cube);
     applyImportedColors(importedSetup.colors);
     applyImportedLabels(importedSetup.labels);
@@ -8774,7 +8776,7 @@ export function createUI({
   sizeControls.slider.addEventListener("input", () => {
     size = syncEditValueFromSlider(sizeControls.slider, sizeControls.value);
 
-    updateCubeDimensions(size, gap);
+    applyGlobalDimension("size", size);
   });
 
   sizeControls.value.addEventListener("input", () => {
@@ -8797,10 +8799,18 @@ export function createUI({
       { max: 10 },
     );
 
-    updateCubeDimensions(size, gap);
+    applyGlobalDimension("size", size);
   });
 
   sizeControls.value.addEventListener("blur", () => {
+    if (
+      sizeControls.value.value === "" &&
+      sizeControls.value.placeholder === "Mixed"
+    ) {
+      syncGlobalDimensionControl("size");
+      return;
+    }
+
     const raw = Number(sizeControls.value.value);
 
     const value = Number.isFinite(raw) ? Math.max(raw, 0) : defaultSize;
@@ -8813,7 +8823,7 @@ export function createUI({
     );
     sizeControls.value.value = String(size);
 
-    updateCubeDimensions(size, gap);
+    applyGlobalDimension("size", size);
   });
 
   // ============================================================
@@ -8823,7 +8833,7 @@ export function createUI({
   gapControls.slider.addEventListener("input", () => {
     gap = syncEditValueFromSlider(gapControls.slider, gapControls.value);
 
-    updateCubeDimensions(size, gap);
+    applyGlobalDimension("gap", gap);
   });
 
   gapControls.value.addEventListener("input", () => {
@@ -8846,10 +8856,18 @@ export function createUI({
       { min: 0, max: 1 },
     );
 
-    updateCubeDimensions(size, gap);
+    applyGlobalDimension("gap", gap);
   });
 
   gapControls.value.addEventListener("blur", () => {
+    if (
+      gapControls.value.value === "" &&
+      gapControls.value.placeholder === "Mixed"
+    ) {
+      syncGlobalDimensionControl("gap");
+      return;
+    }
+
     const raw = Number(gapControls.value.value);
 
     const value = Number.isFinite(raw) ? Math.max(raw, 0) : defaultGap;
@@ -8862,7 +8880,7 @@ export function createUI({
     );
     gapControls.value.value = String(gap);
 
-    updateCubeDimensions(size, gap);
+    applyGlobalDimension("gap", gap);
   });
 
   const customDimensions = new Map(
@@ -8870,6 +8888,55 @@ export function createUI({
   );
   const customDimensionInputs = new Map();
   const customGroupInputs = new Map();
+
+  function syncGlobalDimensionControl(property) {
+    const values = [...customDimensions.values()].map(
+      (dimensions) => dimensions[property],
+    );
+    const controls = property === "size" ? sizeControls : gapControls;
+    const isUniform = values.every((value) => value === values[0]);
+
+    controls.value.value = isUniform ? String(values[0]) : "";
+    controls.value.placeholder = isUniform ? "" : "Mixed";
+    controls.slider.style.accentColor = isUniform ? "" : "#f97316";
+
+    if (isUniform) {
+      controls.slider.value = String(values[0]);
+
+      if (property === "size") {
+        size = values[0];
+      } else {
+        gap = values[0];
+      }
+    }
+  }
+
+  function updateAllCustomDimensionValues(property, value) {
+    for (const [cubie, dimensions] of customDimensions) {
+      dimensions[property] = value;
+
+      const inputs = customDimensionInputs.get(cubie);
+      if (inputs) {
+        inputs[property].value = String(value);
+      }
+    }
+
+    for (const group of customGroupInputs.keys()) {
+      updateGroupHeading(group);
+    }
+  }
+
+  function applyGlobalDimension(property, value) {
+    if (property === "size") {
+      size = value;
+    } else {
+      gap = value;
+    }
+
+    updateAllCustomDimensionValues(property, value);
+    syncGlobalDimensionControl(property);
+    updateCubeDimensions(size, gap, customDimensions);
+  }
 
   const customDimensionsContent = document.createElement("div");
 
@@ -9029,6 +9096,7 @@ export function createUI({
       input.value = String(clamped);
       updateCubeDimensions(size, gap, customDimensions);
       updateGroupHeading(group);
+      syncGlobalDimensionControl(property);
     }
 
     input.addEventListener("input", applyGroupValue);
@@ -9105,6 +9173,7 @@ export function createUI({
       input.value = String(clamped);
       updateCubeDimensions(size, gap, customDimensions);
       updateGroupHeading(getCubieGroup(cubie));
+      syncGlobalDimensionControl(property);
     }
 
     input.addEventListener("input", updateValue);
@@ -9169,7 +9238,9 @@ export function createUI({
     customDimensionsContent.style.display = "none";
     sizeControls.setting.style.display = "block";
     gapControls.setting.style.display = "block";
-    updateCubeDimensions(size, gap);
+    syncGlobalDimensionControl("size");
+    syncGlobalDimensionControl("gap");
+    updateCubeDimensions(size, gap, customDimensions);
     scheduleCubePanelPositionUpdate();
   });
 
@@ -9184,6 +9255,8 @@ export function createUI({
     cubeCollapsed = false;
     cubeContent.style.display = "block";
     cubeCollapseIcon.textContent = "−";
+    syncGlobalDimensionControl("size");
+    syncGlobalDimensionControl("gap");
     updateCubeDimensions(size, gap, customDimensions);
     scheduleCubePanelPositionUpdate();
   });
@@ -9218,7 +9291,9 @@ export function createUI({
       updateGroupHeading(group);
     }
 
-    updateCubeDimensions(size, gap);
+    syncGlobalDimensionControl("size");
+    syncGlobalDimensionControl("gap");
+    updateCubeDimensions(size, gap, customDimensions);
   }
 
   // ============================================================
