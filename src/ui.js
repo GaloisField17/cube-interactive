@@ -15,6 +15,8 @@ import {
   TubeGeometry,
   Vector3,
 } from "three";
+import chevronLeftIcon from "./assets/chevron-left.svg";
+import chevronRightIcon from "./assets/chevron-right.svg";
 import copyIcon from "./assets/copy.png";
 import {
   default as invalidColorIcon,
@@ -372,20 +374,16 @@ export function createUI({
   rotationPanelChevron.type = "button";
   rotationPanelChevron.setAttribute("aria-controls", panel.id);
   rotationPanelChevron.style.position = "absolute";
-  rotationPanelChevron.style.left = "0";
-  rotationPanelChevron.style.width = "20px";
+  rotationPanelChevron.style.left = "2px";
+  rotationPanelChevron.style.width = "18px";
   rotationPanelChevron.style.padding = "0";
   rotationPanelChevron.style.border = "1px solid rgba(0, 0, 0, 0.2)";
   rotationPanelChevron.style.borderRight = "0";
   rotationPanelChevron.style.borderRadius = "6px 0 0 6px";
-  rotationPanelChevron.style.background = UI_PANEL_BACKGROUND;
-  rotationPanelChevron.style.boxShadow = UI_PANEL_BOX_SHADOW;
-  rotationPanelChevron.style.fontSize = "20px";
-  rotationPanelChevron.style.lineHeight = "1";
   rotationPanelChevron.style.cursor = "pointer";
   rotationPanelChevron.style.zIndex = "2";
   rotationPanelChevron.style.boxSizing = "border-box";
-  rotationPanelChevron.style.transition = "height 180ms ease";
+  stylePanelChevron(rotationPanelChevron, "left", { showShadow: false });
   controlsRoot.appendChild(rotationPanelChevron);
 
   let rotationUiHidden = false;
@@ -403,7 +401,10 @@ export function createUI({
     rotationPanelChevron.style.justifyContent = "center";
     rotationPanelChevron.style.top = `${panel.offsetTop}px`;
     rotationPanelChevron.style.height = `${panel.offsetHeight}px`;
-    rotationPanelChevron.textContent = rotationUiHidden ? ">" : "<";
+    setPanelChevronIcon(
+      rotationPanelChevron,
+      rotationUiHidden ? "right" : "left",
+    );
     rotationPanelChevron.title = rotationUiHidden
       ? "Expand Rotation UI"
       : "Collapse Rotation UI";
@@ -412,7 +413,8 @@ export function createUI({
       "aria-expanded",
       String(!rotationUiHidden),
     );
-    panel.style.transition = "transform 220ms ease";
+    panel.style.transition =
+      "transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1)";
     panel.style.transform = rotationUiHidden
       ? "translateX(calc(-100% - 20px))"
       : "";
@@ -444,6 +446,78 @@ export function createUI({
 
   function setStyles(element, styles) {
     Object.assign(element.style, styles);
+  }
+
+  function stylePanelChevron(button, outerEdge, { showShadow = true } = {}) {
+    const edgeShadow =
+      outerEdge === "left"
+        ? "-1px 0 4px rgba(0, 0, 0, 0.08)"
+        : "1px 0 4px rgba(0, 0, 0, 0.08)";
+    const restingShadow = showShadow ? edgeShadow : "none";
+
+    button.style.borderColor = "rgba(0, 0, 0, 0.14)";
+    button.style.background = UI_PANEL_BACKGROUND;
+    button.style.boxShadow = restingShadow;
+    button.style.color = "#4b5563";
+    button.style.transition =
+      "top 240ms cubic-bezier(0.22, 0.61, 0.36, 1), height 240ms cubic-bezier(0.22, 0.61, 0.36, 1), background-color 140ms ease, box-shadow 140ms ease";
+
+    button.addEventListener("mouseenter", () => {
+      button.style.background = "#f9fafb";
+      button.style.boxShadow = showShadow
+        ? edgeShadow.replace("0.08", "0.12")
+        : "none";
+    });
+    button.addEventListener("mouseleave", () => {
+      button.style.background = UI_PANEL_BACKGROUND;
+      button.style.boxShadow = restingShadow;
+    });
+  }
+
+  function setPanelChevronIcon(button, direction) {
+    let iconContainer = button.querySelector(".panel-chevron-icons");
+
+    if (!iconContainer) {
+      iconContainer = document.createElement("span");
+      iconContainer.className = "panel-chevron-icons";
+      iconContainer.setAttribute("aria-hidden", "true");
+      setStyles(iconContainer, {
+        position: "relative",
+        display: "block",
+        width: "14px",
+        height: "14px",
+        pointerEvents: "none",
+      });
+
+      for (const [iconDirection, iconSource] of [
+        ["left", chevronLeftIcon],
+        ["right", chevronRightIcon],
+      ]) {
+        const icon = document.createElement("img");
+
+        icon.dataset.direction = iconDirection;
+        icon.src = iconSource;
+        icon.alt = "";
+        icon.draggable = false;
+        setStyles(icon, {
+          position: "absolute",
+          inset: "0",
+          display: "block",
+          width: "100%",
+          height: "100%",
+          opacity: "0",
+          pointerEvents: "none",
+          transition: "opacity 140ms ease",
+        });
+        iconContainer.appendChild(icon);
+      }
+
+      button.appendChild(iconContainer);
+    }
+
+    for (const icon of iconContainer.querySelectorAll("img")) {
+      icon.style.opacity = icon.dataset.direction === direction ? "1" : "0";
+    }
   }
 
   function styleUiTitle(
@@ -9632,20 +9706,16 @@ export function createUI({
   rightPanelsChevron.className = "right-panels-chevron";
   rightPanelsChevron.type = "button";
   rightPanelsChevron.style.position = "absolute";
-  rightPanelsChevron.style.right = "0";
-  rightPanelsChevron.style.width = "20px";
+  rightPanelsChevron.style.right = "2px";
+  rightPanelsChevron.style.width = "18px";
   rightPanelsChevron.style.padding = "0";
   rightPanelsChevron.style.border = "1px solid rgba(0, 0, 0, 0.2)";
   rightPanelsChevron.style.borderLeft = "0";
   rightPanelsChevron.style.borderRadius = "0 6px 6px 0";
-  rightPanelsChevron.style.background = UI_PANEL_BACKGROUND;
-  rightPanelsChevron.style.boxShadow = UI_PANEL_BOX_SHADOW;
-  rightPanelsChevron.style.fontSize = "20px";
-  rightPanelsChevron.style.lineHeight = "1";
   rightPanelsChevron.style.cursor = "pointer";
   rightPanelsChevron.style.zIndex = "2";
   rightPanelsChevron.style.boxSizing = "border-box";
-  rightPanelsChevron.style.transition = "height 180ms ease";
+  stylePanelChevron(rightPanelsChevron, "right", { showShadow: false });
   controlsRoot.appendChild(rightPanelsChevron);
 
   syncRightPanelChevron = () => {
@@ -9669,7 +9739,10 @@ export function createUI({
     rightPanelsChevron.style.justifyContent = "center";
     rightPanelsChevron.style.top = `${stackTop + window.scrollY}px`;
     rightPanelsChevron.style.height = `${stackBottom - stackTop}px`;
-    rightPanelsChevron.textContent = rightPanelsCollapsed ? "<" : ">";
+    setPanelChevronIcon(
+      rightPanelsChevron,
+      rightPanelsCollapsed ? "left" : "right",
+    );
     rightPanelsChevron.title = rightPanelsCollapsed
       ? "Expand Right Panels"
       : "Collapse Right Panels";
@@ -9680,7 +9753,8 @@ export function createUI({
     );
 
     for (const panel of rightSidePanels) {
-      panel.style.transition = "transform 220ms ease";
+      panel.style.transition =
+        "transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1)";
       panel.style.transform = rightPanelsCollapsed
         ? "translateX(calc(100% + 20px))"
         : "";

@@ -15,6 +15,12 @@ html.cube-viewport-collapsed {
   touch-action: none;
 }
 
+.rotation-panel-chevron:focus-visible,
+.right-panels-chevron:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
 @media (max-width: 900px) {
   html,
   body {
