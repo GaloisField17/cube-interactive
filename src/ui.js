@@ -348,6 +348,7 @@ export function createUI({
 
   const panel = document.createElement("div");
 
+  panel.id = "rotation-panel";
   setStyles(panel, {
     position: "absolute",
     top: "130px",
@@ -363,6 +364,78 @@ export function createUI({
   });
 
   controlsRoot.appendChild(panel);
+
+  const rotationPanelChevron = document.createElement("button");
+
+  rotationPanelChevron.className = "rotation-panel-chevron";
+  rotationPanelChevron.type = "button";
+  rotationPanelChevron.setAttribute("aria-controls", panel.id);
+  rotationPanelChevron.style.position = "absolute";
+  rotationPanelChevron.style.left = "0";
+  rotationPanelChevron.style.width = "20px";
+  rotationPanelChevron.style.padding = "0";
+  rotationPanelChevron.style.border = "1px solid rgba(0, 0, 0, 0.2)";
+  rotationPanelChevron.style.borderRight = "0";
+  rotationPanelChevron.style.borderRadius = "6px 0 0 6px";
+  rotationPanelChevron.style.background = UI_PANEL_BACKGROUND;
+  rotationPanelChevron.style.boxShadow = UI_PANEL_BOX_SHADOW;
+  rotationPanelChevron.style.fontSize = "20px";
+  rotationPanelChevron.style.lineHeight = "1";
+  rotationPanelChevron.style.cursor = "pointer";
+  rotationPanelChevron.style.zIndex = "2";
+  rotationPanelChevron.style.boxSizing = "border-box";
+  rotationPanelChevron.style.transition = "height 180ms ease";
+  controlsRoot.appendChild(rotationPanelChevron);
+
+  let rotationUiHidden = false;
+
+  function syncRotationPanelChevron() {
+    if (window.innerWidth <= 900) {
+      rotationUiHidden = false;
+      panel.style.transform = "";
+      rotationPanelChevron.style.display = "none";
+      return;
+    }
+
+    rotationPanelChevron.style.display = "flex";
+    rotationPanelChevron.style.alignItems = "center";
+    rotationPanelChevron.style.justifyContent = "center";
+    rotationPanelChevron.style.top = `${panel.offsetTop}px`;
+    rotationPanelChevron.style.height = `${panel.offsetHeight}px`;
+    rotationPanelChevron.textContent = rotationUiHidden ? ">" : "<";
+    rotationPanelChevron.title = rotationUiHidden
+      ? "Expand Rotation UI"
+      : "Collapse Rotation UI";
+    rotationPanelChevron.setAttribute("aria-label", rotationPanelChevron.title);
+    rotationPanelChevron.setAttribute(
+      "aria-expanded",
+      String(!rotationUiHidden),
+    );
+    panel.style.transition = "transform 220ms ease";
+    panel.style.transform = rotationUiHidden
+      ? "translateX(calc(-100% - 20px))"
+      : "";
+  }
+
+  rotationPanelChevron.addEventListener("click", () => {
+    rotationUiHidden = !rotationUiHidden;
+    syncRotationPanelChevron();
+    syncRotationBlockLayout();
+  });
+
+  panel.addEventListener("transitionend", (event) => {
+    if (event.propertyName === "transform") {
+      syncRotationBlockLayout();
+    }
+  });
+
+  const rotationPanelResizeObserver = new ResizeObserver(
+    syncRotationPanelChevron,
+  );
+
+  rotationPanelResizeObserver.observe(panel);
+  window.addEventListener("resize", syncRotationPanelChevron);
+  syncRotationPanelChevron();
 
   // ============================================================
   // Helper
