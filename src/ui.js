@@ -9209,6 +9209,10 @@ export function createUI({
       customDimensionsContent.appendChild(createGroupHeading(group));
     }
 
+    if (group === "Core") {
+      continue;
+    }
+
     const row = document.createElement("div");
 
     row.style.display = "grid";
