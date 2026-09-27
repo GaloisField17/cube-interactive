@@ -819,34 +819,6 @@ export function createUI({
   });
   document.body.appendChild(rotationToolbarFrame);
 
-  const rotationToolbarMoveHandle = document.createElement("button");
-
-  rotationToolbarMoveHandle.type = "button";
-  rotationToolbarMoveHandle.textContent = "Move";
-  rotationToolbarMoveHandle.title = "Drag to move rotation controls";
-  rotationToolbarMoveHandle.setAttribute(
-    "aria-label",
-    "Move rotation controls",
-  );
-  setStyles(rotationToolbarMoveHandle, {
-    position: "absolute",
-    display: "none",
-    width: "42px",
-    height: "16px",
-    padding: "0",
-    border: "1px solid rgba(0, 0, 0, 0.25)",
-    borderRadius: "4px",
-    background: "rgba(245, 245, 245, 0.96)",
-    color: "#444",
-    fontSize: "10px",
-    lineHeight: "14px",
-    cursor: "grab",
-    touchAction: "none",
-    boxSizing: "border-box",
-    zIndex: "2",
-  });
-  document.body.appendChild(rotationToolbarMoveHandle);
-
   function getRotationTextHeightLimits() {
     const textStyles = getComputedStyle(rotationText);
     const verticalPadding =
@@ -977,9 +949,7 @@ export function createUI({
       ) + 12;
     const rotationBlockTop = compactLayout
       ? compactToolbarTop
-      : Math.max(20, window.innerHeight - 200) +
-        window.scrollY +
-        rotationToolbarOffset.y;
+      : Math.max(20, window.innerHeight - 200) + window.scrollY;
     const navigationButtons = [
       toStartButton,
       previousRotationButton,
@@ -988,6 +958,21 @@ export function createUI({
       nextRotationButton,
       toEndButton,
     ];
+    const toolbarElements = [
+      rotationToolbarFrame,
+      rotationText,
+      startStateButton,
+      copyRotationButton,
+      undoRotationButton,
+      ...navigationButtons,
+      resizeCubeControl.button,
+      resizeRotationTextControl.button,
+    ];
+
+    for (const element of toolbarElements) {
+      element.style.transform = "none";
+    }
+
     const navigationGap = 4;
     const navigationWidth = navigationButtons.reduce(
       (width, button) => width + parseFloat(button.style.width),
@@ -1102,15 +1087,10 @@ export function createUI({
       actionButtonsLeft = Math.max(actionButtonsLeft, nextActionButtonsLeft);
     }
 
-    const offsetX = compactLayout ? 0 : rotationToolbarOffset.x;
-    const rotationTextLeft = compactLayout ? 12 : actionButtonsLeft + offsetX;
-    const startStateLeft = compactLayout ? 12 : actionButtonsLeft + offsetX;
-    const copyButtonLeft = compactLayout
-      ? 72
-      : actionButtonsLeft + 56 + offsetX;
-    const undoButtonLeft = compactLayout
-      ? 132
-      : actionButtonsLeft + 112 + offsetX;
+    const rotationTextLeft = compactLayout ? 12 : actionButtonsLeft;
+    const startStateLeft = compactLayout ? 12 : actionButtonsLeft;
+    const copyButtonLeft = compactLayout ? 72 : actionButtonsLeft + 56;
+    const undoButtonLeft = compactLayout ? 132 : actionButtonsLeft + 112;
     const actionButtonsRight = compactLayout ? 180 : undoButtonLeft + 48;
     const minimumNavigationLeft =
       compactLayout && !shareCompactRow ? 12 : actionButtonsRight + 8;
@@ -1118,11 +1098,10 @@ export function createUI({
       availableRight - navigationWidth - resizeControlReserve;
     const centeredNavigationLeft =
       window.innerWidth / 2 - navigationAnchorOffset;
-    let navigationLeft =
-      Math.max(
-        minimumNavigationLeft,
-        Math.min(centeredNavigationLeft, maximumNavigationLeft),
-      ) + offsetX;
+    let navigationLeft = Math.max(
+      minimumNavigationLeft,
+      Math.min(centeredNavigationLeft, maximumNavigationLeft),
+    );
 
     copyRotationButton.style.top = `${rotationBlockTop}px`;
     copyRotationButton.style.left = `${copyButtonLeft}px`;
@@ -1192,15 +1171,20 @@ export function createUI({
       rotationTextLeft,
       availableRight,
     });
-    rotationToolbarMoveHandle.style.display = compactLayout ? "none" : "block";
-    rotationToolbarMoveHandle.style.left = `${
-      Number.parseFloat(rotationToolbarFrame.style.left) +
-      Number.parseFloat(rotationToolbarFrame.style.width) / 2 -
-      21
-    }px`;
-    rotationToolbarMoveHandle.style.top = `${
-      Number.parseFloat(rotationToolbarFrame.style.top) - 8
-    }px`;
+
+    if (!compactLayout) {
+      const nextOffset = clampRotationToolbarOffset(
+        rotationToolbarOffset.x,
+        rotationToolbarOffset.y,
+      );
+      rotationToolbarOffset.x = nextOffset.x;
+      rotationToolbarOffset.y = nextOffset.y;
+      const translation = `translate(${nextOffset.x}px, ${nextOffset.y}px)`;
+
+      for (const element of toolbarElements) {
+        element.style.transform = translation;
+      }
+    }
 
     if (compactLayout) {
       controlsRoot.style.top = `${
@@ -1214,99 +1198,122 @@ export function createUI({
       return { x: 0, y: 0 };
     }
 
-    const bounds = rotationToolbarFrame.getBoundingClientRect();
-    const baseLeft = bounds.left - rotationToolbarOffset.x;
-    const baseTop = bounds.top - rotationToolbarOffset.y;
+    const baseLeft =
+      Number.parseFloat(rotationToolbarFrame.style.left) - window.scrollX;
+    const baseTop =
+      Number.parseFloat(rotationToolbarFrame.style.top) - window.scrollY;
+    const frameWidth = Number.parseFloat(rotationToolbarFrame.style.width);
+    const frameHeight = Number.parseFloat(rotationToolbarFrame.style.height);
 
     return {
       x: Math.max(
         12 - baseLeft,
-        Math.min(x, window.innerWidth - 12 - bounds.width - baseLeft),
+        Math.min(x, window.innerWidth - 12 - frameWidth - baseLeft),
       ),
       y: Math.max(
         12 - baseTop,
-        Math.min(y, window.innerHeight - 12 - bounds.height - baseTop),
+        Math.min(y, window.innerHeight - 12 - frameHeight - baseTop),
       ),
     };
   }
 
   let rotationToolbarDragStart = null;
+  let suppressToolbarClick = false;
 
-  rotationToolbarMoveHandle.addEventListener("pointerdown", (event) => {
-    if (window.innerWidth <= 900) {
-      return;
-    }
+  window.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (
+        window.innerWidth <= 900 ||
+        (event.target instanceof Element && event.target.closest("button"))
+      ) {
+        return;
+      }
 
-    event.preventDefault();
-    rotationToolbarDragStart = {
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      offsetX: rotationToolbarOffset.x,
-      offsetY: rotationToolbarOffset.y,
-    };
-    rotationToolbarMoveHandle.style.cursor = "grabbing";
-    rotationToolbarMoveHandle.setPointerCapture(event.pointerId);
-  });
+      const bounds = rotationToolbarFrame.getBoundingClientRect();
 
-  rotationToolbarMoveHandle.addEventListener("pointermove", (event) => {
-    if (rotationToolbarDragStart?.pointerId !== event.pointerId) {
-      return;
-    }
+      if (
+        event.clientX < bounds.left ||
+        event.clientX > bounds.right ||
+        event.clientY < bounds.top ||
+        event.clientY > bounds.bottom
+      ) {
+        return;
+      }
 
-    const nextOffset = clampRotationToolbarOffset(
-      rotationToolbarDragStart.offsetX +
-        event.clientX -
-        rotationToolbarDragStart.x,
-      rotationToolbarDragStart.offsetY +
-        event.clientY -
-        rotationToolbarDragStart.y,
-    );
-    rotationToolbarOffset.x = nextOffset.x;
-    rotationToolbarOffset.y = nextOffset.y;
-    syncRotationBlockLayout();
-  });
+      rotationToolbarDragStart = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        offsetX: rotationToolbarOffset.x,
+        offsetY: rotationToolbarOffset.y,
+        moved: false,
+      };
+    },
+    true,
+  );
+
+  window.addEventListener(
+    "pointermove",
+    (event) => {
+      if (rotationToolbarDragStart?.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const deltaX = event.clientX - rotationToolbarDragStart.x;
+      const deltaY = event.clientY - rotationToolbarDragStart.y;
+
+      if (!rotationToolbarDragStart.moved) {
+        if (Math.hypot(deltaX, deltaY) < 4) {
+          return;
+        }
+
+        rotationToolbarDragStart.moved = true;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const nextOffset = clampRotationToolbarOffset(
+        rotationToolbarDragStart.offsetX + deltaX,
+        rotationToolbarDragStart.offsetY + deltaY,
+      );
+      rotationToolbarOffset.x = nextOffset.x;
+      rotationToolbarOffset.y = nextOffset.y;
+      syncRotationBlockLayout();
+    },
+    true,
+  );
 
   function finishRotationToolbarDrag(event) {
     if (rotationToolbarDragStart?.pointerId !== event.pointerId) {
       return;
     }
 
-    rotationToolbarDragStart = null;
-    rotationToolbarMoveHandle.style.cursor = "grab";
-  }
-
-  rotationToolbarMoveHandle.addEventListener(
-    "pointerup",
-    finishRotationToolbarDrag,
-  );
-  rotationToolbarMoveHandle.addEventListener(
-    "pointercancel",
-    finishRotationToolbarDrag,
-  );
-  rotationToolbarMoveHandle.addEventListener("keydown", (event) => {
-    const movement = event.shiftKey ? 25 : 10;
-    const movementByKey = {
-      ArrowDown: [0, movement],
-      ArrowLeft: [-movement, 0],
-      ArrowRight: [movement, 0],
-      ArrowUp: [0, -movement],
-    };
-    const delta = movementByKey[event.key];
-
-    if (!delta || window.innerWidth <= 900) {
-      return;
+    if (rotationToolbarDragStart.moved) {
+      suppressToolbarClick = true;
+      window.setTimeout(() => {
+        suppressToolbarClick = false;
+      }, 0);
     }
 
-    event.preventDefault();
-    const nextOffset = clampRotationToolbarOffset(
-      rotationToolbarOffset.x + delta[0],
-      rotationToolbarOffset.y + delta[1],
-    );
-    rotationToolbarOffset.x = nextOffset.x;
-    rotationToolbarOffset.y = nextOffset.y;
-    syncRotationBlockLayout();
-  });
+    rotationToolbarDragStart = null;
+  }
+
+  window.addEventListener("pointerup", finishRotationToolbarDrag, true);
+  window.addEventListener("pointercancel", finishRotationToolbarDrag, true);
+  window.addEventListener(
+    "click",
+    (event) => {
+      if (!suppressToolbarClick) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      suppressToolbarClick = false;
+    },
+    true,
+  );
 
   window.addEventListener("scroll", syncRotationBlockLayout, {
     passive: true,
