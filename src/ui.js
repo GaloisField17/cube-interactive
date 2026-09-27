@@ -47,6 +47,7 @@ import { getFaceFromNormal } from "./cubeMath.js";
 import {
   getCustomMoveLabel,
   getCustomRotationAngle,
+  normalizeWideMoveName,
 } from "./customRotation.js";
 import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
@@ -3244,25 +3245,6 @@ export function createUI({
   customSequenceInputRow.appendChild(customSequenceInput);
   customSequenceInputRow.appendChild(customSequenceStatusImage);
 
-  const lowercaseWideMoveNames = {
-    u: "Uw",
-    d: "Dw",
-    r: "Rw",
-    l: "Lw",
-    f: "Fw",
-    b: "Bw",
-  };
-
-  function normalizeCustomMoveName(moveName) {
-    const match = moveName.match(/^([udrlfb])(['2]?)$/);
-
-    if (!match) {
-      return moveName;
-    }
-
-    return `${lowercaseWideMoveNames[match[1]]}${match[2]}`;
-  }
-
   function parseCustomMove(value) {
     const match = value.match(
       /^(.+?)(?:\(([+-]?\d+(?:\.\d+)?)(?:degrees?|degs?|°)\)|\[([+-]?\d+(?:\.\d+)?)(?:degrees?|degs?|°)\])$/,
@@ -3283,7 +3265,7 @@ export function createUI({
 
     while (normalizedMove.startsWith("(") || normalizedMove.endsWith(")")) {
       if (
-        getRotationDefinition(normalizeCustomMoveName(normalizedMove)) ||
+        getRotationDefinition(normalizeWideMoveName(normalizedMove)) ||
         parseCustomMove(normalizedMove)
       ) {
         return normalizedMove;
@@ -3315,7 +3297,7 @@ export function createUI({
     }
 
     return getCustomSequenceMoves(sequence).every((move) => {
-      const normalizedMove = normalizeCustomMoveName(move);
+      const normalizedMove = normalizeWideMoveName(move);
 
       if (getRotationDefinition(normalizedMove)) {
         return true;
@@ -3328,30 +3310,30 @@ export function createUI({
       }
 
       return Boolean(
-        getRotationDefinition(normalizeCustomMoveName(customMove.moveName)),
+        getRotationDefinition(normalizeWideMoveName(customMove.moveName)),
       );
     });
   }
 
   function parseCustomSequence(value) {
     return getCustomSequenceMoves(value).map((move) => {
-      const normalizedMove = normalizeCustomMoveName(move);
+      const normalizedMove = normalizeWideMoveName(move);
 
       if (getRotationDefinition(normalizedMove)) {
         const inverse = getInverseMoveName(normalizedMove);
 
         return {
-          label: normalizedMove,
+          label: move,
           run: (duration) => rotateMove(normalizedMove, duration),
           inverse: (duration) => rotateMove(inverse, duration),
-          inverseLabel: inverse,
+          inverseLabel: getInverseMoveName(move),
         };
       }
 
       const customMove = parseCustomMove(move);
 
       const moveName = customMove
-        ? normalizeCustomMoveName(customMove.moveName)
+        ? normalizeWideMoveName(customMove.moveName)
         : null;
 
       if (!customMove || !getRotationDefinition(moveName)) {
@@ -3363,12 +3345,12 @@ export function createUI({
       const rotationAngle = getCustomRotationAngle(moveName, displayedAngle);
 
       return {
-        label: getCustomMoveLabel(moveName, displayedAngle, {
+        label: getCustomMoveLabel(customMove.moveName, displayedAngle, {
           preserveEnteredAngle: true,
         }),
         run: (duration) => rotateSlice(moveName, rotationAngle, duration),
         inverse: (duration) => rotateSlice(moveName, -rotationAngle, duration),
-        inverseLabel: getCustomMoveLabel(moveName, -displayedAngle, {
+        inverseLabel: getCustomMoveLabel(customMove.moveName, -displayedAngle, {
           preserveEnteredAngle: true,
         }),
       };
@@ -7665,16 +7647,17 @@ export function createUI({
   }
 
   function createImportedRotationAction(label) {
-    const definition = getRotationDefinition(label);
+    const normalizedMoveName = normalizeWideMoveName(label);
+    const definition = getRotationDefinition(normalizedMoveName);
 
     if (definition) {
-      const inverse = getInverseMoveName(label);
+      const inverse = getInverseMoveName(normalizedMoveName);
 
       return {
         label,
-        run: (duration) => rotateMove(label, duration),
+        run: (duration) => rotateMove(normalizedMoveName, duration),
         inverse: {
-          label: inverse,
+          label: getInverseMoveName(label),
           run: (duration) => rotateMove(inverse, duration),
         },
       };
@@ -7682,7 +7665,11 @@ export function createUI({
 
     const customMatch = label.match(/^([A-Za-z]+)\[(-?\d+(?:\.\d+)?)°\]$/u);
 
-    if (!customMatch || !getRotationDefinition(customMatch[1])) {
+    const customMoveName = customMatch
+      ? normalizeWideMoveName(customMatch[1])
+      : null;
+
+    if (!customMatch || !getRotationDefinition(customMoveName)) {
       return {
         label,
         run: () => Promise.resolve(true),
@@ -7690,7 +7677,7 @@ export function createUI({
       };
     }
 
-    const moveName = customMatch[1];
+    const moveName = customMoveName;
     const angle = Number(customMatch[2]);
     const signedAngle = getCustomRotationAngle(moveName, angle);
 
@@ -7698,7 +7685,7 @@ export function createUI({
       label,
       run: (duration) => rotateSlice(moveName, signedAngle, duration),
       inverse: {
-        label: getCustomMoveLabel(moveName, -angle, {
+        label: getCustomMoveLabel(customMatch[1], -angle, {
           preserveEnteredAngle: true,
         }),
         run: (duration) => rotateSlice(moveName, -signedAngle, duration),

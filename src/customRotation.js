@@ -1,6 +1,25 @@
 import { normalizeAngle } from "./cubeMath.js";
 import { ROTATIONS } from "./rotationDefinitions.js";
 
+const LOWERCASE_WIDE_MOVE_NAMES = Object.freeze({
+  u: "Uw",
+  d: "Dw",
+  r: "Rw",
+  l: "Lw",
+  f: "Fw",
+  b: "Bw",
+});
+
+export function normalizeWideMoveName(moveName) {
+  const match = moveName.match(/^([udrlfb])(['2]?)$/);
+
+  if (!match) {
+    return moveName;
+  }
+
+  return `${LOWERCASE_WIDE_MOVE_NAMES[match[1]]}${match[2]}`;
+}
+
 export function getCustomMoveLabel(
   shortName,
   angle,

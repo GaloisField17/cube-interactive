@@ -15,6 +15,7 @@ import {
 import {
   getCustomMoveLabel,
   getCustomRotationAngle,
+  normalizeWideMoveName,
 } from "../src/customRotation.js";
 import {
   formatLocalTimestamp,
@@ -172,6 +173,13 @@ test("custom move labels and signed angles stay tied to the entered partial turn
   assert.equal(getCustomRotationAngle("F", 55), -55);
   assert.equal(getCustomRotationAngle("F", -55), 55);
   assert.equal(getCustomRotationAngle("R", 33), -33);
+});
+
+test("lowercase face moves normalize to wide moves for execution", () => {
+  assert.equal(normalizeWideMoveName("f"), "Fw");
+  assert.equal(normalizeWideMoveName("d'"), "Dw'");
+  assert.equal(normalizeWideMoveName("r2"), "Rw2");
+  assert.equal(normalizeWideMoveName("L"), "L");
 });
 
 test("face definitions preserve colors, normals, and material indices", () => {
