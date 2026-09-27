@@ -1095,10 +1095,18 @@ export function createUI({
       compactLayout && !shareCompactRow ? 12 : actionButtonsRight + 8;
     const maximumNavigationLeft =
       availableRight - navigationWidth - resizeControlReserve;
+    const narrowDesktopToolbar =
+      !compactLayout &&
+      actionButtonsLeft +
+        actionButtonsWidth +
+        actionToNavigationGap +
+        navigationWidth +
+        resizeControlReserve >
+        availableRight;
     const centeredNavigationLeft =
       window.innerWidth / 2 - navigationAnchorOffset;
     let navigationLeft = Math.max(
-      minimumNavigationLeft,
+      narrowDesktopToolbar ? actionButtonsLeft : minimumNavigationLeft,
       Math.min(centeredNavigationLeft, maximumNavigationLeft),
     );
 
@@ -1108,7 +1116,11 @@ export function createUI({
     startStateButton.style.left = `${startStateLeft}px`;
     undoRotationButton.style.top = `${rotationBlockTop}px`;
     undoRotationButton.style.left = `${undoButtonLeft}px`;
-    rotationText.style.top = `${rotationTextTop}px`;
+    rotationText.style.top = `${
+      narrowDesktopToolbar
+        ? rotationBlockTop + 112
+        : rotationTextTop
+    }px`;
     rotationText.style.left = `${rotationTextLeft}px`;
     rotationText.style.right = "auto";
     rotationText.style.maxWidth = `${Math.max(
@@ -1121,7 +1133,7 @@ export function createUI({
       ? Number.parseFloat(getComputedStyle(controlsRoot).rowGap) * 2
       : 0;
 
-    if (compactLayout) {
+    if (compactLayout || narrowDesktopToolbar) {
       for (const [rowIndex, row] of navigationRows.entries()) {
         const rowWidth = row.reduce(
           (width, button) => width + parseFloat(button.style.width),
@@ -1129,7 +1141,9 @@ export function createUI({
         );
         let rowLeft = shareCompactRow
           ? navigationLeft
-          : (window.innerWidth - rowWidth) / 2;
+          : narrowDesktopToolbar
+            ? navigationLeft
+            : (window.innerWidth - rowWidth) / 2;
 
         for (const button of row) {
           button.style.top = `${
@@ -1140,7 +1154,9 @@ export function createUI({
         }
       }
 
-      controlsRoot.style.paddingTop = "0px";
+      if (compactLayout) {
+        controlsRoot.style.paddingTop = "0px";
+      }
     } else {
       controlsRoot.style.top = "";
       controlsRoot.style.paddingTop = "";
