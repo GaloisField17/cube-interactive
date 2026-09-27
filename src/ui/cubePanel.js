@@ -2,7 +2,12 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function syncSliderFromEditValue(slider, valueInput, value, { min = -Infinity, max = Math.max(100, Number(slider.max)) } = {}) {
+function syncSliderFromEditValue(
+  slider,
+  valueInput,
+  value,
+  { min = -Infinity, max = Math.max(100, Number(slider.max)) } = {},
+) {
   const sliderMin = Number(slider.min);
   const sliderMax = Number(slider.max);
   const acceptedValue = Math.min(Math.max(value, min), max);
