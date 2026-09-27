@@ -1405,7 +1405,9 @@ export function createUI({
     (event) => {
       if (
         window.innerWidth <= 900 ||
-        (event.target instanceof Element && event.target.closest("button"))
+        (event.target instanceof Element &&
+          (event.target.closest("button") ||
+            event.target.closest(".rotation-sequence")))
       ) {
         return;
       }
