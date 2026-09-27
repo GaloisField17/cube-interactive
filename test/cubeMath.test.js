@@ -16,6 +16,10 @@ import {
   getCustomRotationAngle,
 } from "../src/customRotation.js";
 import {
+  formatLocalTimestamp,
+  prefixWithLocalTimestamp,
+} from "../src/exportFileName.js";
+import {
   createFaceDefinitions,
   createSticker,
   getFaceletLabel,
@@ -80,6 +84,16 @@ test("JSON export prunes unchanged nested state", () => {
   assert.deepEqual(exported.setup, {
     cube: { cubies: { moved: { position: { x: 1 } } } },
   });
+});
+
+test("export filenames use the local YYYYMMDDTHHMMSS prefix", () => {
+  const date = new Date(2026, 8, 7, 4, 5, 6);
+
+  assert.equal(formatLocalTimestamp(date), "20260907T040506");
+  assert.equal(
+    prefixWithLocalTimestamp("cube-setup.json", date),
+    "20260907T040506-cube-setup.json",
+  );
 });
 
 test("cloneVector returns an independent vector", () => {

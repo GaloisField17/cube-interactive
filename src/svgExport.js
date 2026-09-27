@@ -1,4 +1,5 @@
 import { Vector3 } from "three";
+import { prefixWithLocalTimestamp } from "./exportFileName.js";
 
 const FACE_CELLS = ["U", "D", "L", "R", "F", "B"];
 const VISIBLE_FACES = [
@@ -499,6 +500,9 @@ export function createSvgArchive({
   return async function exportSvgArchive() {
     const { default: JSZip } = await import("jszip");
     const zip = new JSZip();
+    const exportTime = new Date();
+    const archiveFileName = (fileName) =>
+      prefixWithLocalTimestamp(fileName, exportTime);
     const appWidth = Math.max(1, window.innerWidth);
     const appHeight = Math.max(1, window.innerHeight);
     const size = getSize();
@@ -508,30 +512,33 @@ export function createSvgArchive({
     renderer.render(scene, camera);
 
     zip.file(
-      "cube-interactive-visible-view.svg",
+      archiveFileName("cube-interactive-visible-view.svg"),
       createVisibleViewSvg(viewOptions),
     );
     zip.file(
-      "cube-interactive-app-view.svg",
+      archiveFileName("cube-interactive-app-view.svg"),
       createVisibleViewSvg({
         ...viewOptions,
         width: appWidth,
         height: appHeight,
       }),
     );
-    zip.file("cube-interactive-flat-cubies.svg", createFlatCubieSvg(cubies));
     zip.file(
-      "cube-interactive-logical-state.svg",
+      archiveFileName("cube-interactive-flat-cubies.svg"),
+      createFlatCubieSvg(cubies),
+    );
+    zip.file(
+      archiveFileName("cube-interactive-logical-state.svg"),
       createLogicalStateSvg(cubies),
     );
 
     zip.file(
-      "cube-interactive-visible-view_with_overlay.svg",
+      archiveFileName("cube-interactive-visible-view_with_overlay.svg"),
       createRenderedSceneSvg(renderer, 800, 600),
     );
 
     zip.file(
-      "cube-interactive-app-view_with_overlay.svg",
+      archiveFileName("cube-interactive-app-view_with_overlay.svg"),
       createRenderedSceneSvg(renderer, appWidth, appHeight),
     );
 
@@ -540,7 +547,7 @@ export function createSvgArchive({
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = "cube-interactive-svg-export.zip";
+    link.download = archiveFileName("cube-interactive-svg-export.zip");
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };

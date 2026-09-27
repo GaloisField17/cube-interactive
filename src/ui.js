@@ -47,6 +47,7 @@ import {
   getCustomMoveLabel,
   getCustomRotationAngle,
 } from "./customRotation.js";
+import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
@@ -7897,7 +7898,7 @@ export function createUI({
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = "cube-setup.json";
+    link.download = prefixWithLocalTimestamp("cube-setup.json");
     link.click();
     URL.revokeObjectURL(url);
   }
