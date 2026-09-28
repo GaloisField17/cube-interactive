@@ -54,6 +54,7 @@ import { createCubePanel } from "./ui/cubePanel.js";
 import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
 import { createCustomMoveControls } from "./ui/customMoveControls.js";
 import { openSetupImportDialog } from "./ui/setupImportDialog.js";
+import { createSetupPanel } from "./ui/setupPanel.js";
 
 const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
 const ROTATION_SEQUENCE_PLACEHOLDER = "e.g. R U R' U'";
@@ -7360,120 +7361,21 @@ export function createUI({
   // Setup panel
   // ============================================================
 
-  setupPanel = document.createElement("div");
-
-  setupPanel.style.position = "absolute";
-  setupPanel.style.top = "20px";
-  setupPanel.style.right = "20px";
-  setupPanel.style.width = "280px";
-  setupPanel.style.padding = "16px";
-  setupPanel.style.background = UI_PANEL_BACKGROUND;
-  setupPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
-  setupPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
-  setupPanel.style.fontFamily = UI_FONT_FAMILY;
-  setupPanel.style.fontSize = UI_FONT_SIZE;
-  setupPanel.style.boxSizing = "border-box";
-
-  const setupHeader = document.createElement("div");
-
-  setupHeader.style.display = "flex";
-  setupHeader.style.alignItems = "center";
-  setupHeader.style.justifyContent = "space-between";
-  setupHeader.style.cursor = "pointer";
-  setupHeader.style.userSelect = "none";
-
-  const setupTitle = document.createElement("span");
-
-  setupTitle.textContent = "Export / Import";
-  setupTitle.style.fontSize = "18px";
-  setupTitle.style.fontWeight = "bold";
-
-  const setupCollapseIcon = document.createElement("span");
-
-  setupCollapseIcon.textContent = "+";
-  setupCollapseIcon.style.fontSize = "20px";
-  setupCollapseIcon.style.lineHeight = "1";
-
-  const setupContent = document.createElement("div");
-
-  setupContent.id = "setup-panel-content";
-  setupContent.style.display = "none";
-  setupContent.style.marginTop = "12px";
-
-  const setupButtonRow = document.createElement("div");
-
-  setupButtonRow.style.display = "flex";
-  setupButtonRow.style.gap = "8px";
-
-  for (const text of ["Export JSON", "Import JSON"]) {
-    const button = document.createElement("button");
-
-    button.type = "button";
-    button.textContent = text;
-    button.style.flex = "1";
-    button.style.padding = "6px";
-    if (text === "Export JSON") {
-      button.addEventListener("click", downloadJsonExport);
-    } else {
-      button.addEventListener("click", openImportDialog);
-    }
-    setupButtonRow.appendChild(button);
-  }
-
-  setupContent.appendChild(setupButtonRow);
-
-  const exportSvgButton = document.createElement("button");
-  exportSvgButton.type = "button";
-  exportSvgButton.textContent = "Export SVG";
-  exportSvgButton.style.width = "100%";
-  exportSvgButton.style.marginTop = "8px";
-  exportSvgButton.style.padding = "8px";
-  exportSvgButton.style.cursor = "pointer";
-  exportSvgButton.style.boxSizing = "border-box";
-  exportSvgButton.addEventListener("click", async () => {
-    try {
-      await exportSvgArchive();
-    } catch (error) {
-      console.error("Unable to export SVG archive.", error);
-    }
-  });
-  setupContent.appendChild(exportSvgButton);
-
-  let setupCollapsed = true;
-
-  setupHeader.appendChild(setupTitle);
-  setupHeader.appendChild(setupCollapseIcon);
-  setupPanel.appendChild(setupHeader);
-  setupPanel.appendChild(setupContent);
-  setupHeader.setAttribute("role", "button");
-  setupHeader.setAttribute("aria-controls", setupContent.id);
-  setupHeader.setAttribute("aria-expanded", "false");
-  setupHeader.tabIndex = 0;
-
-  function toggleSetupPanel() {
-    setupCollapsed = !setupCollapsed;
-
-    if (!setupCollapsed) {
-      collapseOtherPanels("setup");
-    }
-
-    setupContent.style.display = setupCollapsed ? "none" : "block";
-    setupCollapseIcon.textContent = setupCollapsed ? "+" : "−";
-    setupHeader.setAttribute("aria-expanded", String(!setupCollapsed));
-    scheduleCubePanelPositionUpdate();
-  }
-
-  setupHeader.addEventListener("click", toggleSetupPanel);
-  setupHeader.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    toggleSetupPanel();
+  setupPanel = createSetupPanel({
+    panelBackground: UI_PANEL_BACKGROUND,
+    panelBorder: UI_PANEL_BORDER,
+    panelBorderRadius: UI_PANEL_BORDER_RADIUS,
+    panelBoxShadow: UI_PANEL_BOX_SHADOW,
+    fontFamily: UI_FONT_FAMILY,
+    fontSize: UI_FONT_SIZE,
+    onExportJson: downloadJsonExport,
+    onImportJson: openImportDialog,
+    onExportSvg: exportSvgArchive,
+    onExpand: () => collapseOtherPanels("setup"),
+    onLayoutChange: scheduleCubePanelPositionUpdate,
   });
 
-  controlsRoot.appendChild(setupPanel);
+  controlsRoot.appendChild(setupPanel.root);
 
   function updateFaceletLabelVisibility() {
     const isVisible = showFaceletLabelsCheckbox.checked;
@@ -8103,8 +8005,8 @@ export function createUI({
       }
 
       if (setupPanel) {
-        setupPanel.style.top = "";
-        setupPanel.style.right = "";
+        setupPanel.root.style.top = "";
+        setupPanel.root.style.right = "";
       }
 
       syncRightPanelChevron();
@@ -8135,12 +8037,12 @@ export function createUI({
     }
 
     if (setupPanel) {
-      setupPanel.style.top = `${
+      setupPanel.root.style.top = `${
         (labelsPanel ?? colorsPanel).offsetTop +
         (labelsPanel ?? colorsPanel).offsetHeight +
         10
       }px`;
-      setupPanel.style.right = "20px";
+      setupPanel.root.style.right = "20px";
     }
 
     syncRightPanelChevron();
@@ -8245,11 +8147,8 @@ export function createUI({
       labelsHeader.setAttribute("aria-expanded", "false");
     }
 
-    if (activePanel !== "setup" && !setupCollapsed) {
-      setupCollapsed = true;
-      setupContent.style.display = "none";
-      setupCollapseIcon.textContent = "+";
-      setupHeader.setAttribute("aria-expanded", "false");
+    if (activePanel !== "setup") {
+      setupPanel.setExpanded(false);
     }
   }
 
@@ -8466,10 +8365,7 @@ export function createUI({
     cubeCollapseIcon.textContent = "+";
     cubeHeader.setAttribute("aria-expanded", "false");
 
-    setupCollapsed = true;
-    setupContent.style.display = "none";
-    setupCollapseIcon.textContent = "+";
-    setupHeader.setAttribute("aria-expanded", "false");
+    setupPanel.setExpanded(false);
     rotationToolbarOffset.x = 0;
     rotationToolbarOffset.y = 0;
     syncRotationBlockLayout();
@@ -8529,10 +8425,10 @@ export function createUI({
     viewPanel,
     colorsPanel,
     labelsPanel,
-    setupPanel,
+    setupPanel.root,
   ];
 
-  for (const panel of rightSidePanels) {
+  for (const panel of [cubePanel, viewPanel, colorsPanel, labelsPanel]) {
     panel.style.border = UI_PANEL_BORDER;
     panel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
   }
