@@ -1,5 +1,6 @@
 import invalidColorIcon from "../assets/cross-transparent.png";
 import resetIcon from "../assets/reset.png";
+import { attachColorPicker } from "./colorPicker.js";
 
 const ALWAYS_VISIBLE = "always-visible";
 const HIDDEN_BEHIND_CUBE = "hidden-behind-cube";
@@ -19,7 +20,6 @@ export function createViewPanel({
   onViewChange,
   onPeekColorPicked,
   getColorPreviewValue,
-  attachColorPicker,
 }) {
   let expanded = false;
 
@@ -106,7 +106,12 @@ export function createViewPanel({
   content.style.marginTop = "12px";
   content.style.display = "none";
 
-  function createVisibilityControl(titleText, groupName, initialValue, onChange) {
+  function createVisibilityControl(
+    titleText,
+    groupName,
+    initialValue,
+    onChange,
+  ) {
     const control = document.createElement("div");
 
     control.style.marginTop = "10px";
@@ -259,15 +264,15 @@ export function createViewPanel({
 
   peekHideWhenInput.addEventListener("input", updatePeekColor);
   peekHideWhenInput.addEventListener("change", updatePeekColor);
-  attachColorPicker(
-    peekHideWhenPreview,
-    peekHideWhenInput,
-    () => {
+  attachColorPicker({
+    preview: peekHideWhenPreview,
+    input: peekHideWhenInput,
+    onColorChange: () => {
       updatePeekColor();
       onPeekColorPicked();
     },
-    "#000000",
-  );
+    getInitialColor: () => "#000000",
+  });
 
   peekHideWhenRow.appendChild(peekHideWhenLabel);
   peekHideWhenRow.appendChild(peekHideWhenInput);

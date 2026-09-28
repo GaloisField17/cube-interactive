@@ -36,7 +36,6 @@ import toEndIcon from "./assets/toend.svg";
 import toStartIcon from "./assets/tostart.svg";
 import undoIcon from "./assets/undo.png";
 import { default as copiedIcon } from "./assets/yes.png";
-import { getNamedColorOrHex } from "./colorNames.js";
 import { getFaceFromNormal } from "./cubeMath.js";
 import {
   getCustomMoveLabel,
@@ -51,6 +50,7 @@ import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
 import { createCubePanel } from "./ui/cubePanel.js";
+import { attachColorPicker } from "./ui/colorPicker.js";
 import { createCustomMoveControls } from "./ui/customMoveControls.js";
 import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
 import { openSetupImportDialog } from "./ui/setupImportDialog.js";
@@ -3429,8 +3429,6 @@ export function createUI({
       color.set(value);
       return value;
     },
-    attachColorPicker: (preview, input, onColorSelected, initialColor) =>
-      addColorPicker(preview, input, onColorSelected, () => initialColor),
   });
   viewPanel = viewPanelController.root;
 
@@ -3578,175 +3576,6 @@ export function createUI({
     probe.style.color = value;
 
     return probe.style.color !== "";
-  }
-
-  function getColorPickerValue(value) {
-    const color = new Color();
-
-    try {
-      color.set(value);
-      return `#${color.getHexString()}`;
-    } catch {
-      return "#000000";
-    }
-  }
-
-  function addColorPicker(
-    preview,
-    input,
-    applyColor,
-    getInitialColor,
-    getPickerState = null,
-    restorePickerState = null,
-  ) {
-    const picker = document.createElement("input");
-
-    picker.type = "color";
-    picker.style.display = "none";
-    const hasRelatedEntries = Boolean(getPickerState && restorePickerState);
-    const getSavedPickerState = getPickerState ?? (() => input.value);
-    const restoreSavedPickerState =
-      restorePickerState ??
-      ((state) => {
-        input.value = state;
-        applyColor();
-      });
-    const undoButton = hasRelatedEntries
-      ? document.createElement("button")
-      : null;
-    let initialColor = "";
-    let initialPickerState;
-    let pickerStartedMixed = false;
-    let pickerOpen = false;
-    let pickerSelectionCommitted = false;
-    let pickerCancellationRequested = false;
-
-    function openPicker() {
-      initialColor = input.value;
-      pickerStartedMixed = input.placeholder === "Mixed";
-      initialPickerState = pickerStartedMixed
-        ? getSavedPickerState()
-        : input.value;
-      const pickerColor = input.value || getInitialColor?.() || "#000000";
-
-      picker.value = getColorPickerValue(pickerColor);
-      pickerOpen = true;
-      pickerSelectionCommitted = false;
-      pickerCancellationRequested = false;
-      if (undoButton && pickerStartedMixed) {
-        undoButton.style.display = "block";
-      }
-      picker.click();
-    }
-
-    function previewPickedColor() {
-      input.value = getNamedColorOrHex(picker.value);
-      applyColor();
-    }
-
-    function commitPickedColor() {
-      if (pickerCancellationRequested) {
-        return;
-      }
-
-      pickerSelectionCommitted = true;
-      pickerOpen = false;
-      input.value = getNamedColorOrHex(picker.value);
-      applyColor();
-    }
-
-    function restoreCancelledColor() {
-      if (!pickerOpen || pickerSelectionCommitted) {
-        return;
-      }
-
-      pickerOpen = false;
-      pickerCancellationRequested = true;
-      if (pickerStartedMixed) {
-        restoreSavedPickerState(initialPickerState);
-      } else {
-        input.value = initialColor;
-        applyColor();
-      }
-      if (undoButton) {
-        undoButton.style.display = "none";
-      }
-    }
-
-    function handlePickerCancel() {
-      pickerOpen = false;
-      pickerSelectionCommitted = false;
-      pickerCancellationRequested = true;
-      window.setTimeout(() => {
-        if (pickerStartedMixed) {
-          restoreSavedPickerState(initialPickerState);
-        } else {
-          input.value = initialColor;
-          applyColor();
-        }
-        if (undoButton) {
-          undoButton.style.display = "none";
-        }
-      }, 0);
-    }
-
-    preview.style.cursor = "pointer";
-    preview.setAttribute("role", "button");
-    preview.setAttribute("aria-label", "Choose Color");
-    preview.tabIndex = 0;
-    preview.title = "Choose Color";
-    preview.addEventListener("click", openPicker);
-    preview.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-
-      event.preventDefault();
-      openPicker();
-    });
-    picker.addEventListener("input", previewPickedColor);
-    picker.addEventListener("change", commitPickedColor);
-    picker.addEventListener("cancel", handlePickerCancel);
-    picker.addEventListener("blur", () => {
-      window.setTimeout(restoreCancelledColor, 0);
-    });
-    if (undoButton) {
-      undoButton.type = "button";
-      undoButton.title = "Undo Color Change";
-      undoButton.setAttribute("aria-label", "Undo Color Change");
-      undoButton.style.display = "none";
-      undoButton.style.position = "absolute";
-      undoButton.style.left = "22px";
-      undoButton.style.top = "0";
-      undoButton.style.width = "18px";
-      undoButton.style.height = "18px";
-      undoButton.style.padding = "2px";
-      undoButton.style.boxSizing = "border-box";
-      undoButton.style.cursor = "pointer";
-
-      const undoImage = document.createElement("img");
-
-      undoImage.src = undoIcon;
-      undoImage.alt = "";
-      undoImage.style.display = "block";
-      undoImage.style.width = "100%";
-      undoImage.style.height = "100%";
-      undoImage.style.pointerEvents = "none";
-
-      undoButton.appendChild(undoImage);
-      undoButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        pickerOpen = false;
-        pickerSelectionCommitted = false;
-        pickerCancellationRequested = true;
-        restoreSavedPickerState(initialPickerState);
-        undoButton.style.display = "none";
-      });
-      preview.style.position = "relative";
-      preview.style.marginRight = "22px";
-      preview.appendChild(undoButton);
-    }
-    preview.appendChild(picker);
   }
 
   function getFaceletPositionName(facelet) {
@@ -4058,7 +3887,7 @@ export function createUI({
 
     input.addEventListener("input", updateColor);
     input.addEventListener("change", updateColor);
-    addColorPicker(preview, input, updateColor);
+    attachColorPicker({ preview, input, onColorChange: updateColor });
 
     colorInputs.set(getFaceletData(facelet), {
       input,
@@ -4185,20 +4014,23 @@ export function createUI({
 
     input.addEventListener("input", applyColor);
     input.addEventListener("change", applyColor);
-    addColorPicker(
+    attachColorPicker({
       preview,
       input,
-      applyColor,
-      () =>
+      onColorChange: applyColor,
+      getInitialColor: () =>
         getCurrentFaceletColor(
           facelets.find((facelet) => getFaceletSection(facelet) === face),
         ),
-      () =>
-        getFaceletColorSnapshot(
-          (facelet) => getFaceletSection(facelet) === face,
-        ),
-      restoreFaceletColorSnapshot,
-    );
+      undo: {
+        isAvailable: () => input.placeholder === "Mixed",
+        getSnapshot: () =>
+          getFaceletColorSnapshot(
+            (facelet) => getFaceletSection(facelet) === face,
+          ),
+        restoreSnapshot: restoreFaceletColorSnapshot,
+      },
+    });
 
     return controls;
   }
@@ -4379,14 +4211,18 @@ export function createUI({
 
   outerFaceletsInput.addEventListener("input", applyOuterFaceletsColor);
   outerFaceletsInput.addEventListener("change", applyOuterFaceletsColor);
-  addColorPicker(
-    outerFaceletsPreview,
-    outerFaceletsInput,
-    applyOuterFaceletsColor,
-    () => (facelets[0] ? getCurrentFaceletColor(facelets[0]) : "#000000"),
-    () => getFaceletColorSnapshot(),
-    restoreFaceletColorSnapshot,
-  );
+  attachColorPicker({
+    preview: outerFaceletsPreview,
+    input: outerFaceletsInput,
+    onColorChange: applyOuterFaceletsColor,
+    getInitialColor: () =>
+      facelets[0] ? getCurrentFaceletColor(facelets[0]) : "#000000",
+    undo: {
+      isAvailable: () => outerFaceletsInput.placeholder === "Mixed",
+      getSnapshot: () => getFaceletColorSnapshot(),
+      restoreSnapshot: restoreFaceletColorSnapshot,
+    },
+  });
 
   const outerFaceletsSection = createCollapsibleSection({
     title: "Outer Facelets",
@@ -4562,7 +4398,7 @@ export function createUI({
 
     input.addEventListener("input", updateInnerColor);
     input.addEventListener("change", updateInnerColor);
-    addColorPicker(preview, input, updateInnerColor);
+    attachColorPicker({ preview, input, onColorChange: updateInnerColor });
 
     row.appendChild(name);
     row.appendChild(input);
@@ -4656,13 +4492,15 @@ export function createUI({
 
   innerInput.addEventListener("input", applyInnerColor);
   innerInput.addEventListener("change", applyInnerColor);
-  addColorPicker(
-    innerPreview,
-    innerInput,
-    applyInnerColor,
-    undefined,
-    () => cubies.map((cubie) => [cubie, getCurrentInnerColor(cubie)]),
-    (snapshot) => {
+  attachColorPicker({
+    preview: innerPreview,
+    input: innerInput,
+    onColorChange: applyInnerColor,
+    undo: {
+      isAvailable: () => innerInput.placeholder === "Mixed",
+      getSnapshot: () =>
+        cubies.map((cubie) => [cubie, getCurrentInnerColor(cubie)]),
+      restoreSnapshot: (snapshot) => {
       for (const [cubie, value] of snapshot) {
         setCubieInnerColor(cubie, value);
       }
@@ -4674,8 +4512,9 @@ export function createUI({
       }
 
       updateInnerHeading();
+      },
     },
-  );
+  });
   updateInnerHeading();
 
   // ============================================================
@@ -4810,7 +4649,7 @@ export function createUI({
 
     input.addEventListener("input", applyColor);
     input.addEventListener("change", applyColor);
-    addColorPicker(preview, input, applyColor);
+    attachColorPicker({ preview, input, onColorChange: applyColor });
 
     faceletLabelColorControls.set(getFaceletData(facelet), {
       input,
@@ -4864,13 +4703,16 @@ export function createUI({
 
   faceletLabelInput.addEventListener("input", applyAllFaceletLabelColor);
   faceletLabelInput.addEventListener("change", applyAllFaceletLabelColor);
-  addColorPicker(
-    faceletLabelPreview,
-    faceletLabelInput,
-    applyAllFaceletLabelColor,
-    () => defaultFaceletLabelColor,
-    () => facelets.map((facelet) => [facelet, getFaceletLabelColor(facelet)]),
-    (snapshot) => {
+  attachColorPicker({
+    preview: faceletLabelPreview,
+    input: faceletLabelInput,
+    onColorChange: applyAllFaceletLabelColor,
+    getInitialColor: () => defaultFaceletLabelColor,
+    undo: {
+      isAvailable: () => faceletLabelInput.placeholder === "Mixed",
+      getSnapshot: () =>
+        facelets.map((facelet) => [facelet, getFaceletLabelColor(facelet)]),
+      restoreSnapshot: (snapshot) => {
       for (const [facelet, color] of snapshot) {
         updateFaceletLabelColor(facelet, color);
         updateFaceletLabelColorControl(facelet);
@@ -4881,8 +4723,9 @@ export function createUI({
       }
 
       updateFaceletLabelHeading();
+      },
     },
-  );
+  });
 
   const faceletLabelsSection = createCollapsibleSection({
     title: "Facelet Labels",
@@ -4956,26 +4799,29 @@ export function createUI({
 
     input.addEventListener("input", applyFaceletLabelFaceColor);
     input.addEventListener("change", applyFaceletLabelFaceColor);
-    addColorPicker(
+    attachColorPicker({
       preview,
       input,
-      applyFaceletLabelFaceColor,
-      () => getFaceletLabelColor(sectionFacelets[0]),
-      () =>
-        sectionFacelets.map((facelet) => [
-          facelet,
-          getFaceletLabelColor(facelet),
-        ]),
-      (snapshot) => {
-        for (const [facelet, color] of snapshot) {
-          updateFaceletLabelColor(facelet, color);
-          updateFaceletLabelColorControl(facelet);
-        }
+      onColorChange: applyFaceletLabelFaceColor,
+      getInitialColor: () => getFaceletLabelColor(sectionFacelets[0]),
+      undo: {
+        isAvailable: () => input.placeholder === "Mixed",
+        getSnapshot: () =>
+          sectionFacelets.map((facelet) => [
+            facelet,
+            getFaceletLabelColor(facelet),
+          ]),
+        restoreSnapshot: (snapshot) => {
+          for (const [facelet, color] of snapshot) {
+            updateFaceletLabelColor(facelet, color);
+            updateFaceletLabelColorControl(facelet);
+          }
 
-        updateFaceletLabelFaceControl(face);
-        updateFaceletLabelHeading();
+          updateFaceletLabelFaceControl(face);
+          updateFaceletLabelHeading();
+        },
       },
-    );
+    });
 
     heading.appendChild(headingText);
     heading.appendChild(input);
@@ -5659,7 +5505,12 @@ export function createUI({
 
     input.addEventListener("input", apply);
     input.addEventListener("change", apply);
-    addColorPicker(preview, input, apply, () => getColor() ?? "#111");
+    attachColorPicker({
+      preview,
+      input,
+      onColorChange: apply,
+      getInitialColor: () => getColor() ?? "#111",
+    });
 
     heading.appendChild(titleElement);
     heading.appendChild(input);
@@ -5733,14 +5584,17 @@ export function createUI({
 
     input.addEventListener("input", handleInput);
     input.addEventListener("change", handleInput);
-    addColorPicker(
+    attachColorPicker({
       preview,
       input,
-      handleInput,
-      () => getColor() ?? "#111",
-      getPickerState,
-      restorePickerState,
-    );
+      onColorChange: handleInput,
+      getInitialColor: () => getColor() ?? "#111",
+      undo: {
+        isAvailable: () => input.placeholder === "Mixed",
+        getSnapshot: getPickerState,
+        restoreSnapshot: restorePickerState,
+      },
+    });
 
     sync();
 
