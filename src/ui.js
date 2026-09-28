@@ -51,10 +51,11 @@ import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
 import { createCubePanel } from "./ui/cubePanel.js";
-import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
 import { createCustomMoveControls } from "./ui/customMoveControls.js";
+import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
 import { openSetupImportDialog } from "./ui/setupImportDialog.js";
 import { createSetupPanel } from "./ui/setupPanel.js";
+import { createViewPanel } from "./ui/viewPanel.js";
 
 const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
 const ROTATION_SEQUENCE_PLACEHOLDER = "e.g. R U R' U'";
@@ -152,6 +153,7 @@ export function createUI({
   let labelDepth = DEFAULT_LABEL_DEPTH;
   let labelsPanel = null;
   let viewPanel = null;
+  let viewPanelController = null;
   let setupPanel = null;
   let syncRightPanelChevron = () => {};
   let updateFaceletLabelTransforms = () => {};
@@ -3363,41 +3365,13 @@ export function createUI({
   // View panel
   // ============================================================
 
-  viewPanel = document.createElement("div");
-
-  viewPanel.style.position = "absolute";
-  viewPanel.style.top = "20px";
-  viewPanel.style.right = "20px";
-  viewPanel.style.width = "280px";
-  viewPanel.style.padding = "16px";
-  viewPanel.style.background = UI_PANEL_BACKGROUND;
-  viewPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
-  viewPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
-  viewPanel.style.fontFamily = UI_FONT_FAMILY;
-  viewPanel.style.fontSize = UI_FONT_SIZE;
-  viewPanel.style.boxSizing = "border-box";
-
-  const viewHeader = document.createElement("div");
-
-  viewHeader.style.display = "flex";
-  viewHeader.style.alignItems = "center";
-  viewHeader.style.justifyContent = "space-between";
-  viewHeader.style.gap = "8px";
-  viewHeader.style.cursor = "pointer";
-  viewHeader.style.userSelect = "none";
-
-  const viewTitleRow = document.createElement("div");
-
-  viewTitleRow.style.display = "flex";
-  viewTitleRow.style.alignItems = "center";
-  viewTitleRow.style.gap = "6px";
-
-  function syncPeekDepthVisibility() {
-    const shouldShow = peekStickersVisibility === HIDDEN_BEHIND_CUBE;
-
-    peekStickersDepthControl.style.display = shouldShow ? "block" : "none";
-    peekStickersHideWhenControl.style.display = shouldShow ? "block" : "none";
-    requestAnimationFrame(scheduleCubePanelPositionUpdate);
+  function getViewSettings() {
+    return {
+      ghostStickersVisibility,
+      peekStickersVisibility,
+      peekStickersDepth,
+      peekStickersHideWhenColor,
+    };
   }
 
   function resetViewState() {
@@ -3405,73 +3379,60 @@ export function createUI({
     peekStickersVisibility = ALWAYS_VISIBLE;
     peekStickersDepth = 0.2;
     peekStickersHideWhenColor = "";
-    ghostStickersVisibilityControl.setVisibilityMode(ghostStickersVisibility);
-    peekStickersVisibilityControl.setVisibilityMode(peekStickersVisibility);
-    peekStickersDepthSlider.value = String(peekStickersDepth);
-    peekStickersDepthValue.value = String(peekStickersDepth);
-    peekStickersHideWhenInput.value = "";
-    syncPeekStickersHideWhenColorPreview();
-    syncPeekDepthVisibility();
+    viewPanelController.setSettings(getViewSettings());
     updateGhostStickerVisibility();
     scheduleCubePanelPositionUpdate();
   }
 
-  const resetViewButton = createResetButton("Reset View", resetViewState);
+  viewPanelController = createViewPanel({
+    panelBackground: UI_PANEL_BACKGROUND,
+    panelBorder: UI_PANEL_BORDER,
+    panelBorderRadius: UI_PANEL_BORDER_RADIUS,
+    panelBoxShadow: UI_PANEL_BOX_SHADOW,
+    fontFamily: UI_FONT_FAMILY,
+    fontSize: UI_FONT_SIZE,
+    initialSettings: getViewSettings(),
+    onExpand: () => collapseOtherPanels("view"),
+    onLayoutChange: scheduleCubePanelPositionUpdate,
+    onReset: () => {
+      resetViewState();
+      markSetupChanged();
+    },
+    onViewChange: (setting, value) => {
+      if (setting === "ghostStickersVisibility") {
+        ghostStickersVisibility = value;
+        updateGhostStickerVisibility();
+        scene.userData.shouldRefreshHiddenStickerState =
+          ghostStickersVisibility !== ALWAYS_VISIBLE ||
+          peekStickersVisibility !== ALWAYS_VISIBLE;
+      } else if (setting === "peekStickersVisibility") {
+        peekStickersVisibility = value;
+        updateGhostStickerVisibility();
+        scene.userData.shouldRefreshHiddenStickerState =
+          ghostStickersVisibility !== ALWAYS_VISIBLE ||
+          peekStickersVisibility !== ALWAYS_VISIBLE;
+      } else if (setting === "peekStickersDepth") {
+        peekStickersDepth = value;
+        updateGhostStickerVisibility();
+      } else if (setting === "peekStickersHideWhenColor") {
+        peekStickersHideWhenColor = value;
+      }
+    },
+    onPeekColorPicked: updateGhostStickerVisibility,
+    getColorPreviewValue: (value) => {
+      const color = new Color();
 
-  const viewTitle = document.createElement("span");
+      if (!isValidColorValue(value)) {
+        return null;
+      }
 
-  viewTitle.textContent = "View";
-  viewTitle.style.fontSize = "18px";
-  viewTitle.style.fontWeight = "bold";
-
-  const viewCollapseIcon = document.createElement("span");
-
-  viewCollapseIcon.textContent = "+";
-  viewCollapseIcon.style.fontSize = "20px";
-  viewCollapseIcon.style.lineHeight = "1";
-
-  viewTitleRow.appendChild(resetViewButton);
-  viewTitleRow.appendChild(viewTitle);
-  viewHeader.appendChild(viewTitleRow);
-  viewHeader.appendChild(viewCollapseIcon);
-  viewHeader.setAttribute("role", "button");
-  viewHeader.setAttribute("aria-expanded", "false");
-  viewHeader.tabIndex = 0;
-
-  const viewContent = document.createElement("div");
-
-  viewContent.id = "view-panel-content";
-  viewContent.style.marginTop = "12px";
-
-  let viewCollapsed = true;
-  viewContent.style.display = "none";
-
-  function toggleViewPanel() {
-    viewCollapsed = !viewCollapsed;
-
-    if (!viewCollapsed) {
-      collapseOtherPanels("view");
-    }
-
-    viewContent.style.display = viewCollapsed ? "none" : "block";
-    viewCollapseIcon.textContent = viewCollapsed ? "+" : "−";
-    viewHeader.setAttribute("aria-expanded", String(!viewCollapsed));
-    scheduleCubePanelPositionUpdate();
-  }
-
-  viewHeader.setAttribute("aria-controls", viewContent.id);
-  viewHeader.addEventListener("click", toggleViewPanel);
-  viewHeader.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    toggleViewPanel();
+      color.set(value);
+      return value;
+    },
+    attachColorPicker: (preview, input, onColorSelected, initialColor) =>
+      addColorPicker(preview, input, onColorSelected, () => initialColor),
   });
-
-  viewPanel.appendChild(viewHeader);
-  viewPanel.appendChild(viewContent);
+  viewPanel = viewPanelController.root;
 
   // ============================================================
   // Colors panel
@@ -6537,303 +6498,6 @@ export function createUI({
     return control;
   }
 
-  const ghostStickersVisibilityControl = document.createElement("div");
-
-  ghostStickersVisibilityControl.style.marginTop = "10px";
-  ghostStickersVisibilityControl.style.marginBottom = "10px";
-
-  const ghostStickersTitle = document.createElement("div");
-
-  ghostStickersTitle.textContent = "Transparent Stickers";
-  ghostStickersTitle.style.fontSize = "14px";
-  ghostStickersTitle.style.fontWeight = "600";
-  ghostStickersTitle.style.color = "#374151";
-  ghostStickersTitle.style.marginBottom = "5px";
-
-  const ghostStickersOptions = document.createElement("div");
-
-  ghostStickersOptions.style.display = "flex";
-  ghostStickersOptions.style.gap = "12px";
-
-  for (const [value, text] of [
-    [ALWAYS_VISIBLE, "Disabled"],
-    [HIDDEN_BEHIND_CUBE, "Enabled"],
-  ]) {
-    const label = document.createElement("label");
-
-    label.style.display = "flex";
-    label.style.alignItems = "center";
-    label.style.gap = "5px";
-    label.style.cursor = "pointer";
-
-    const radio = document.createElement("input");
-
-    radio.type = "radio";
-    radio.name = "ghost-stickers-visibility";
-    radio.value = value;
-    radio.checked = value === ghostStickersVisibility;
-    radio.addEventListener("change", () => {
-      if (!radio.checked) {
-        return;
-      }
-
-      ghostStickersVisibility = value;
-      updateGhostStickerVisibility();
-      scene.userData.shouldRefreshHiddenStickerState =
-        ghostStickersVisibility !== ALWAYS_VISIBLE ||
-        peekStickersVisibility !== ALWAYS_VISIBLE;
-    });
-
-    const textElement = document.createElement("span");
-
-    textElement.textContent = text;
-    label.appendChild(radio);
-    label.appendChild(textElement);
-    ghostStickersOptions.appendChild(label);
-  }
-
-  ghostStickersVisibilityControl.setVisibilityMode = (value) => {
-    for (const radio of ghostStickersOptions.querySelectorAll("input")) {
-      radio.checked = radio.value === value;
-    }
-  };
-
-  ghostStickersVisibilityControl.appendChild(ghostStickersTitle);
-  ghostStickersVisibilityControl.appendChild(ghostStickersOptions);
-
-  const peekStickersVisibilityControl = document.createElement("div");
-
-  peekStickersVisibilityControl.style.marginTop = "10px";
-  peekStickersVisibilityControl.style.marginBottom = "10px";
-
-  const peekStickersTitle = document.createElement("div");
-
-  peekStickersTitle.textContent = "Peek Stickers";
-  peekStickersTitle.style.fontSize = "14px";
-  peekStickersTitle.style.fontWeight = "600";
-  peekStickersTitle.style.color = "#374151";
-  peekStickersTitle.style.marginBottom = "5px";
-
-  const peekStickersOptions = document.createElement("div");
-
-  peekStickersOptions.style.display = "flex";
-  peekStickersOptions.style.gap = "12px";
-
-  for (const [value, text] of [
-    [ALWAYS_VISIBLE, "Disabled"],
-    [HIDDEN_BEHIND_CUBE, "Enabled"],
-  ]) {
-    const label = document.createElement("label");
-
-    label.style.display = "flex";
-    label.style.alignItems = "center";
-    label.style.gap = "5px";
-    label.style.cursor = "pointer";
-
-    const radio = document.createElement("input");
-
-    radio.type = "radio";
-    radio.name = "peek-stickers-visibility";
-    radio.value = value;
-    radio.checked = value === peekStickersVisibility;
-    radio.addEventListener("change", () => {
-      if (!radio.checked) {
-        return;
-      }
-
-      peekStickersVisibility = value;
-      syncPeekDepthVisibility();
-      updateGhostStickerVisibility();
-      scene.userData.shouldRefreshHiddenStickerState =
-        ghostStickersVisibility !== ALWAYS_VISIBLE ||
-        peekStickersVisibility !== ALWAYS_VISIBLE;
-    });
-
-    const textElement = document.createElement("span");
-
-    textElement.textContent = text;
-    label.appendChild(radio);
-    label.appendChild(textElement);
-    peekStickersOptions.appendChild(label);
-  }
-
-  peekStickersVisibilityControl.setVisibilityMode = (value) => {
-    for (const radio of peekStickersOptions.querySelectorAll("input")) {
-      radio.checked = radio.value === value;
-    }
-  };
-
-  peekStickersVisibilityControl.appendChild(peekStickersTitle);
-  peekStickersVisibilityControl.appendChild(peekStickersOptions);
-
-  const peekStickersHideWhenControl = document.createElement("div");
-
-  peekStickersHideWhenControl.style.marginTop = "8px";
-  peekStickersHideWhenControl.style.marginBottom = "8px";
-
-  const peekStickersHideWhenRow = document.createElement("div");
-
-  peekStickersHideWhenRow.style.display = "flex";
-  peekStickersHideWhenRow.style.alignItems = "center";
-  peekStickersHideWhenRow.style.gap = "8px";
-  peekStickersHideWhenRow.style.width = "100%";
-
-  const peekStickersHideWhenLabel = document.createElement("div");
-
-  peekStickersHideWhenLabel.textContent = "Hidden For: ";
-  peekStickersHideWhenLabel.style.fontSize = "14px";
-  peekStickersHideWhenLabel.style.fontWeight = "normal";
-  peekStickersHideWhenLabel.style.color = "#374151";
-  peekStickersHideWhenLabel.style.flexShrink = "0";
-
-  const peekStickersHideWhenInput = document.createElement("input");
-
-  peekStickersHideWhenInput.type = "text";
-  peekStickersHideWhenInput.value = "";
-  peekStickersHideWhenInput.placeholder = "";
-  peekStickersHideWhenInput.style.width = "70px";
-  peekStickersHideWhenInput.style.flex = "1";
-  peekStickersHideWhenInput.style.minWidth = "0";
-  peekStickersHideWhenInput.style.padding = "3px";
-  peekStickersHideWhenInput.style.boxSizing = "border-box";
-
-  const peekStickersHideWhenPreview = document.createElement("span");
-
-  peekStickersHideWhenPreview.style.width = "18px";
-  peekStickersHideWhenPreview.style.height = "18px";
-  peekStickersHideWhenPreview.style.borderRadius = "50%";
-  peekStickersHideWhenPreview.style.border = "1px solid #999";
-  peekStickersHideWhenPreview.style.flexShrink = "0";
-  peekStickersHideWhenPreview.style.backgroundColor = "transparent";
-  peekStickersHideWhenPreview.style.backgroundImage = "none";
-  peekStickersHideWhenPreview.style.backgroundSize = "contain";
-  peekStickersHideWhenPreview.style.backgroundRepeat = "no-repeat";
-  peekStickersHideWhenPreview.style.backgroundPosition = "center";
-
-  function syncPeekStickersHideWhenColorPreview() {
-    const value = peekStickersHideWhenInput.value.trim();
-
-    if (!value) {
-      peekStickersHideWhenPreview.style.backgroundColor = "transparent";
-      peekStickersHideWhenPreview.style.backgroundImage = "none";
-      return;
-    }
-
-    const color = new Color();
-
-    if (!isValidColorValue(value)) {
-      showInvalidColor(peekStickersHideWhenPreview);
-      return;
-    }
-
-    color.set(value);
-    peekStickersHideWhenPreview.style.backgroundImage = "none";
-    peekStickersHideWhenPreview.style.backgroundColor = value;
-  }
-
-  peekStickersHideWhenInput.addEventListener("input", () => {
-    peekStickersHideWhenColor = peekStickersHideWhenInput.value.trim();
-    syncPeekStickersHideWhenColorPreview();
-  });
-
-  peekStickersHideWhenInput.addEventListener("change", () => {
-    peekStickersHideWhenColor = peekStickersHideWhenInput.value.trim();
-    syncPeekStickersHideWhenColorPreview();
-  });
-
-  addColorPicker(
-    peekStickersHideWhenPreview,
-    peekStickersHideWhenInput,
-    () => {
-      peekStickersHideWhenColor = peekStickersHideWhenInput.value.trim();
-      syncPeekStickersHideWhenColorPreview();
-      updateGhostStickerVisibility();
-    },
-    () => "#000000",
-  );
-
-  peekStickersHideWhenRow.appendChild(peekStickersHideWhenLabel);
-  peekStickersHideWhenRow.appendChild(peekStickersHideWhenInput);
-  peekStickersHideWhenRow.appendChild(peekStickersHideWhenPreview);
-  peekStickersHideWhenControl.appendChild(peekStickersHideWhenRow);
-
-  const peekStickersDepthControl = document.createElement("div");
-
-  peekStickersDepthControl.style.marginTop = "8px";
-
-  const peekStickersDepthLabel = document.createElement("label");
-
-  peekStickersDepthLabel.textContent = "Peek Stickers Depth";
-  peekStickersDepthLabel.style.display = "block";
-  peekStickersDepthLabel.style.marginBottom = "5px";
-
-  const peekStickersDepthSlider = document.createElement("input");
-
-  peekStickersDepthSlider.type = "range";
-  peekStickersDepthSlider.min = "0";
-  peekStickersDepthSlider.max = "2";
-  peekStickersDepthSlider.step = "0.001";
-  peekStickersDepthSlider.value = String(peekStickersDepth);
-  peekStickersDepthSlider.style.flex = "1";
-  peekStickersDepthSlider.style.minWidth = "0";
-  peekStickersDepthSlider.setAttribute("aria-label", "Peek Stickers Depth");
-
-  const peekStickersDepthValue = document.createElement("input");
-
-  peekStickersDepthValue.type = "text";
-  peekStickersDepthValue.value = String(peekStickersDepth);
-  peekStickersDepthValue.style.width = "55px";
-  peekStickersDepthValue.style.boxSizing = "border-box";
-  peekStickersDepthValue.style.textAlign = "center";
-  peekStickersDepthValue.setAttribute(
-    "aria-label",
-    "Peek Stickers Depth Value",
-  );
-
-  const peekStickersDepthRow = document.createElement("div");
-
-  peekStickersDepthRow.style.display = "flex";
-  peekStickersDepthRow.style.alignItems = "center";
-  peekStickersDepthRow.style.gap = "8px";
-
-  function syncPeekStickersDepthValue(nextValue) {
-    const normalizedValue = Number.isFinite(nextValue)
-      ? Math.max(0, Number(nextValue))
-      : 0;
-    const safeValue = syncSliderFromEditValue(
-      peekStickersDepthSlider,
-      peekStickersDepthValue,
-      normalizedValue,
-    );
-
-    peekStickersDepth = safeValue;
-    peekStickersDepthValue.value = String(safeValue);
-    updateGhostStickerVisibility();
-  }
-
-  peekStickersDepthSlider.addEventListener("input", (event) => {
-    const value = syncEditValueFromSlider(event.target, peekStickersDepthValue);
-
-    peekStickersDepth = value;
-    updateGhostStickerVisibility();
-  });
-
-  peekStickersDepthValue.addEventListener("change", (event) => {
-    const value = Number(event.target.value);
-
-    syncPeekStickersDepthValue(value);
-  });
-
-  peekStickersDepthRow.appendChild(peekStickersDepthSlider);
-  peekStickersDepthRow.appendChild(peekStickersDepthValue);
-  peekStickersDepthControl.appendChild(peekStickersDepthLabel);
-  peekStickersDepthControl.appendChild(peekStickersDepthRow);
-
-  viewContent.appendChild(ghostStickersVisibilityControl);
-  viewContent.appendChild(peekStickersVisibilityControl);
-  viewContent.appendChild(peekStickersHideWhenControl);
-  viewContent.appendChild(peekStickersDepthControl);
-  syncPeekDepthVisibility();
   updateGhostStickerVisibility();
 
   const faceletLabelsVisibilityControl = createVisibilityControl(
@@ -8120,11 +7784,8 @@ export function createUI({
       updateRotationToggle();
     }
 
-    if (activePanel !== "view" && !viewCollapsed) {
-      viewCollapsed = true;
-      viewContent.style.display = "none";
-      viewCollapseIcon.textContent = "+";
-      viewHeader.setAttribute("aria-expanded", "false");
+    if (activePanel !== "view") {
+      viewPanelController.setExpanded(false);
     }
 
     if (activePanel !== "colors" && !colorsCollapsed) {
@@ -8338,10 +7999,7 @@ export function createUI({
     resetLabelsState();
     resetViewState();
 
-    viewCollapsed = true;
-    viewContent.style.display = "none";
-    viewCollapseIcon.textContent = "+";
-    viewHeader.setAttribute("aria-expanded", "false");
+    viewPanelController.setExpanded(false);
 
     rotationCollapsed = window.innerWidth <= 900;
     rotationContent.style.display = rotationCollapsed ? "none" : "block";
@@ -8428,7 +8086,7 @@ export function createUI({
     setupPanel.root,
   ];
 
-  for (const panel of [cubePanel, viewPanel, colorsPanel, labelsPanel]) {
+  for (const panel of [cubePanel, colorsPanel, labelsPanel]) {
     panel.style.border = UI_PANEL_BORDER;
     panel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
   }
