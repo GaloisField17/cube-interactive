@@ -49,8 +49,8 @@ import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
 import { createSvgArchive } from "./svgExport.js";
-import { createCubePanel } from "./ui/cubePanel.js";
 import { attachColorPicker } from "./ui/colorPicker.js";
+import { createCubePanel } from "./ui/cubePanel.js";
 import { createCustomMoveControls } from "./ui/customMoveControls.js";
 import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
 import { openSetupImportDialog } from "./ui/setupImportDialog.js";
@@ -62,9 +62,9 @@ const ROTATION_SEQUENCE_PLACEHOLDER = "e.g. R U R' U'";
 const UI_FONT_FAMILY = "Arial, sans-serif";
 const UI_FONT_SIZE = "14px";
 const DEFAULT_ROTATION_TEXT_FONT_SIZE = 28;
-const MIN_ROTATION_TEXT_FONT_SIZE = 16;
-const ROTATION_TEXT_FONT_SIZE_STEP = 4;
-const ROTATION_TEXT_MAX_ROWS = 1;
+const MIN_ROTATION_TEXT_FONT_SIZE = 12;
+const ROTATION_TEXT_FONT_SIZE_STEP = 2;
+const ROTATION_TEXT_MAX_ROWS = 2;
 const MAX_NUMERIC_EDIT_VALUE = 100;
 const COMPACT_ROTATION_TEXT_TOP_OFFSET = 168;
 const DESKTOP_ROTATION_TEXT_TOP_OFFSET = 60;
@@ -1009,11 +1009,14 @@ export function createUI({
     const verticalBorders =
       Number.parseFloat(textStyles.borderTopWidth) +
       Number.parseFloat(textStyles.borderBottomWidth);
-    const maximumContentHeight =
-      DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2 * ROTATION_TEXT_MAX_ROWS + 2;
+    const defaultLineHeight = DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2;
+    const maximumContentHeight = defaultLineHeight * ROTATION_TEXT_MAX_ROWS;
 
     return {
       verticalPadding,
+      oneRowBoxHeight: Math.ceil(
+        defaultLineHeight + verticalPadding + verticalBorders,
+      ),
       maximumContentHeight,
       maximumBoxHeight: Math.ceil(
         maximumContentHeight + verticalPadding + verticalBorders,
@@ -1074,16 +1077,24 @@ export function createUI({
       return;
     }
 
-    rotationText.style.whiteSpace = "nowrap";
+    rotationText.style.whiteSpace = "normal";
     rotationText.style.overflowWrap = "normal";
-    rotationText.style.overflowX = "auto";
+    rotationText.style.overflowX = "hidden";
+    rotationText.style.overflowY = "visible";
+    rotationText.style.height = "auto";
     rotationText.style.minHeight = "";
+    rotationText.style.maxHeight = "none";
+    rotationText.style.columnCount = "auto";
+    rotationText.style.columnWidth = "auto";
+    rotationText.style.columnGap = "normal";
+    rotationText.style.columnFill = "balance";
 
-    const { verticalPadding, maximumContentHeight, maximumBoxHeight } =
-      getRotationTextHeightLimits();
-
-    rotationText.style.maxHeight = `${maximumBoxHeight}px`;
-    rotationText.style.overflowY = "auto";
+    const {
+      verticalPadding,
+      oneRowBoxHeight,
+      maximumContentHeight,
+      maximumBoxHeight,
+    } = getRotationTextHeightLimits();
 
     for (
       let fontSize = DEFAULT_ROTATION_TEXT_FONT_SIZE;
@@ -1097,17 +1108,35 @@ export function createUI({
         getComputedStyle(rotationText).lineHeight,
       );
       const contentHeight = rotationText.scrollHeight - verticalPadding;
+      const contentFitsWidth =
+        rotationText.scrollWidth <= rotationText.clientWidth;
 
-      if (contentHeight <= maximumContentHeight) {
-        if (contentHeight > lineHeight + 2) {
-          rotationText.style.minHeight = `${maximumBoxHeight}px`;
-        }
+      if (contentHeight <= maximumContentHeight + 1 && contentFitsWidth) {
+        const boxHeight =
+          contentHeight <= lineHeight + 3 ? oneRowBoxHeight : maximumBoxHeight;
+
+        rotationText.style.height = `${boxHeight}px`;
+        rotationText.style.maxHeight = `${boxHeight}px`;
+        rotationText.style.overflowY = "hidden";
 
         return;
       }
     }
 
-    rotationText.style.minHeight = `${maximumBoxHeight}px`;
+    const horizontalPadding =
+      Number.parseFloat(getComputedStyle(rotationText).paddingLeft) +
+      Number.parseFloat(getComputedStyle(rotationText).paddingRight);
+
+    rotationText.style.height = `${maximumBoxHeight}px`;
+    rotationText.style.maxHeight = `${maximumBoxHeight}px`;
+    rotationText.style.columnWidth = `${Math.max(
+      1,
+      rotationText.clientWidth - horizontalPadding,
+    )}px`;
+    rotationText.style.columnGap = "0px";
+    rotationText.style.columnFill = "auto";
+    rotationText.style.overflowX = "auto";
+    rotationText.style.overflowY = "hidden";
   }
 
   function syncRotationBlockLayout() {
