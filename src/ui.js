@@ -4501,17 +4501,17 @@ export function createUI({
       getSnapshot: () =>
         cubies.map((cubie) => [cubie, getCurrentInnerColor(cubie)]),
       restoreSnapshot: (snapshot) => {
-      for (const [cubie, value] of snapshot) {
-        setCubieInnerColor(cubie, value);
-      }
+        for (const [cubie, value] of snapshot) {
+          setCubieInnerColor(cubie, value);
+        }
 
-      for (const { cubie, input, preview } of innerColorControls) {
-        input.value = getCurrentInnerColor(cubie);
-        preview.style.backgroundImage = "none";
-        preview.style.backgroundColor = getCurrentInnerColor(cubie);
-      }
+        for (const { cubie, input, preview } of innerColorControls) {
+          input.value = getCurrentInnerColor(cubie);
+          preview.style.backgroundImage = "none";
+          preview.style.backgroundColor = getCurrentInnerColor(cubie);
+        }
 
-      updateInnerHeading();
+        updateInnerHeading();
       },
     },
   });
@@ -4713,16 +4713,16 @@ export function createUI({
       getSnapshot: () =>
         facelets.map((facelet) => [facelet, getFaceletLabelColor(facelet)]),
       restoreSnapshot: (snapshot) => {
-      for (const [facelet, color] of snapshot) {
-        updateFaceletLabelColor(facelet, color);
-        updateFaceletLabelColorControl(facelet);
-      }
+        for (const [facelet, color] of snapshot) {
+          updateFaceletLabelColor(facelet, color);
+          updateFaceletLabelColorControl(facelet);
+        }
 
-      for (const [face] of faceletSections) {
-        updateFaceletLabelFaceControl(face);
-      }
+        for (const [face] of faceletSections) {
+          updateFaceletLabelFaceControl(face);
+        }
 
-      updateFaceletLabelHeading();
+        updateFaceletLabelHeading();
       },
     },
   });

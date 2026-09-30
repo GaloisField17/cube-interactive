@@ -35,9 +35,7 @@ export function attachColorPicker({
   function openPicker() {
     initialColor = input.value;
     pickerStartedMixed = Boolean(undo?.isAvailable());
-    initialUndoState = pickerStartedMixed
-      ? undo.getSnapshot()
-      : input.value;
+    initialUndoState = pickerStartedMixed ? undo.getSnapshot() : input.value;
     const pickerColor = input.value || getInitialColor?.() || "#000000";
 
     picker.value = getColorPickerValue(pickerColor);
