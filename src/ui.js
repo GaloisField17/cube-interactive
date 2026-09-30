@@ -15,9 +15,12 @@ import {
   TubeGeometry,
   Vector3,
 } from "three";
+import arrowLimitDownIcon from "./assets/arrow-limit-down.svg";
+import arrowLimitUpIcon from "./assets/arrow-limit-up.svg";
 import chevronLeftIcon from "./assets/chevron-left.svg";
 import chevronRightIcon from "./assets/chevron-right.svg";
 import copyIcon from "./assets/copy.png";
+import infoIcon from "./assets/info.png";
 import {
   default as invalidColorIcon,
   default as mixedColorIcon,
@@ -26,7 +29,6 @@ import startStateIcon from "./assets/cube-state-0.svg";
 import expandCubeIcon from "./assets/expand.svg";
 import nextRotationIcon from "./assets/next.svg";
 import pauseIcon from "./assets/pause.svg";
-import placeholderIcon from "./assets/placeholder.svg";
 import playIcon from "./assets/play.svg";
 import previousRotationIcon from "./assets/previous.svg";
 import resetIcon from "./assets/reset.png";
@@ -73,7 +75,8 @@ const RESIZE_CONTROL_SIZE = 20;
 const RESIZE_CONTROL_GAP = 8;
 const RESIZE_CUBE_COLLAPSE_ICON = shrinkCubeIcon;
 const RESIZE_CUBE_EXPAND_ICON = expandCubeIcon;
-const RESIZE_ROTATION_TEXT_ICON = placeholderIcon;
+const ROTATION_TEXT_COLLAPSE_ICON = arrowLimitUpIcon;
+const ROTATION_TEXT_EXPAND_ICON = arrowLimitDownIcon;
 const UI_PANEL_BACKGROUND = "rgba(255, 255, 255, 0.95)";
 const UI_PANEL_BORDER_RADIUS = "8px";
 const UI_PANEL_BORDER = "1px solid rgba(0, 0, 0, 0.14)";
@@ -1112,9 +1115,25 @@ export function createUI({
 
   function syncRotationBlockLayout() {
     resizeRotationTextControl.button.style.display = "flex";
+    const isRotationTextVisible = rotationText.style.display !== "none";
+    rotationTextInfoControl.button.style.display = isRotationTextVisible
+      ? "flex"
+      : "none";
+    const resizeRotationTextLabel = isRotationTextVisible
+      ? "Collapse Rotation Text"
+      : "Expand Rotation Text";
+
+    resizeRotationTextControl.button.title = resizeRotationTextLabel;
+    resizeRotationTextControl.button.setAttribute(
+      "aria-label",
+      resizeRotationTextLabel,
+    );
+    resizeRotationTextControl.image.src = isRotationTextVisible
+      ? ROTATION_TEXT_COLLAPSE_ICON
+      : ROTATION_TEXT_EXPAND_ICON;
     resizeRotationTextControl.button.setAttribute(
       "aria-pressed",
-      String(rotationText.style.display !== "none"),
+      String(isRotationTextVisible),
     );
 
     const compactLayout = window.innerWidth <= 900;
@@ -1145,6 +1164,7 @@ export function createUI({
       ...navigationButtons,
       resizeCubeControl.button,
       resizeRotationTextControl.button,
+      rotationTextInfoControl.button,
     ];
 
     for (const element of toolbarElements) {
@@ -1360,15 +1380,24 @@ export function createUI({
     const startStateTop = Number.parseFloat(startStateButton.style.top);
     const startStateHeight = startStateButton.getBoundingClientRect().height;
     const resizeControlLeft = availableRight - RESIZE_CONTROL_SIZE;
+    const rotationTextElementTop = Number.parseFloat(rotationText.style.top);
+    const rotationTextBottomControlTop =
+      rotationTextElementTop +
+      rotationText.getBoundingClientRect().height -
+      RESIZE_CONTROL_SIZE;
     const resizeRotationTextTop =
       rotationText.style.display === "none"
         ? startStateTop + startStateHeight - RESIZE_CONTROL_SIZE
-        : Number.parseFloat(rotationText.style.top);
+        : rotationTextBottomControlTop;
 
     resizeCubeControl.button.style.top = `${startStateTop}px`;
     resizeCubeControl.button.style.left = `${resizeControlLeft}px`;
     resizeRotationTextControl.button.style.top = `${resizeRotationTextTop}px`;
     resizeRotationTextControl.button.style.left = `${resizeControlLeft}px`;
+    if (isRotationTextVisible) {
+      rotationTextInfoControl.button.style.top = `${rotationTextElementTop}px`;
+      rotationTextInfoControl.button.style.left = `${resizeControlLeft}px`;
+    }
 
     updateRotationToolbarFrame(navigationButtons, {
       rotationBlockTop,
@@ -2992,9 +3021,9 @@ export function createUI({
   });
 
   const resizeRotationTextControl = createResizeControl(
-    "Resize Rotation Text",
+    "Collapse Rotation Text",
     "rotation-resize-text",
-    RESIZE_ROTATION_TEXT_ICON,
+    ROTATION_TEXT_COLLAPSE_ICON,
   );
   resizeRotationTextControl.button.setAttribute("aria-pressed", "false");
   resizeRotationTextControl.button.addEventListener("click", () => {
@@ -3002,6 +3031,12 @@ export function createUI({
       rotationText.style.display === "none" ? "block" : "none";
     syncRotationBlockLayout();
   });
+  const rotationTextInfoControl = createResizeControl(
+    "Rotation Text Info",
+    "rotation-text-info",
+    infoIcon,
+  );
+  rotationTextInfoControl.button.style.display = "none";
 
   toEndButton.addEventListener("click", async () => {
     await finishCurrentRotationForNavigation();
