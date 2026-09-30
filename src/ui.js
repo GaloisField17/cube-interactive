@@ -62,9 +62,9 @@ const ROTATION_SEQUENCE_PLACEHOLDER = "e.g. R U R' U'";
 const UI_FONT_FAMILY = "Arial, sans-serif";
 const UI_FONT_SIZE = "14px";
 const DEFAULT_ROTATION_TEXT_FONT_SIZE = 28;
-const MIN_ROTATION_TEXT_FONT_SIZE = 12;
-const ROTATION_TEXT_FONT_SIZE_STEP = 2;
-const ROTATION_TEXT_MAX_ROWS = 2;
+const MIN_ROTATION_TEXT_FONT_SIZE = 16;
+const ROTATION_TEXT_FONT_SIZE_STEP = 4;
+const ROTATION_TEXT_MAX_ROWS = 1;
 const MAX_NUMERIC_EDIT_VALUE = 100;
 const COMPACT_ROTATION_TEXT_TOP_OFFSET = 168;
 const DESKTOP_ROTATION_TEXT_TOP_OFFSET = 60;
@@ -1009,14 +1009,11 @@ export function createUI({
     const verticalBorders =
       Number.parseFloat(textStyles.borderTopWidth) +
       Number.parseFloat(textStyles.borderBottomWidth);
-    const defaultLineHeight = DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2;
-    const maximumContentHeight = defaultLineHeight * ROTATION_TEXT_MAX_ROWS;
+    const maximumContentHeight =
+      DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2 * ROTATION_TEXT_MAX_ROWS + 2;
 
     return {
       verticalPadding,
-      oneRowBoxHeight: Math.ceil(
-        defaultLineHeight + verticalPadding + verticalBorders,
-      ),
       maximumContentHeight,
       maximumBoxHeight: Math.ceil(
         maximumContentHeight + verticalPadding + verticalBorders,
@@ -1077,35 +1074,16 @@ export function createUI({
       return;
     }
 
-    rotationText.style.whiteSpace = "normal";
+    rotationText.style.whiteSpace = "nowrap";
     rotationText.style.overflowWrap = "normal";
-    rotationText.style.overflowX = "hidden";
-    rotationText.style.overflowY = "visible";
-    rotationText.style.height = "auto";
+    rotationText.style.overflowX = "auto";
     rotationText.style.minHeight = "";
-    rotationText.style.maxHeight = "none";
-    rotationText.style.columnCount = "auto";
-    rotationText.style.columnWidth = "auto";
-    rotationText.style.columnGap = "normal";
-    rotationText.style.columnFill = "balance";
 
-    const {
-      verticalPadding,
-      oneRowBoxHeight,
-      maximumContentHeight,
-      maximumBoxHeight,
-    } = getRotationTextHeightLimits();
+    const { verticalPadding, maximumContentHeight, maximumBoxHeight } =
+      getRotationTextHeightLimits();
 
-    if (rotationText.dataset.empty === "true") {
-      rotationText.style.fontSize = `${DEFAULT_ROTATION_TEXT_FONT_SIZE}px`;
-      rotationText.style.lineHeight = `${
-        DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2
-      }px`;
-      rotationText.style.height = `${oneRowBoxHeight}px`;
-      rotationText.style.maxHeight = `${oneRowBoxHeight}px`;
-      rotationText.style.overflowY = "hidden";
-      return;
-    }
+    rotationText.style.maxHeight = `${maximumBoxHeight}px`;
+    rotationText.style.overflowY = "auto";
 
     for (
       let fontSize = DEFAULT_ROTATION_TEXT_FONT_SIZE;
@@ -1119,35 +1097,17 @@ export function createUI({
         getComputedStyle(rotationText).lineHeight,
       );
       const contentHeight = rotationText.scrollHeight - verticalPadding;
-      const contentFitsWidth =
-        rotationText.scrollWidth <= rotationText.clientWidth;
 
-      if (contentHeight <= maximumContentHeight + 1 && contentFitsWidth) {
-        const boxHeight =
-          contentHeight <= lineHeight + 3 ? oneRowBoxHeight : maximumBoxHeight;
-
-        rotationText.style.height = `${boxHeight}px`;
-        rotationText.style.maxHeight = `${boxHeight}px`;
-        rotationText.style.overflowY = "hidden";
+      if (contentHeight <= maximumContentHeight) {
+        if (contentHeight > lineHeight + 2) {
+          rotationText.style.minHeight = `${maximumBoxHeight}px`;
+        }
 
         return;
       }
     }
 
-    const horizontalPadding =
-      Number.parseFloat(getComputedStyle(rotationText).paddingLeft) +
-      Number.parseFloat(getComputedStyle(rotationText).paddingRight);
-
-    rotationText.style.height = `${maximumBoxHeight}px`;
-    rotationText.style.maxHeight = `${maximumBoxHeight}px`;
-    rotationText.style.columnWidth = `${Math.max(
-      1,
-      rotationText.clientWidth - horizontalPadding,
-    )}px`;
-    rotationText.style.columnGap = "0px";
-    rotationText.style.columnFill = "auto";
-    rotationText.style.overflowX = "auto";
-    rotationText.style.overflowY = "hidden";
+    rotationText.style.minHeight = `${maximumBoxHeight}px`;
   }
 
   function syncRotationBlockLayout() {
@@ -1400,12 +1360,14 @@ export function createUI({
     const startStateTop = Number.parseFloat(startStateButton.style.top);
     const startStateHeight = startStateButton.getBoundingClientRect().height;
     const resizeControlLeft = availableRight - RESIZE_CONTROL_SIZE;
+    const resizeRotationTextTop =
+      rotationText.style.display === "none"
+        ? startStateTop + startStateHeight - RESIZE_CONTROL_SIZE
+        : Number.parseFloat(rotationText.style.top);
 
     resizeCubeControl.button.style.top = `${startStateTop}px`;
     resizeCubeControl.button.style.left = `${resizeControlLeft}px`;
-    resizeRotationTextControl.button.style.top = `${
-      startStateTop + startStateHeight - RESIZE_CONTROL_SIZE
-    }px`;
+    resizeRotationTextControl.button.style.top = `${resizeRotationTextTop}px`;
     resizeRotationTextControl.button.style.left = `${resizeControlLeft}px`;
 
     updateRotationToolbarFrame(navigationButtons, {
@@ -2305,31 +2267,20 @@ export function createUI({
       return;
     }
 
-    const latestEntry = entries.at(-1);
-    const latestBounds = latestEntry.getBoundingClientRect();
-    const lineHeight = Number.parseFloat(
-      getComputedStyle(rotationText).lineHeight,
-    );
-    const clickedAfterLatestOnItsRow =
-      event.clientX >= latestBounds.right &&
-      event.clientY >= latestBounds.top - lineHeight / 2 &&
-      event.clientY <= latestBounds.bottom + lineHeight / 2;
-    const closestEntry = clickedAfterLatestOnItsRow
-      ? latestEntry
-      : entries.reduce((closest, entry) => {
-          const bounds = entry.getBoundingClientRect();
-          const closestBounds = closest.getBoundingClientRect();
-          const distance = Math.hypot(
-            event.clientX - (bounds.left + bounds.width / 2),
-            event.clientY - (bounds.top + bounds.height / 2),
-          );
-          const closestDistance = Math.hypot(
-            event.clientX - (closestBounds.left + closestBounds.width / 2),
-            event.clientY - (closestBounds.top + closestBounds.height / 2),
-          );
+    const closestEntry = entries.reduce((closest, entry) => {
+      const bounds = entry.getBoundingClientRect();
+      const closestBounds = closest.getBoundingClientRect();
+      const distance = Math.hypot(
+        event.clientX - (bounds.left + bounds.width / 2),
+        event.clientY - (bounds.top + bounds.height / 2),
+      );
+      const closestDistance = Math.hypot(
+        event.clientX - (closestBounds.left + closestBounds.width / 2),
+        event.clientY - (closestBounds.top + closestBounds.height / 2),
+      );
 
-          return distance < closestDistance ? entry : closest;
-        });
+      return distance < closestDistance ? entry : closest;
+    });
 
     setCursorRotationEntry(closestEntry);
     rotationText.focus({ preventScroll: true });
