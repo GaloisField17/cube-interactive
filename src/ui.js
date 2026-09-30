@@ -1096,6 +1096,17 @@ export function createUI({
       maximumBoxHeight,
     } = getRotationTextHeightLimits();
 
+    if (rotationText.dataset.empty === "true") {
+      rotationText.style.fontSize = `${DEFAULT_ROTATION_TEXT_FONT_SIZE}px`;
+      rotationText.style.lineHeight = `${
+        DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2
+      }px`;
+      rotationText.style.height = `${oneRowBoxHeight}px`;
+      rotationText.style.maxHeight = `${oneRowBoxHeight}px`;
+      rotationText.style.overflowY = "hidden";
+      return;
+    }
+
     for (
       let fontSize = DEFAULT_ROTATION_TEXT_FONT_SIZE;
       fontSize >= MIN_ROTATION_TEXT_FONT_SIZE;
@@ -2294,20 +2305,31 @@ export function createUI({
       return;
     }
 
-    const closestEntry = entries.reduce((closest, entry) => {
-      const bounds = entry.getBoundingClientRect();
-      const closestBounds = closest.getBoundingClientRect();
-      const distance = Math.hypot(
-        event.clientX - (bounds.left + bounds.width / 2),
-        event.clientY - (bounds.top + bounds.height / 2),
-      );
-      const closestDistance = Math.hypot(
-        event.clientX - (closestBounds.left + closestBounds.width / 2),
-        event.clientY - (closestBounds.top + closestBounds.height / 2),
-      );
+    const latestEntry = entries.at(-1);
+    const latestBounds = latestEntry.getBoundingClientRect();
+    const lineHeight = Number.parseFloat(
+      getComputedStyle(rotationText).lineHeight,
+    );
+    const clickedAfterLatestOnItsRow =
+      event.clientX >= latestBounds.right &&
+      event.clientY >= latestBounds.top - lineHeight / 2 &&
+      event.clientY <= latestBounds.bottom + lineHeight / 2;
+    const closestEntry = clickedAfterLatestOnItsRow
+      ? latestEntry
+      : entries.reduce((closest, entry) => {
+          const bounds = entry.getBoundingClientRect();
+          const closestBounds = closest.getBoundingClientRect();
+          const distance = Math.hypot(
+            event.clientX - (bounds.left + bounds.width / 2),
+            event.clientY - (bounds.top + bounds.height / 2),
+          );
+          const closestDistance = Math.hypot(
+            event.clientX - (closestBounds.left + closestBounds.width / 2),
+            event.clientY - (closestBounds.top + closestBounds.height / 2),
+          );
 
-      return distance < closestDistance ? entry : closest;
-    });
+          return distance < closestDistance ? entry : closest;
+        });
 
     setCursorRotationEntry(closestEntry);
     rotationText.focus({ preventScroll: true });
