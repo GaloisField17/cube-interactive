@@ -625,6 +625,22 @@ export function createUI({
   const rotationBlinkStyle = document.createElement("style");
 
   rotationBlinkStyle.textContent = `
+    html.rotation-toolbar-grab {
+      cursor: grab;
+    }
+
+    html.rotation-toolbar-grab .cube-viewport canvas {
+      cursor: grab !important;
+    }
+
+    html.rotation-toolbar-grabbing {
+      cursor: grabbing;
+    }
+
+    html.rotation-toolbar-grabbing .cube-viewport canvas {
+      cursor: grabbing !important;
+    }
+
     .rotation-sequence.rotation-input-rejected {
       border-color: #E57373 !important;
       box-shadow: 0 0 0 2px rgba(229, 115, 115, 0.4) !important;
@@ -1476,26 +1492,44 @@ export function createUI({
   let rotationToolbarDragStart = null;
   let suppressToolbarClick = false;
 
+  function isRotationToolbarDragTarget(event) {
+    if (
+      window.innerWidth <= 900 ||
+      (event.target instanceof Element &&
+        (event.target.closest("button") ||
+          event.target.closest(".rotation-sequence")))
+    ) {
+      return false;
+    }
+
+    const bounds = rotationToolbarFrame.getBoundingClientRect();
+
+    return (
+      event.clientX >= bounds.left &&
+      event.clientX <= bounds.right &&
+      event.clientY >= bounds.top &&
+      event.clientY <= bounds.bottom
+    );
+  }
+
+  function updateRotationToolbarCursor(event) {
+    const isDragging = Boolean(rotationToolbarDragStart?.moved);
+    const isHovering = !isDragging && isRotationToolbarDragTarget(event);
+
+    document.documentElement.classList.toggle(
+      "rotation-toolbar-grab",
+      isHovering,
+    );
+    document.documentElement.classList.toggle(
+      "rotation-toolbar-grabbing",
+      isDragging,
+    );
+  }
+
   window.addEventListener(
     "pointerdown",
     (event) => {
-      if (
-        window.innerWidth <= 900 ||
-        (event.target instanceof Element &&
-          (event.target.closest("button") ||
-            event.target.closest(".rotation-sequence")))
-      ) {
-        return;
-      }
-
-      const bounds = rotationToolbarFrame.getBoundingClientRect();
-
-      if (
-        event.clientX < bounds.left ||
-        event.clientX > bounds.right ||
-        event.clientY < bounds.top ||
-        event.clientY > bounds.bottom
-      ) {
+      if (!isRotationToolbarDragTarget(event)) {
         return;
       }
 
@@ -1507,6 +1541,7 @@ export function createUI({
         offsetY: rotationToolbarOffset.y,
         moved: false,
       };
+      updateRotationToolbarCursor(event);
     },
     true,
   );
@@ -1514,7 +1549,12 @@ export function createUI({
   window.addEventListener(
     "pointermove",
     (event) => {
-      if (rotationToolbarDragStart?.pointerId !== event.pointerId) {
+      if (!rotationToolbarDragStart) {
+        updateRotationToolbarCursor(event);
+        return;
+      }
+
+      if (rotationToolbarDragStart.pointerId !== event.pointerId) {
         return;
       }
 
@@ -1529,6 +1569,7 @@ export function createUI({
         rotationToolbarDragStart.moved = true;
       }
 
+      updateRotationToolbarCursor(event);
       event.preventDefault();
       event.stopPropagation();
       const nextOffset = clampRotationToolbarOffset(
@@ -1555,6 +1596,7 @@ export function createUI({
     }
 
     rotationToolbarDragStart = null;
+    updateRotationToolbarCursor(event);
   }
 
   window.addEventListener("pointerup", finishRotationToolbarDrag, true);
