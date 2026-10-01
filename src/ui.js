@@ -1013,6 +1013,19 @@ export function createUI({
   rotationTimeline.style.touchAction = "pan-y";
   document.body.appendChild(rotationTimeline);
 
+  const rotationTimelineTicks = document.createElement("div");
+
+  rotationTimelineTicks.className = "rotation-timeline-ticks";
+  rotationTimelineTicks.setAttribute("aria-hidden", "true");
+  rotationTimelineTicks.style.position = "absolute";
+  rotationTimelineTicks.style.display = "none";
+  rotationTimelineTicks.style.height = "7px";
+  rotationTimelineTicks.style.pointerEvents = "none";
+  rotationTimelineTicks.style.zIndex = "21";
+  rotationTimelineTicks.style.backgroundRepeat = "repeat-x";
+  rotationTimelineTicks.style.backgroundPosition = "left center";
+  document.body.appendChild(rotationTimelineTicks);
+
   const startStateButton = document.createElement("button");
 
   startStateButton.className = "rotation-start-state-control";
@@ -1168,6 +1181,7 @@ export function createUI({
       startStateButton,
       copyRotationButton,
       undoRotationButton,
+      rotationTimeline,
       ...navigationButtons,
     ];
 
@@ -1319,6 +1333,7 @@ export function createUI({
     const toolbarElements = [
       rotationToolbarFrame,
       rotationTimeline,
+      rotationTimelineTicks,
       rotationText,
       startStateButton,
       copyRotationButton,
@@ -1407,7 +1422,8 @@ export function createUI({
 
       const textBottom =
         rotationText.style.display === "none"
-          ? rotationBlockTop
+          ? Number.parseFloat(rotationTimeline.style.top) +
+            rotationTimeline.getBoundingClientRect().height
           : rotationTextTop + rotationText.getBoundingClientRect().height;
       const toolbarBottom = Math.max(rotationBlockTop + 48, textBottom);
       let nextAvailableRight = window.innerWidth - rightInset;
@@ -1501,12 +1517,26 @@ export function createUI({
     rotationText.style.width = `${rotationTextWidth}px`;
     rotationText.style.maxWidth = `${rotationTextWidth}px`;
     fitRotationText();
-    rotationTimeline.style.display = isRotationTextVisible ? "block" : "none";
+    rotationTimeline.style.display = "block";
     rotationTimeline.style.left = `${rotationTextLeft}px`;
     rotationTimeline.style.top = `${
       Number.parseFloat(rotationText.style.top) - ROTATION_TIMELINE_SLOT_HEIGHT
     }px`;
     rotationTimeline.style.width = `${rotationTextWidth}px`;
+    rotationTimelineTicks.style.display = rotationTimeline.disabled
+      ? "none"
+      : "block";
+    rotationTimelineTicks.style.left = `${rotationTextLeft}px`;
+    rotationTimelineTicks.style.top = `${
+      Number.parseFloat(rotationTimeline.style.top) +
+      (ROTATION_TIMELINE_HEIGHT - 7) / 2
+    }px`;
+    rotationTimelineTicks.style.width = `${rotationTextWidth}px`;
+    const timelineStepWidth = Math.max(
+      1,
+      rotationTextWidth / Math.max(getRotationEntries().length, 1),
+    );
+    rotationTimelineTicks.style.backgroundImage = `repeating-linear-gradient(to right, rgba(71, 85, 105, 0.7) 0 1px, transparent 1px ${timelineStepWidth}px)`;
 
     const toolbarClearance = compactLayout
       ? Number.parseFloat(getComputedStyle(controlsRoot).rowGap) * 2
@@ -1905,7 +1935,10 @@ export function createUI({
   let stopRotationPromise = null;
   const rotationStopWaiters = [];
 
-  function setRotationTimelinePosition(position, entries = getRotationEntries()) {
+  function setRotationTimelinePosition(
+    position,
+    entries = getRotationEntries(),
+  ) {
     const safePosition = MathUtils.clamp(position, 0, entries.length);
     const progressPercent =
       entries.length === 0 ? 0 : (safePosition / entries.length) * 100;
@@ -1936,7 +1969,8 @@ export function createUI({
       return;
     }
 
-    const selectedEntry = cursor ?? pendingRotationEntries[0] ?? cursorRotationEntry;
+    const selectedEntry =
+      cursor ?? pendingRotationEntries[0] ?? cursorRotationEntry;
     const selectedIndex = selectedEntry ? entries.indexOf(selectedEntry) : -1;
 
     setRotationTimelinePosition(Math.max(selectedIndex + 1, 0), entries);
@@ -1972,9 +2006,13 @@ export function createUI({
     } else if (event.key === "End") {
       targetBoundary = entries.length;
     } else if (event.key === "PageUp") {
-      targetBoundary = Math.ceil(currentPosition) + Math.max(1, Math.ceil(entries.length / 10));
+      targetBoundary =
+        Math.ceil(currentPosition) +
+        Math.max(1, Math.ceil(entries.length / 10));
     } else if (event.key === "PageDown") {
-      targetBoundary = Math.floor(currentPosition) - Math.max(1, Math.ceil(entries.length / 10));
+      targetBoundary =
+        Math.floor(currentPosition) -
+        Math.max(1, Math.ceil(entries.length / 10));
     }
 
     if (targetBoundary === null) {
