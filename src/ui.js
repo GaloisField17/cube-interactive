@@ -353,6 +353,7 @@ export function createUI({
   }
 
   const controlsRoot = document.createElement("div");
+  let cubeViewportResizeHandle = null;
 
   controlsRoot.className = "responsive-controls";
   document.body.appendChild(controlsRoot);
@@ -1629,6 +1630,13 @@ export function createUI({
     if (compactLayout) {
       controlsRoot.style.top = `${
         rotationToolbarFrame.getBoundingClientRect().bottom + toolbarClearance
+      }px`;
+    }
+
+    if (cubeViewportResizeHandle) {
+      cubeViewportResizeHandle.style.top = `${
+        rotationToolbarFrame.getBoundingClientRect().top -
+        cubeViewportResizeHandle.getBoundingClientRect().height / 2
       }px`;
     }
   }
@@ -3630,11 +3638,13 @@ export function createUI({
     setCubeViewportCollapsed(isCollapsed);
     syncRotationBlockLayout();
     updateCubeViewportResizeHandle(
-      getCubeViewportDisplayHeight(window.innerWidth, window.innerHeight),
+      isCollapsed
+        ? 0
+        : getCubeViewportDisplayHeight(window.innerWidth, window.innerHeight),
     );
   }
 
-  const cubeViewportResizeHandle = document.createElement("div");
+  cubeViewportResizeHandle = document.createElement("div");
 
   cubeViewportResizeHandle.className = "cube-viewport-resize-handle";
   cubeViewportResizeHandle.setAttribute("role", "separator");
@@ -3658,22 +3668,20 @@ export function createUI({
       "aria-valuenow",
       String(Math.round(height)),
     );
+    cubeViewportResizeHandle.style.top = `${
+      rotationToolbarFrame.getBoundingClientRect().top -
+      cubeViewportResizeHandle.getBoundingClientRect().height / 2
+    }px`;
   }
 
   function resizeCubeViewport(height) {
     if (height <= 0) {
-      if (activeResizePointer !== null) {
-        const pointerId = activeResizePointer;
-
-        activeResizePointer = null;
-
-        if (cubeViewportResizeHandle.hasPointerCapture(pointerId)) {
-          cubeViewportResizeHandle.releasePointerCapture(pointerId);
-        }
-      }
-
       updateCubeResizeButton(true);
       return;
+    }
+
+    if (resizeCubeControl.button.getAttribute("aria-pressed") === "true") {
+      updateCubeResizeButton(false);
     }
 
     const actualHeight = setCubeViewportDisplayHeight(height);
@@ -3683,24 +3691,30 @@ export function createUI({
   }
 
   let activeResizePointer = null;
+  let resizeStartPointerY = 0;
+  let resizeStartHeight = 0;
 
   cubeViewportResizeHandle.addEventListener("pointerdown", (event) => {
-    if (
-      window.innerWidth > 900 ||
-      resizeCubeControl.button.getAttribute("aria-pressed") === "true"
-    ) {
+    if (window.innerWidth > 900) {
       return;
     }
 
     activeResizePointer = event.pointerId;
+    resizeStartPointerY = event.clientY;
+    resizeStartHeight = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        "--cube-viewport-height",
+      ),
+    );
     cubeViewportResizeHandle.setPointerCapture(event.pointerId);
     event.preventDefault();
-    resizeCubeViewport(event.clientY);
   });
 
   cubeViewportResizeHandle.addEventListener("pointermove", (event) => {
     if (event.pointerId === activeResizePointer) {
-      resizeCubeViewport(event.clientY);
+      resizeCubeViewport(
+        resizeStartHeight + event.clientY - resizeStartPointerY,
+      );
     }
   });
 

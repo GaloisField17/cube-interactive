@@ -80,7 +80,7 @@ html.cube-viewport-collapsed {
 
   .cube-viewport-resize-handle {
     position: fixed;
-    top: calc(var(--cube-viewport-height) - 14px);
+    top: 0;
     right: 0;
     left: 0;
     z-index: 11;
@@ -105,10 +105,6 @@ html.cube-viewport-collapsed {
   .cube-viewport-resize-handle:focus-visible {
     outline: 2px solid #2563eb;
     outline-offset: -2px;
-  }
-
-  html.cube-viewport-collapsed .cube-viewport-resize-handle {
-    display: none;
   }
 
   .responsive-controls {
