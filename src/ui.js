@@ -641,6 +641,10 @@ export function createUI({
       cursor: grabbing !important;
     }
 
+    html.cube-grab-active .cube-viewport canvas {
+      cursor: grabbing !important;
+    }
+
     .rotation-sequence.rotation-input-rejected {
       border-color: #E57373 !important;
       box-shadow: 0 0 0 2px rgba(229, 115, 115, 0.4) !important;
@@ -1490,7 +1494,65 @@ export function createUI({
   }
 
   let rotationToolbarDragStart = null;
+  let cubeGrabPointerStart = null;
   let suppressToolbarClick = false;
+
+  function finishCubeGrab(event) {
+    if (
+      event?.pointerId !== undefined &&
+      cubeGrabPointerStart?.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+
+    cubeGrabPointerStart = null;
+    document.documentElement.classList.remove("cube-grab-active");
+  }
+
+  window.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (
+        event.target !== renderer.domElement ||
+        event.pointerType !== "mouse" ||
+        event.button !== 0 ||
+        !controls.enabled ||
+        !controls.enableRotate
+      ) {
+        return;
+      }
+
+      cubeGrabPointerStart = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+      };
+    },
+    true,
+  );
+
+  window.addEventListener(
+    "pointermove",
+    (event) => {
+      if (cubeGrabPointerStart?.pointerId !== event.pointerId) {
+        return;
+      }
+
+      if (
+        Math.hypot(
+          event.clientX - cubeGrabPointerStart.x,
+          event.clientY - cubeGrabPointerStart.y,
+        ) >= 4
+      ) {
+        document.documentElement.classList.add("cube-grab-active");
+      }
+    },
+    true,
+  );
+
+  window.addEventListener("pointerup", finishCubeGrab, true);
+  window.addEventListener("pointercancel", finishCubeGrab, true);
+  window.addEventListener("blur", finishCubeGrab);
 
   function isRotationToolbarDragTarget(event) {
     if (
