@@ -339,7 +339,6 @@ export function createUI({
       return result;
     });
   }
-
   function rotateMove(...args) {
     return Promise.resolve(rotateMoveFromCube(...args)).then((result) => {
       updateFaceletLabelTransforms();
@@ -1944,6 +1943,10 @@ export function createUI({
   let rotationTimelineScrubbing = false;
   let rotationTimelinePausedForScrub = false;
   let rotationTimelineSeekGeneration = 0;
+  let rotationTimelineScrubFrame = null;
+  let rotationTimelineScrubTargetPosition = null;
+  let rotationTimelineScrubAppliedPosition = null;
+  let rotationTimelineScrubInProgress = false;
   let rotationStopRequested = false;
   let stopRotationPromise = null;
   const rotationStopWaiters = [];
@@ -1989,8 +1992,40 @@ export function createUI({
     setRotationTimelinePosition(Math.max(selectedIndex + 1, 0), entries);
   }
 
+  function cancelScheduledRotationTimelineScrub() {
+    if (rotationTimelineScrubFrame !== null) {
+      cancelAnimationFrame(rotationTimelineScrubFrame);
+      rotationTimelineScrubFrame = null;
+    }
+  }
+
+  function scheduleRotationTimelineScrub() {
+    rotationTimelineScrubTargetPosition = MathUtils.clamp(
+      Number(rotationTimeline.value),
+      0,
+      getRotationEntries().length,
+    );
+
+    if (rotationTimelineScrubFrame !== null) {
+      return;
+    }
+
+    rotationTimelineScrubFrame = requestAnimationFrame(() => {
+      rotationTimelineScrubFrame = null;
+
+      const targetPosition = rotationTimelineScrubTargetPosition;
+
+      if (targetPosition === rotationTimelineScrubAppliedPosition) {
+        return;
+      }
+
+      void scrubRotationTimelineToPosition(targetPosition);
+    });
+  }
+
   rotationTimeline.addEventListener("pointerdown", () => {
     rotationTimelineScrubbing = true;
+    rotationTimelineScrubAppliedPosition = null;
   });
 
   rotationTimeline.addEventListener("input", () => {
@@ -2003,6 +2038,7 @@ export function createUI({
     }
 
     setRotationTimelinePosition(Number(rotationTimeline.value));
+    scheduleRotationTimelineScrub();
   });
 
   rotationTimeline.addEventListener("keydown", (event) => {
@@ -2037,19 +2073,35 @@ export function createUI({
   });
 
   rotationTimeline.addEventListener("change", () => {
+    cancelScheduledRotationTimelineScrub();
+    const targetBoundary = Math.round(Number(rotationTimeline.value));
+
     rotationTimelineScrubbing = false;
     rotationTimelinePausedForScrub = false;
-    void seekRotationTimeline(Math.round(Number(rotationTimeline.value)));
+    rotationTimeline.step = "any";
+    rotationTimelineScrubTargetPosition = targetBoundary;
+
+    void scrubRotationTimelineToPosition(targetBoundary);
   });
 
   rotationTimeline.addEventListener("pointerup", () => {
     rotationTimelineScrubbing = false;
     rotationTimelinePausedForScrub = false;
-    syncRotationTimeline();
+    rotationTimeline.step = "any";
+    rotationTimelineScrubTargetPosition = Math.round(
+      Number(rotationTimeline.value),
+    );
+    void scrubRotationTimelineToPosition(rotationTimelineScrubTargetPosition);
   });
 
   rotationTimeline.addEventListener("pointercancel", () => {
+    cancelScheduledRotationTimelineScrub();
     rotationTimelineScrubbing = false;
+    rotationTimeline.step = "any";
+    rotationTimelineScrubTargetPosition = Math.round(
+      Number(rotationTimeline.value),
+    );
+    void scrubRotationTimelineToPosition(rotationTimelineScrubTargetPosition);
 
     if (rotationTimelinePausedForScrub) {
       rotationTimelinePausedForScrub = false;
@@ -2322,11 +2374,31 @@ export function createUI({
     return normalizedOffset;
   }
 
-  function scrollRotationEditorEntryIntoView(state, caretOffset, actions) {
+  function scrollRotationTextEntryIntoView(targetEntry) {
     if (rotationText.style.overflowY !== "auto") {
       return;
     }
 
+    if (!targetEntry) {
+      return;
+    }
+
+    const entryBounds = targetEntry.getBoundingClientRect();
+    const textBounds = rotationText.getBoundingClientRect();
+    const textStyles = getComputedStyle(rotationText);
+    const visibleTop =
+      textBounds.top + Number.parseFloat(textStyles.paddingTop);
+    const visibleBottom =
+      textBounds.bottom - Number.parseFloat(textStyles.paddingBottom);
+
+    if (entryBounds.top < visibleTop) {
+      rotationText.scrollTop += entryBounds.top - visibleTop;
+    } else if (entryBounds.bottom > visibleBottom) {
+      rotationText.scrollTop += entryBounds.bottom - visibleBottom;
+    }
+  }
+
+  function scrollRotationEditorEntryIntoView(state, caretOffset, actions) {
     let actionIndex = 0;
     let targetEntry = null;
 
@@ -2349,19 +2421,7 @@ export function createUI({
       return;
     }
 
-    const entryBounds = targetEntry.getBoundingClientRect();
-    const textBounds = rotationText.getBoundingClientRect();
-    const textStyles = getComputedStyle(rotationText);
-    const visibleTop =
-      textBounds.top + Number.parseFloat(textStyles.paddingTop);
-    const visibleBottom =
-      textBounds.bottom - Number.parseFloat(textStyles.paddingBottom);
-
-    if (entryBounds.top < visibleTop) {
-      rotationText.scrollTop += entryBounds.top - visibleTop;
-    } else if (entryBounds.bottom > visibleBottom) {
-      rotationText.scrollTop += entryBounds.bottom - visibleBottom;
-    }
+    scrollRotationTextEntryIntoView(targetEntry);
   }
 
   function getEditedPlaybackBoundary(state, snapshot, previousActions) {
@@ -2791,6 +2851,14 @@ export function createUI({
           ? "rotation-entry-blink 600ms ease-in-out infinite"
           : "none";
     }
+
+    if (!isEditorFocused || rotationTimelineScrubbing) {
+      if (cursorEntry) {
+        scrollRotationTextEntryIntoView(cursorEntry);
+      } else if (rotationText.style.overflowY === "auto") {
+        rotationText.scrollTop = 0;
+      }
+    }
   }
 
   rotationStartTarget.addEventListener("pointerdown", (event) => {
@@ -3140,7 +3208,10 @@ export function createUI({
     updateRotationMediaControlState();
   }
 
-  async function seekRotationTimeline(boundary) {
+  async function seekRotationTimeline(
+    boundary,
+    { preserveSliderPosition = false } = {},
+  ) {
     const generation = ++rotationTimelineSeekGeneration;
     const entries = getRotationEntries();
     const targetBoundary = MathUtils.clamp(
@@ -3156,7 +3227,10 @@ export function createUI({
     rotationTimelineSeeking = true;
     rotationTimelineProgressCallback = null;
     durationState.onProgress = null;
-    setRotationTimelinePosition(targetBoundary, entries);
+
+    if (!preserveSliderPosition) {
+      setRotationTimelinePosition(targetBoundary, entries);
+    }
 
     if (pendingRotationEntries.length > 0) {
       queuedRotationActions = [];
@@ -3191,6 +3265,178 @@ export function createUI({
 
     rotationTimelineSeeking = false;
     syncRotationTimeline();
+  }
+
+  async function previewRotationTimelinePosition(position) {
+    resetVisualRotations();
+
+    const entries = getRotationEntries();
+    const previewBoundary = Math.floor(position);
+    const fraction = position - previewBoundary;
+
+    if (fraction <= 0 || previewBoundary >= entries.length) {
+      return;
+    }
+
+    const actionLabel = rotationActions[previewBoundary]?.label;
+    const standardMove = getRotationDefinition(actionLabel);
+    let moveName = actionLabel;
+    let angle = standardMove?.angle;
+
+    if (!standardMove) {
+      const customMove = parseCustomMove(
+        stripCustomMoveParentheses(actionLabel ?? ""),
+      );
+
+      if (!customMove) {
+        return;
+      }
+
+      moveName = normalizeWideMoveName(customMove.moveName);
+
+      if (!getRotationDefinition(moveName)) {
+        return;
+      }
+
+      angle = getCustomRotationAngle(moveName, customMove.angle);
+    }
+
+    if (angle) {
+      await rotateSliceFromCube(
+        moveName,
+        angle * fraction,
+        NAVIGATION_DURATION,
+        false,
+      );
+    }
+  }
+
+  async function scrubRotationTimelineToPosition(initialPosition) {
+    if (rotationTimelineScrubInProgress) {
+      return;
+    }
+
+    rotationTimelineScrubInProgress = true;
+    let generation = ++rotationTimelineSeekGeneration;
+
+    try {
+      const isAnimating =
+        pendingRotationEntries.length > 0 ||
+        rotationPlaybackState === "playing" ||
+        rotationPlaybackState === "paused" ||
+        rotationTimelineSeeking ||
+        rebuildInProgress;
+
+      if (isAnimating) {
+        const targetBoundary = Math.floor(
+          rotationTimelineScrubTargetPosition ?? initialPosition,
+        );
+
+        await seekRotationTimeline(targetBoundary, {
+          preserveSliderPosition: rotationTimelineScrubbing,
+        });
+        generation = rotationTimelineSeekGeneration;
+      } else {
+        rotationTimelineSeeking = true;
+        rotationTimelineProgressCallback = null;
+        durationState.onProgress = null;
+
+        const scrubDuration = {
+          ...durationState,
+          value: NAVIGATION_DURATION,
+          paused: false,
+          pauseStartedAt: null,
+          onProgress: null,
+        };
+
+        while (generation === rotationTimelineSeekGeneration) {
+          const entries = getRotationEntries();
+          const cursorIndex = cursorRotationEntry
+            ? entries.indexOf(cursorRotationEntry)
+            : -1;
+          const currentBoundary = Math.max(cursorIndex + 1, 0);
+          const requestedBoundary = MathUtils.clamp(
+            Math.floor(
+              rotationTimelineScrubTargetPosition ?? initialPosition,
+            ),
+            0,
+            entries.length,
+          );
+
+          if (requestedBoundary === currentBoundary) {
+            break;
+          }
+
+          const movingForward = requestedBoundary > currentBoundary;
+          const actionIndex = movingForward
+            ? currentBoundary
+            : currentBoundary - 1;
+          const recordedAction = rotationActions[actionIndex];
+          const action = movingForward
+            ? recordedAction
+            : recordedAction?.inverse;
+
+          if (!action?.run) {
+            await seekRotationTimeline(requestedBoundary, {
+              preserveSliderPosition: rotationTimelineScrubbing,
+            });
+            generation = rotationTimelineSeekGeneration;
+            break;
+          }
+
+          resetVisualRotations();
+          const completed = await action.run(scrubDuration);
+
+          if (generation !== rotationTimelineSeekGeneration) {
+            return;
+          }
+
+          if (completed === false) {
+            await seekRotationTimeline(requestedBoundary, {
+              preserveSliderPosition: rotationTimelineScrubbing,
+            });
+            generation = rotationTimelineSeekGeneration;
+            break;
+          }
+
+          const nextBoundary = currentBoundary + (movingForward ? 1 : -1);
+
+          cursorRotationEntry = entries[nextBoundary - 1] ?? null;
+          queuedRotationActions = rotationActions.slice(nextBoundary);
+          highlightActiveRotation();
+          updateRotationMediaControlState();
+        }
+      }
+
+      const targetPosition = MathUtils.clamp(
+        rotationTimelineScrubTargetPosition ?? initialPosition,
+        0,
+        getRotationEntries().length,
+      );
+
+      if (rotationTimelineScrubbing) {
+        await previewRotationTimelinePosition(targetPosition);
+      } else {
+        resetVisualRotations();
+      }
+
+      rotationTimelineScrubAppliedPosition = targetPosition;
+    } finally {
+      rotationTimelineScrubInProgress = false;
+
+      if (generation === rotationTimelineSeekGeneration) {
+        rotationTimelineSeeking = false;
+        syncRotationTimeline();
+      }
+
+      if (
+        rotationTimelineScrubbing &&
+        rotationTimelineScrubTargetPosition !==
+          rotationTimelineScrubAppliedPosition
+      ) {
+        scheduleRotationTimelineScrub();
+      }
+    }
   }
 
   async function ensureCursorAtEndForInsertion() {
@@ -3620,7 +3866,7 @@ export function createUI({
   }
 
   const resizeCubeControl = createResizeControl(
-    "Collapse The Cube",
+    "Collapse Cube",
     "rotation-resize-cube",
     RESIZE_CUBE_COLLAPSE_ICON,
   );
@@ -3684,7 +3930,7 @@ export function createUI({
   }
 
   function updateCubeResizeButton(isCollapsed) {
-    const label = isCollapsed ? "Expand The Cube" : "Collapse The Cube";
+    const label = isCollapsed ? "Expand Cube" : "Collapse Cube";
 
     resizeCubeControl.button.title = label;
     resizeCubeControl.button.setAttribute("aria-label", label);
