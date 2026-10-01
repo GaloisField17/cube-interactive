@@ -46,6 +46,7 @@ import {
   normalizeWideMoveName,
   parseCustomMove,
   stripCustomMoveParentheses,
+  tokenizeRotationSequence,
 } from "./customRotation.js";
 import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
@@ -1888,11 +1889,44 @@ export function createUI({
     }
 
     if (state.trailingWhitespace) {
-      rotationText.appendChild(document.createTextNode(" "));
+      rotationText.appendChild(document.createTextNode("\u00a0"));
     }
 
     rotationText.appendChild(rotationCursor);
     rotationText.dataset.empty = String(state.tokens.length === 0);
+  }
+
+  function getNormalizedRotationEditorCaret(state, caretOffset) {
+    let normalizedOffset = 0;
+
+    for (const [index, token] of state.tokens.entries()) {
+      if (caretOffset <= token.end) {
+        return (
+          normalizedOffset +
+          MathUtils.clamp(caretOffset - token.start, 0, token.text.length)
+        );
+      }
+
+      normalizedOffset += token.text.length;
+      const nextToken = state.tokens[index + 1];
+
+      if (nextToken) {
+        if (caretOffset <= nextToken.start) {
+          return normalizedOffset + 1;
+        }
+
+        normalizedOffset += 1;
+      }
+    }
+
+    if (
+      state.trailingWhitespace &&
+      (!state.tokens.length || caretOffset > state.tokens.at(-1).end)
+    ) {
+      return normalizedOffset + 1;
+    }
+
+    return normalizedOffset;
   }
 
   function getEditedPlaybackBoundary(state, snapshot, previousActions) {
@@ -2057,7 +2091,9 @@ export function createUI({
     rotationText.style.display = "block";
     highlightActiveRotation();
     updateRotationMediaControlState();
-    setRotationEditorCaret(caretOffset);
+    setRotationEditorCaret(
+      getNormalizedRotationEditorCaret(state, caretOffset),
+    );
     syncRotationBlockLayout();
 
     if (actionHistoryChanged) {
@@ -3365,16 +3401,15 @@ export function createUI({
   // Custom move controls
   // ============================================================
 
-  function getCustomSequenceMoves(value) {
-    return value
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .map(stripCustomMoveParentheses);
-  }
-
   function parseCustomSequence(value) {
-    return getCustomSequenceMoves(value).map((move) => {
+    const state = tokenizeRotationSequence(value);
+
+    if (!state) {
+      return [];
+    }
+
+    return state.moves.map((enteredMove) => {
+      const move = stripCustomMoveParentheses(enteredMove);
       const normalizedMove = normalizeWideMoveName(move);
 
       if (getRotationDefinition(normalizedMove)) {

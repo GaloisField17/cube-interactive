@@ -17,6 +17,7 @@ import {
   getCustomRotationAngle,
   getRotationSequenceEditorState,
   normalizeWideMoveName,
+  tokenizeRotationSequence,
 } from "../src/customRotation.js";
 import {
   formatLocalTimestamp,
@@ -209,6 +210,36 @@ test("rotation editor accepts complete moves and a valid draft token", () => {
     "(R",
     "U)",
   ]);
+});
+
+test("rotation sequence tokenizer splits adjacent moves and collapses whitespace", () => {
+  const state = tokenizeRotationSequence("RUR'   RwU R2U' F[33°]B");
+
+  assert.deepEqual(state.moves, [
+    "R",
+    "U",
+    "R'",
+    "Rw",
+    "U",
+    "R2",
+    "U'",
+    "F[33°]",
+    "B",
+  ]);
+  assert.deepEqual(tokenizeRotationSequence("R   U")?.moves, ["R", "U"]);
+  assert.equal(tokenizeRotationSequence("R w"), null);
+  assert.equal(tokenizeRotationSequence("R Q"), null);
+  assert.deepEqual(tokenizeRotationSequence("F(33degrees)U")?.moves, [
+    "F(33degrees)",
+    "U",
+  ]);
+});
+
+test("rotation editor allows an incomplete custom move after adjacent moves", () => {
+  const state = getRotationSequenceEditorState("RF[33 U", 5);
+
+  assert.deepEqual(state?.moves, ["R", "U"]);
+  assert.deepEqual(state?.draft, { text: "F[33", start: 1, end: 5 });
 });
 
 test("face definitions preserve colors, normals, and material indices", () => {

@@ -1,46 +1,15 @@
-import infoIcon from "../assets/info.png";
 import sequenceInvalidIcon from "../assets/cross.png";
+import infoIcon from "../assets/info.png";
 import sequencePendingIcon from "../assets/yes-pending.png";
 import { default as sequenceValidIcon } from "../assets/yes.png";
 import { normalizeAngle } from "../cubeMath.js";
 import {
   getCustomMoveLabel,
-  normalizeWideMoveName,
-  parseCustomMove,
-  stripCustomMoveParentheses,
+  tokenizeRotationSequence,
 } from "../customRotation.js";
-import { ROTATIONS } from "../rotationDefinitions.js";
-
-function getCustomSequenceMoves(value) {
-  return value
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(stripCustomMoveParentheses);
-}
 
 function isValidCustomSequence(value) {
-  const sequence = value.trim();
-
-  if (sequence === "") {
-    return true;
-  }
-
-  return getCustomSequenceMoves(sequence).every((move) => {
-    const normalizedMove = normalizeWideMoveName(move);
-
-    if (ROTATIONS[normalizedMove]) {
-      return true;
-    }
-
-    const customMove = parseCustomMove(move);
-
-    if (!customMove) {
-      return false;
-    }
-
-    return Boolean(ROTATIONS[normalizeWideMoveName(customMove.moveName)]);
-  });
+  return tokenizeRotationSequence(value) !== null;
 }
 
 export function createCustomMoveControls({

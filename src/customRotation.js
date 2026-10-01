@@ -9,6 +9,16 @@ const LOWERCASE_WIDE_MOVE_NAMES = Object.freeze({
   f: "Fw",
   b: "Bw",
 });
+const MOVE_NAME_CANDIDATES = Object.freeze(
+  [
+    ...Object.keys(ROTATIONS),
+    ...Object.keys(LOWERCASE_WIDE_MOVE_NAMES).flatMap((moveName) => [
+      moveName,
+      `${moveName}'`,
+      `${moveName}2`,
+    ]),
+  ].sort((left, right) => right.length - left.length),
+);
 
 export function normalizeWideMoveName(moveName) {
   const match = moveName.match(/^([udrlfb])(['2]?)$/);
@@ -56,28 +66,10 @@ export function stripCustomMoveParentheses(move) {
   return normalizedMove;
 }
 
-function isValidCustomMove(moveName) {
-  const normalizedMove = stripCustomMoveParentheses(moveName);
-
-  if (ROTATIONS[normalizeWideMoveName(normalizedMove)]) {
-    return true;
-  }
-
-  const customMove = parseCustomMove(normalizedMove);
-
-  return Boolean(
-    customMove && ROTATIONS[normalizeWideMoveName(customMove.moveName)],
-  );
-}
-
 function isCustomMovePrefix(value) {
-  const names = [
-    ...Object.keys(ROTATIONS),
-    ...Object.keys(LOWERCASE_WIDE_MOVE_NAMES),
-  ];
   const prefixValue = value.replace(/^\(+/u, "").replace(/\)+$/u, "");
 
-  for (const name of names) {
+  for (const name of MOVE_NAME_CANDIDATES) {
     if (normalizeWideMoveName(name) === normalizeWideMoveName(prefixValue)) {
       continue;
     }
@@ -87,7 +79,7 @@ function isCustomMovePrefix(value) {
     }
   }
 
-  for (const name of names) {
+  for (const name of MOVE_NAME_CANDIDATES) {
     const normalizedName = normalizeWideMoveName(name);
 
     for (const [opening, closing] of [
@@ -133,47 +125,110 @@ function isCustomMovePrefix(value) {
   return false;
 }
 
-export function getRotationSequenceEditorState(value, caretOffset) {
-  const normalizedValue = value.replace(/\u00a0/gu, " ");
-  const trailingWhitespace = /\s$/u.test(normalizedValue);
-  const tokens = [...normalizedValue.matchAll(/\S+/gu)].map((match) => ({
-    text: match[0],
-    start: match.index,
-    end: match.index + match[0].length,
-  }));
-  const invalidTokens = tokens.filter(
-    (token) => !isValidCustomMove(token.text),
-  );
+function getCompleteMoveEnd(value, start) {
+  let moveStart = start;
 
-  if (invalidTokens.length === 0) {
-    return {
-      moves: tokens.map((token) => token.text),
-      draft: null,
-      tokens,
-      trailingWhitespace,
-    };
+  while (value[moveStart] === "(") {
+    moveStart += 1;
   }
 
-  const draft = invalidTokens[0];
-  const draftIndex = tokens.indexOf(draft);
-  const caretIsInDraft = caretOffset >= draft.start && caretOffset <= draft.end;
+  for (const moveName of MOVE_NAME_CANDIDATES) {
+    if (!value.startsWith(moveName, moveStart)) {
+      continue;
+    }
 
-  if (
-    invalidTokens.length !== 1 ||
-    !caretIsInDraft ||
-    !isCustomMovePrefix(draft.text)
-  ) {
-    return null;
+    let moveEnd = moveStart + moveName.length;
+    const openingDelimiter = value[moveEnd];
+
+    if (openingDelimiter === "[" || openingDelimiter === "(") {
+      const closingDelimiter = openingDelimiter === "[" ? "]" : ")";
+      const closingIndex = value.indexOf(closingDelimiter, moveEnd + 1);
+
+      if (closingIndex === -1) {
+        continue;
+      }
+
+      const customMove = parseCustomMove(
+        value.slice(moveStart, closingIndex + 1),
+      );
+
+      if (
+        !customMove ||
+        !ROTATIONS[normalizeWideMoveName(customMove.moveName)]
+      ) {
+        continue;
+      }
+
+      moveEnd = closingIndex + 1;
+    } else if (!ROTATIONS[normalizeWideMoveName(moveName)]) {
+      continue;
+    }
+
+    while (value[moveEnd] === ")") {
+      moveEnd += 1;
+    }
+
+    return moveEnd;
+  }
+
+  return null;
+}
+
+export function tokenizeRotationSequence(value, caretOffset = null) {
+  const normalizedValue = value.replace(/\u00a0/gu, " ");
+  const trailingWhitespace = /\s$/u.test(normalizedValue);
+  const tokens = [];
+  let draft = null;
+
+  for (const match of normalizedValue.matchAll(/\S+/gu)) {
+    let offset = 0;
+
+    while (offset < match[0].length) {
+      const remaining = match[0].slice(offset);
+      const tokenStart = match.index + offset;
+      const caretIsInRemaining =
+        caretOffset !== null &&
+        caretOffset >= tokenStart &&
+        caretOffset <= match.index + match[0].length;
+      const moveEnd = getCompleteMoveEnd(match[0], offset);
+
+      if (
+        moveEnd === null &&
+        caretIsInRemaining &&
+        isCustomMovePrefix(remaining)
+      ) {
+        draft = {
+          text: remaining,
+          start: tokenStart,
+          end: match.index + match[0].length,
+        };
+        tokens.push(draft);
+        break;
+      }
+
+      if (moveEnd === null) {
+        return null;
+      }
+
+      tokens.push({
+        text: match[0].slice(offset, moveEnd),
+        start: tokenStart,
+        end: match.index + moveEnd,
+      });
+      offset = moveEnd;
+    }
   }
 
   return {
-    moves: tokens
-      .filter((_, index) => index !== draftIndex)
-      .map((token) => token.text),
+    moves: tokens.filter((token) => token !== draft).map((token) => token.text),
     draft,
     tokens,
     trailingWhitespace,
   };
+}
+
+export function getRotationSequenceEditorState(value, caretOffset) {
+  return tokenizeRotationSequence(value, caretOffset);
 }
 
 export function getCustomMoveLabel(
