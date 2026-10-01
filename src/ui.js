@@ -3661,6 +3661,21 @@ export function createUI({
   }
 
   function resizeCubeViewport(height) {
+    if (height <= 0) {
+      if (activeResizePointer !== null) {
+        const pointerId = activeResizePointer;
+
+        activeResizePointer = null;
+
+        if (cubeViewportResizeHandle.hasPointerCapture(pointerId)) {
+          cubeViewportResizeHandle.releasePointerCapture(pointerId);
+        }
+      }
+
+      updateCubeResizeButton(true);
+      return;
+    }
+
     const actualHeight = setCubeViewportDisplayHeight(height);
 
     updateCubeViewportResizeHandle(actualHeight);

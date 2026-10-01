@@ -155,12 +155,12 @@ test("rotateVector applies exact quarter turns", () => {
 
 test("cube viewport resize bounds leave room for controls", () => {
   assert.deepEqual(getCubeViewportDisplayHeightBounds(844), {
-    minimum: 120,
+    minimum: 0,
     maximum: 717.4,
   });
   assert.deepEqual(getCubeViewportDisplayHeightBounds(80), {
-    minimum: 80,
-    maximum: 80,
+    minimum: 0,
+    maximum: 68,
   });
 });
 
