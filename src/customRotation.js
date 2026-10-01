@@ -145,7 +145,7 @@ function getCompleteMoveEnd(value, start) {
       const closingIndex = value.indexOf(closingDelimiter, moveEnd + 1);
 
       if (closingIndex === -1) {
-        continue;
+        return null;
       }
 
       const customMove = parseCustomMove(

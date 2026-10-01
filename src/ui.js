@@ -51,6 +51,7 @@ import {
 import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
+import { CUBE_BACKGROUND_COLOR } from "./sceneSetup.js";
 import { createSvgArchive } from "./svgExport.js";
 import { attachColorPicker } from "./ui/colorPicker.js";
 import { createCubePanel } from "./ui/cubePanel.js";
@@ -661,15 +662,6 @@ export function createUI({
       }
     }
 
-    @keyframes rotation-cursor-blink {
-      0%, 45% {
-        opacity: 1;
-      }
-      46%, 100% {
-        opacity: 0;
-      }
-    }
-
     @keyframes rotation-undo-blink {
       0%, 100% {
         border-color: #fca5a5;
@@ -899,10 +891,9 @@ export function createUI({
   rotationCursor.style.width = "2px";
   rotationCursor.style.height = "1em";
   rotationCursor.style.marginLeft = "3px";
-  rotationCursor.style.backgroundColor = "#555";
+  rotationCursor.style.backgroundColor = CUBE_BACKGROUND_COLOR;
   rotationCursor.style.verticalAlign = "-0.12em";
-  rotationCursor.style.animation =
-    "rotation-cursor-blink 900ms step-end infinite";
+  rotationCursor.style.animation = "none";
 
   rotationText.appendChild(rotationStartTarget);
   rotationText.appendChild(rotationCursor);

@@ -7,6 +7,7 @@ import {
 
 const DEFAULT_CAMERA_POSITION = new Vector3(5, 5, 7);
 const DEFAULT_CUBE_VIEW_LIFT = 1.1162;
+export const CUBE_BACKGROUND_COLOR = "#e5e5e5";
 
 export function createScene() {
   document.documentElement.style.margin = "0";
@@ -26,7 +27,7 @@ export function createScene() {
   document.body.appendChild(viewport);
 
   const scene = new Scene();
-  scene.background = new Color(0xe5e5e5);
+  scene.background = new Color(CUBE_BACKGROUND_COLOR);
 
   const camera = new PerspectiveCamera(45, 1, 0.1, 1000);
   camera.position.copy(DEFAULT_CAMERA_POSITION);

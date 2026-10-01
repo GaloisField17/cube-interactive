@@ -242,6 +242,16 @@ test("rotation editor allows an incomplete custom move after adjacent moves", ()
   assert.deepEqual(state?.draft, { text: "F[33", start: 1, end: 5 });
 });
 
+test("rotation editor accepts custom-angle wide moves and keeps their draft", () => {
+  const complete = getRotationSequenceEditorState("Rw[50deg]", 9);
+  const draft = getRotationSequenceEditorState("Rw[50deg", 8);
+
+  assert.deepEqual(complete?.moves, ["Rw[50deg]"]);
+  assert.equal(complete?.draft, null);
+  assert.deepEqual(draft?.moves, []);
+  assert.deepEqual(draft?.draft, { text: "Rw[50deg", start: 0, end: 8 });
+});
+
 test("face definitions preserve colors, normals, and material indices", () => {
   const faceDefinitions = createFaceDefinitions(DEFAULT_COLORS);
   const sticker = createSticker("F", faceDefinitions);
