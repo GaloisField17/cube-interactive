@@ -72,6 +72,10 @@ const ROTATION_TEXT_MAX_ROWS = 2;
 const MAX_NUMERIC_EDIT_VALUE = 100;
 const COMPACT_ROTATION_TEXT_TOP_OFFSET = 168;
 const DESKTOP_ROTATION_TEXT_TOP_OFFSET = 60;
+const ROTATION_TIMELINE_HEIGHT = 16;
+const ROTATION_TIMELINE_GAP = 4;
+const ROTATION_TIMELINE_SLOT_HEIGHT =
+  ROTATION_TIMELINE_HEIGHT + ROTATION_TIMELINE_GAP;
 const ROTATION_TOOLBAR_FRAME_INSET = 7;
 const RESIZE_CONTROL_SIZE = 20;
 const RESIZE_CONTROL_GAP = 8;
@@ -625,6 +629,68 @@ export function createUI({
   const rotationBlinkStyle = document.createElement("style");
 
   rotationBlinkStyle.textContent = `
+    .rotation-timeline {
+      -webkit-appearance: none;
+      appearance: none;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      outline: none;
+    }
+
+    .rotation-timeline::-webkit-slider-runnable-track {
+      height: 3px;
+      border-radius: 2px;
+      background: linear-gradient(
+        to right,
+        #0f766e 0%,
+        #0f766e var(--rotation-timeline-progress, 0%),
+        #cbd5e1 var(--rotation-timeline-progress, 0%),
+        #cbd5e1 100%
+      );
+    }
+
+    .rotation-timeline::-moz-range-track {
+      height: 3px;
+      border-radius: 2px;
+      background: #cbd5e1;
+    }
+
+    .rotation-timeline::-moz-range-progress {
+      height: 3px;
+      border-radius: 2px;
+      background: #0f766e;
+    }
+
+    .rotation-timeline::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      margin-top: -4.5px;
+      border: 0;
+      background: #0f766e;
+      clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+    }
+
+    .rotation-timeline::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border: 0;
+      border-radius: 0;
+      background: #0f766e;
+      clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+    }
+
+    .rotation-timeline:focus-visible {
+      outline: 2px solid #0f766e;
+      outline-offset: 3px;
+    }
+
+    .rotation-timeline:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     html.rotation-toolbar-grab {
       cursor: grab;
     }
@@ -924,6 +990,28 @@ export function createUI({
   rotationText.appendChild(rotationCursor);
 
   document.body.appendChild(rotationText);
+
+  const rotationTimeline = document.createElement("input");
+
+  rotationTimeline.className = "rotation-timeline";
+  rotationTimeline.type = "range";
+  rotationTimeline.min = "0";
+  rotationTimeline.max = "0";
+  rotationTimeline.step = "any";
+  rotationTimeline.value = "0";
+  rotationTimeline.disabled = true;
+  rotationTimeline.title = "Rotation Timeline";
+  rotationTimeline.setAttribute("aria-label", "Rotation Timeline");
+  rotationTimeline.style.position = "absolute";
+  rotationTimeline.style.display = "block";
+  rotationTimeline.style.height = `${ROTATION_TIMELINE_HEIGHT}px`;
+  rotationTimeline.style.padding = "0";
+  rotationTimeline.style.margin = "0";
+  rotationTimeline.style.boxSizing = "border-box";
+  rotationTimeline.style.zIndex = "20";
+  rotationTimeline.style.cursor = "pointer";
+  rotationTimeline.style.touchAction = "pan-y";
+  document.body.appendChild(rotationTimeline);
 
   const startStateButton = document.createElement("button");
 
@@ -1230,6 +1318,7 @@ export function createUI({
     ];
     const toolbarElements = [
       rotationToolbarFrame,
+      rotationTimeline,
       rotationText,
       startStateButton,
       copyRotationButton,
@@ -1285,8 +1374,10 @@ export function createUI({
         ? 112
         : COMPACT_ROTATION_TEXT_TOP_OFFSET;
     const rotationTextTop = compactLayout
-      ? rotationBlockTop + historyTopOffset
-      : rotationBlockTop + DESKTOP_ROTATION_TEXT_TOP_OFFSET;
+      ? rotationBlockTop + historyTopOffset + ROTATION_TIMELINE_SLOT_HEIGHT
+      : rotationBlockTop +
+        DESKTOP_ROTATION_TEXT_TOP_OFFSET +
+        ROTATION_TIMELINE_SLOT_HEIGHT;
     const navigationAnchorOffset =
       parseFloat(toStartButton.style.width) +
       navigationGap +
@@ -1394,7 +1485,9 @@ export function createUI({
     undoRotationButton.style.top = `${rotationBlockTop}px`;
     undoRotationButton.style.left = `${undoButtonLeft}px`;
     rotationText.style.top = `${
-      narrowDesktopToolbar ? rotationBlockTop + 112 : rotationTextTop
+      narrowDesktopToolbar
+        ? rotationBlockTop + 112 + ROTATION_TIMELINE_SLOT_HEIGHT
+        : rotationTextTop
     }px`;
     rotationText.style.left = `${rotationTextLeft}px`;
     rotationText.style.right = "auto";
@@ -1408,6 +1501,12 @@ export function createUI({
     rotationText.style.width = `${rotationTextWidth}px`;
     rotationText.style.maxWidth = `${rotationTextWidth}px`;
     fitRotationText();
+    rotationTimeline.style.display = isRotationTextVisible ? "block" : "none";
+    rotationTimeline.style.left = `${rotationTextLeft}px`;
+    rotationTimeline.style.top = `${
+      Number.parseFloat(rotationText.style.top) - ROTATION_TIMELINE_SLOT_HEIGHT
+    }px`;
+    rotationTimeline.style.width = `${rotationTextWidth}px`;
 
     const toolbarClearance = compactLayout
       ? Number.parseFloat(getComputedStyle(controlsRoot).rowGap) * 2
@@ -1589,7 +1688,8 @@ export function createUI({
       window.innerWidth <= 900 ||
       (event.target instanceof Element &&
         (event.target.closest("button") ||
-          event.target.closest(".rotation-sequence")))
+          event.target.closest(".rotation-sequence") ||
+          event.target.closest(".rotation-timeline")))
     ) {
       return false;
     }
@@ -1796,9 +1896,117 @@ export function createUI({
   let queuedRotationActions = [];
   let cursorRotationEntry = null;
   let rotationPlaybackState = "idle";
+  let rotationTimelineProgressCallback = null;
+  let rotationTimelineSeeking = false;
+  let rotationTimelineScrubbing = false;
+  let rotationTimelinePausedForScrub = false;
+  let rotationTimelineSeekGeneration = 0;
   let rotationStopRequested = false;
   let stopRotationPromise = null;
   const rotationStopWaiters = [];
+
+  function setRotationTimelinePosition(position, entries = getRotationEntries()) {
+    const safePosition = MathUtils.clamp(position, 0, entries.length);
+    const progressPercent =
+      entries.length === 0 ? 0 : (safePosition / entries.length) * 100;
+
+    rotationTimeline.min = "0";
+    rotationTimeline.max = String(entries.length);
+    rotationTimeline.disabled = entries.length === 0;
+    rotationTimeline.value = String(safePosition);
+    rotationTimeline.style.setProperty(
+      "--rotation-timeline-progress",
+      `${progressPercent}%`,
+    );
+    rotationTimeline.setAttribute(
+      "aria-valuetext",
+      `${safePosition.toFixed(2)} of ${entries.length} rotations`,
+    );
+  }
+
+  function syncRotationTimeline(entries = getRotationEntries(), cursor = null) {
+    rotationTimeline.max = String(entries.length);
+    rotationTimeline.disabled = entries.length === 0;
+
+    if (
+      rotationTimelineSeeking ||
+      rotationTimelineScrubbing ||
+      rotationTimelineProgressCallback
+    ) {
+      return;
+    }
+
+    const selectedEntry = cursor ?? pendingRotationEntries[0] ?? cursorRotationEntry;
+    const selectedIndex = selectedEntry ? entries.indexOf(selectedEntry) : -1;
+
+    setRotationTimelinePosition(Math.max(selectedIndex + 1, 0), entries);
+  }
+
+  rotationTimeline.addEventListener("pointerdown", () => {
+    rotationTimelineScrubbing = true;
+  });
+
+  rotationTimeline.addEventListener("input", () => {
+    if (
+      rotationPlaybackState === "playing" &&
+      !rotationTimelinePausedForScrub
+    ) {
+      rotationTimelinePausedForScrub = true;
+      pauseRotationAnimation();
+    }
+
+    setRotationTimelinePosition(Number(rotationTimeline.value));
+  });
+
+  rotationTimeline.addEventListener("keydown", (event) => {
+    const entries = getRotationEntries();
+    const currentPosition = Number(rotationTimeline.value);
+    let targetBoundary = null;
+
+    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      targetBoundary = Math.floor(currentPosition) + 1;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      targetBoundary = Math.ceil(currentPosition) - 1;
+    } else if (event.key === "Home") {
+      targetBoundary = 0;
+    } else if (event.key === "End") {
+      targetBoundary = entries.length;
+    } else if (event.key === "PageUp") {
+      targetBoundary = Math.ceil(currentPosition) + Math.max(1, Math.ceil(entries.length / 10));
+    } else if (event.key === "PageDown") {
+      targetBoundary = Math.floor(currentPosition) - Math.max(1, Math.ceil(entries.length / 10));
+    }
+
+    if (targetBoundary === null) {
+      return;
+    }
+
+    event.preventDefault();
+    void seekRotationTimeline(targetBoundary);
+  });
+
+  rotationTimeline.addEventListener("change", () => {
+    rotationTimelineScrubbing = false;
+    rotationTimelinePausedForScrub = false;
+    void seekRotationTimeline(Math.round(Number(rotationTimeline.value)));
+  });
+
+  rotationTimeline.addEventListener("pointerup", () => {
+    rotationTimelineScrubbing = false;
+    rotationTimelinePausedForScrub = false;
+    syncRotationTimeline();
+  });
+
+  rotationTimeline.addEventListener("pointercancel", () => {
+    rotationTimelineScrubbing = false;
+
+    if (rotationTimelinePausedForScrub) {
+      rotationTimelinePausedForScrub = false;
+      resumePausedRotation();
+    } else {
+      syncRotationTimeline();
+    }
+  });
 
   function resolveRotationStopWaiters() {
     if (
@@ -1839,6 +2047,7 @@ export function createUI({
     const isRebuilding = rebuildInProgress;
     const canEditSequence = !hasActiveRotation && !isAnimating && !isPaused;
 
+    syncRotationTimeline(entries, currentCursor);
     rotationText.contentEditable = String(canEditSequence);
 
     copyRotationButton.disabled = !hasRotations;
@@ -2547,7 +2756,15 @@ export function createUI({
   });
 
   rotationText.addEventListener("pointerdown", (event) => {
-    if (event.target !== rotationText) {
+    const rotationTextBounds = rotationText.getBoundingClientRect();
+    const isVerticalScrollbarPress =
+      rotationText.scrollHeight > rotationText.clientHeight &&
+      event.clientX >=
+        rotationTextBounds.left +
+          rotationText.clientLeft +
+          rotationText.clientWidth;
+
+    if (event.target !== rotationText || isVerticalScrollbarPress) {
       return;
     }
 
@@ -2587,7 +2804,14 @@ export function createUI({
 
   function queueRotationAction(
     action,
-    { record = true, display = true, animationEntry = null, onComplete } = {},
+    {
+      record = true,
+      display = true,
+      animationEntry = null,
+      onComplete,
+      timelineStartBoundary = null,
+      timelineEndBoundary = null,
+    } = {},
   ) {
     if (record) {
       markSetupChanged();
@@ -2621,6 +2845,24 @@ export function createUI({
     if (display) {
       showRotationStatus();
     }
+
+    const activeEntryIndex = getRotationEntries().indexOf(activeEntry);
+    const timelineEnd =
+      timelineEndBoundary ?? Math.max(activeEntryIndex + 1, 0);
+    const timelineStart = timelineStartBoundary ?? timelineEnd - 1;
+    const timelineProgressCallback = (progress) => {
+      if (rotationTimelineProgressCallback !== timelineProgressCallback) {
+        return;
+      }
+
+      setRotationTimelinePosition(
+        timelineStart + (timelineEnd - timelineStart) * progress,
+      );
+    };
+
+    rotationTimelineProgressCallback = timelineProgressCallback;
+    durationState.onProgress = timelineProgressCallback;
+    setRotationTimelinePosition(timelineStart);
     pendingRotationEntries.push(activeEntry);
     if (!cursorRotationEntry && activeEntry) {
       cursorRotationEntry = activeEntry;
@@ -2636,6 +2878,13 @@ export function createUI({
     markRotationStarted();
 
     return Promise.resolve(action.run(durationState)).then((completed) => {
+      if (rotationTimelineProgressCallback === timelineProgressCallback) {
+        rotationTimelineProgressCallback = null;
+        if (durationState.onProgress === timelineProgressCallback) {
+          durationState.onProgress = null;
+        }
+      }
+
       if (rotationEntry) {
         rotationEntry.style.color = "#222";
         rotationEntry.style.backgroundColor = "transparent";
@@ -2812,6 +3061,7 @@ export function createUI({
         value: NAVIGATION_DURATION,
         paused: false,
         pauseStartedAt: null,
+        onProgress: null,
       };
 
       resetCube();
@@ -2837,6 +3087,59 @@ export function createUI({
 
     highlightActiveRotation();
     updateRotationMediaControlState();
+  }
+
+  async function seekRotationTimeline(boundary) {
+    const generation = ++rotationTimelineSeekGeneration;
+    const entries = getRotationEntries();
+    const targetBoundary = MathUtils.clamp(
+      Math.round(boundary),
+      0,
+      entries.length,
+    );
+    const wasAnimating =
+      pendingRotationEntries.length > 0 ||
+      rotationPlaybackState === "playing" ||
+      rotationPlaybackState === "paused";
+
+    rotationTimelineSeeking = true;
+    rotationTimelineProgressCallback = null;
+    durationState.onProgress = null;
+    setRotationTimelinePosition(targetBoundary, entries);
+
+    if (pendingRotationEntries.length > 0) {
+      queuedRotationActions = [];
+      rotationStopRequested = true;
+      await stopRotationAndWait({ force: true });
+
+      if (generation !== rotationTimelineSeekGeneration) {
+        return;
+      }
+    }
+
+    queuedRotationActions = [];
+    rotationStopRequested = false;
+    durationState.stopAfterCurrent = false;
+    durationState.paused = false;
+    durationState.pauseStartedAt = null;
+    cursorRotationEntry = entries[targetBoundary - 1] ?? null;
+
+    if (wasAnimating) {
+      rotationPlaybackState = "stopped";
+      setRotationStatus("stopped");
+      setPlayPauseIcon(false);
+    }
+
+    highlightActiveRotation();
+    updateRotationMediaControlState();
+    await rebuildCubeToCursor();
+
+    if (generation !== rotationTimelineSeekGeneration) {
+      return;
+    }
+
+    rotationTimelineSeeking = false;
+    syncRotationTimeline();
   }
 
   async function ensureCursorAtEndForInsertion() {
@@ -3018,6 +3321,8 @@ export function createUI({
       record: false,
       display: false,
       animationEntry: latestEntry,
+      timelineStartBoundary: entryIndex + 1,
+      timelineEndBoundary: entryIndex,
     });
 
     rotationActions.pop();
@@ -3393,7 +3698,10 @@ export function createUI({
   );
   previousRotationButton.classList.add("rotation-control-previous");
 
-  async function playNextQueuedRotation() {
+  async function playNextQueuedRotation(
+    timelineStartBoundary = null,
+    timelineEndBoundary = null,
+  ) {
     if (
       pendingRotationEntries.length > 0 ||
       queuedRotationActions.length === 0
@@ -3411,6 +3719,8 @@ export function createUI({
       record: false,
       display: false,
       animationEntry: action.entry,
+      timelineStartBoundary,
+      timelineEndBoundary,
     });
 
     return true;
@@ -3441,7 +3751,7 @@ export function createUI({
     updateRotationMediaControlState();
     markSetupChanged();
 
-    await playNextQueuedRotation();
+    await playNextQueuedRotation(cursorIndex + 1, cursorIndex);
 
     currentEntry.dataset.undoPending = "false";
     cursorRotationEntry = previousEntry;

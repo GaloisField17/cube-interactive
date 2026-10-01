@@ -594,6 +594,9 @@ function performRotation(
 
     if (currentDuration === 0) {
       group.rotation[axis] = targetAngle;
+      if (typeof duration === "object") {
+        duration.onProgress?.(1);
+      }
       completeRotation();
       return;
     }
@@ -638,6 +641,14 @@ function performRotation(
 
         group.rotation[axis] =
           finishStartAngle + (targetAngle - finishStartAngle) * finishEased;
+        const startProgress =
+          targetAngle === 0
+            ? 1
+            : MathUtils.clamp(finishStartAngle / targetAngle, 0, 1);
+
+        duration.onProgress?.(
+          startProgress + (1 - startProgress) * finishEased,
+        );
 
         if (finishProgress < 1) {
           rotationFrameId = requestAnimationFrame(animateRotation);
@@ -654,6 +665,9 @@ function performRotation(
           : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
       group.rotation[axis] = targetAngle * eased;
+      if (typeof duration === "object") {
+        duration.onProgress?.(eased);
+      }
 
       if (progress < 1) {
         rotationFrameId = requestAnimationFrame(animateRotation);
