@@ -636,6 +636,7 @@ export function createUI({
       border-radius: 0;
       background: transparent;
       outline: none;
+      cursor: pointer;
     }
 
     .rotation-timeline::-webkit-slider-runnable-track {
@@ -1009,7 +1010,6 @@ export function createUI({
   rotationTimeline.style.margin = "0";
   rotationTimeline.style.boxSizing = "border-box";
   rotationTimeline.style.zIndex = "20";
-  rotationTimeline.style.cursor = "pointer";
   rotationTimeline.style.touchAction = "pan-y";
   document.body.appendChild(rotationTimeline);
 
