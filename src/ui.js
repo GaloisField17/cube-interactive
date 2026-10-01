@@ -20,13 +20,13 @@ import arrowLimitUpIcon from "./assets/arrow-limit-up.svg";
 import chevronLeftIcon from "./assets/chevron-left.svg";
 import chevronRightIcon from "./assets/chevron-right.svg";
 import copyIcon from "./assets/copy.png";
-import infoIcon from "./assets/info.png";
 import {
   default as invalidColorIcon,
   default as mixedColorIcon,
 } from "./assets/cross-transparent.png";
 import startStateIcon from "./assets/cube-state-0.svg";
 import expandCubeIcon from "./assets/expand.svg";
+import infoIcon from "./assets/info.png";
 import nextRotationIcon from "./assets/next.svg";
 import pauseIcon from "./assets/pause.svg";
 import playIcon from "./assets/play.svg";
@@ -623,6 +623,32 @@ export function createUI({
   const rotationBlinkStyle = document.createElement("style");
 
   rotationBlinkStyle.textContent = `
+    .rotation-sequence.rotation-input-rejected {
+      border-color: #E57373 !important;
+      box-shadow: 0 0 0 2px rgba(229, 115, 115, 0.4) !important;
+      background-color: rgba(229, 115, 115, 0.18) !important;
+    }
+
+    .rotation-sequence.rotation-input-rejected .rotation-entry {
+      animation: none !important;
+      background-color: rgba(229, 115, 115, 0.32) !important;
+      color: #7f1d1d !important;
+    }
+
+    .rotation-text-info.rotation-text-info-pulsing {
+      animation: rotation-text-info-rejection-pulse 600ms ease-in-out 2;
+      border-radius: 4px;
+    }
+
+    @keyframes rotation-text-info-rejection-pulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(229, 115, 115, 0);
+      }
+      50% {
+        box-shadow: 0 0 9px 4px rgba(229, 115, 115, 0.85);
+      }
+    }
+
     @keyframes rotation-entry-blink {
       0%, 100% {
         color: #999;
@@ -1943,6 +1969,25 @@ export function createUI({
     setRotationEditorCaret(snapshot.selection.focus);
   }
 
+  let invalidRotationInputTimeout = null;
+
+  function pulseRotationTextInfoButton() {
+    const button = rotationTextInfoControl.button;
+
+    button.classList.remove("rotation-text-info-pulsing");
+    void button.offsetWidth;
+    button.classList.add("rotation-text-info-pulsing");
+  }
+
+  function showInvalidRotationInput() {
+    rotationText.classList.add("rotation-input-rejected");
+    pulseRotationTextInfoButton();
+    window.clearTimeout(invalidRotationInputTimeout);
+    invalidRotationInputTimeout = window.setTimeout(() => {
+      rotationText.classList.remove("rotation-input-rejected");
+    }, 450);
+  }
+
   function handleRotationEditorInput(
     snapshot = null,
     editedValue = null,
@@ -1954,6 +1999,8 @@ export function createUI({
     const state = getRotationSequenceEditorState(value, caretOffset);
 
     if (!state) {
+      showInvalidRotationInput();
+
       if (snapshot) {
         restoreRotationEditorSnapshot(snapshot);
       }
@@ -3037,6 +3084,13 @@ export function createUI({
     infoIcon,
   );
   rotationTextInfoControl.button.style.display = "none";
+  rotationTextInfoControl.button.addEventListener("animationend", (event) => {
+    if (event.animationName === "rotation-text-info-rejection-pulse") {
+      rotationTextInfoControl.button.classList.remove(
+        "rotation-text-info-pulsing",
+      );
+    }
+  });
 
   toEndButton.addEventListener("click", async () => {
     await finishCurrentRotationForNavigation();
