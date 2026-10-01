@@ -66,9 +66,9 @@ const ROTATION_SEQUENCE_PLACEHOLDER = "e.g. R U R' U'";
 const UI_FONT_FAMILY = "Arial, sans-serif";
 const UI_FONT_SIZE = "14px";
 const DEFAULT_ROTATION_TEXT_FONT_SIZE = 28;
-const MIN_ROTATION_TEXT_FONT_SIZE = 16;
+const MIN_ROTATION_TEXT_FONT_SIZE = 20;
 const ROTATION_TEXT_FONT_SIZE_STEP = 4;
-const ROTATION_TEXT_MAX_ROWS = 1;
+const ROTATION_TEXT_MAX_ROWS = 2;
 const MAX_NUMERIC_EDIT_VALUE = 100;
 const COMPACT_ROTATION_TEXT_TOP_OFFSET = 168;
 const DESKTOP_ROTATION_TEXT_TOP_OFFSET = 60;
@@ -1055,12 +1055,17 @@ export function createUI({
     const verticalBorders =
       Number.parseFloat(textStyles.borderTopWidth) +
       Number.parseFloat(textStyles.borderBottomWidth);
+    const rowContentHeight = DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2 + 4;
     const maximumContentHeight =
-      DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2 * ROTATION_TEXT_MAX_ROWS + 2;
+      DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2 * ROTATION_TEXT_MAX_ROWS + 4;
 
     return {
       verticalPadding,
+      rowContentHeight,
       maximumContentHeight,
+      oneRowBoxHeight: Math.ceil(
+        rowContentHeight + verticalPadding + verticalBorders,
+      ),
       maximumBoxHeight: Math.ceil(
         maximumContentHeight + verticalPadding + verticalBorders,
       ),
@@ -1120,40 +1125,65 @@ export function createUI({
       return;
     }
 
-    rotationText.style.whiteSpace = "nowrap";
+    rotationText.style.whiteSpace = "normal";
     rotationText.style.overflowWrap = "normal";
-    rotationText.style.overflowX = "auto";
-    rotationText.style.minHeight = "";
+    rotationText.style.overflowX = "hidden";
+    rotationText.style.height = "auto";
+    rotationText.style.minHeight = "0px";
+    rotationText.style.maxHeight = "none";
+    rotationText.style.overflowY = "hidden";
 
-    const { verticalPadding, maximumContentHeight, maximumBoxHeight } =
-      getRotationTextHeightLimits();
+    const {
+      verticalPadding,
+      rowContentHeight,
+      maximumContentHeight,
+      oneRowBoxHeight,
+      maximumBoxHeight,
+    } = getRotationTextHeightLimits();
 
-    rotationText.style.maxHeight = `${maximumBoxHeight}px`;
-    rotationText.style.overflowY = "auto";
+    rotationText.style.lineHeight = `${DEFAULT_ROTATION_TEXT_FONT_SIZE * 1.2}px`;
+    rotationText.style.fontSize = `${DEFAULT_ROTATION_TEXT_FONT_SIZE}px`;
 
-    for (
-      let fontSize = DEFAULT_ROTATION_TEXT_FONT_SIZE;
-      fontSize >= MIN_ROTATION_TEXT_FONT_SIZE;
-      fontSize -= ROTATION_TEXT_FONT_SIZE_STEP
-    ) {
-      rotationText.style.fontSize = `${fontSize}px`;
-      rotationText.style.lineHeight = `${fontSize * 1.2}px`;
+    if (rotationText.dataset.empty === "true") {
+      rotationText.style.height = `${oneRowBoxHeight}px`;
+      rotationText.style.minHeight = `${oneRowBoxHeight}px`;
+      rotationText.style.maxHeight = `${oneRowBoxHeight}px`;
+      rotationText.style.overflowY = "hidden";
+      return;
+    }
 
-      const lineHeight = Number.parseFloat(
-        getComputedStyle(rotationText).lineHeight,
-      );
-      const contentHeight = rotationText.scrollHeight - verticalPadding;
+    const oneRowContentHeight = rotationText.scrollHeight - verticalPadding;
+    const needsSecondRow = oneRowContentHeight > rowContentHeight;
+    let needsVerticalScroll = false;
 
-      if (contentHeight <= maximumContentHeight) {
-        if (contentHeight > lineHeight + 2) {
-          rotationText.style.minHeight = `${maximumBoxHeight}px`;
+    if (needsSecondRow) {
+      for (
+        let fontSize = DEFAULT_ROTATION_TEXT_FONT_SIZE;
+        fontSize >= MIN_ROTATION_TEXT_FONT_SIZE;
+        fontSize -= ROTATION_TEXT_FONT_SIZE_STEP
+      ) {
+        rotationText.style.fontSize = `${fontSize}px`;
+        rotationText.style.lineHeight = `${fontSize * 1.2}px`;
+
+        if (
+          rotationText.scrollHeight - verticalPadding <=
+          maximumContentHeight
+        ) {
+          break;
         }
 
-        return;
+        if (fontSize === MIN_ROTATION_TEXT_FONT_SIZE) {
+          needsVerticalScroll = true;
+        }
       }
     }
 
-    rotationText.style.minHeight = `${maximumBoxHeight}px`;
+    const boxHeight = needsSecondRow ? maximumBoxHeight : oneRowBoxHeight;
+
+    rotationText.style.height = `${boxHeight}px`;
+    rotationText.style.minHeight = `${boxHeight}px`;
+    rotationText.style.maxHeight = `${boxHeight}px`;
+    rotationText.style.overflowY = needsVerticalScroll ? "auto" : "hidden";
   }
 
   function syncRotationBlockLayout() {
@@ -1722,6 +1752,9 @@ export function createUI({
   function showRotationStatus() {
     rotationBlock.text.style.display = "block";
     syncRotationBlockLayout();
+    rotationText.focus({ preventScroll: true });
+    setRotationEditorCaret(getRotationEditorText().length);
+    rotationText.scrollTop = rotationText.scrollHeight;
   }
 
   function createRotationEntry(moveText) {
@@ -2029,6 +2062,48 @@ export function createUI({
     return normalizedOffset;
   }
 
+  function scrollRotationEditorEntryIntoView(state, caretOffset, actions) {
+    if (rotationText.style.overflowY !== "auto") {
+      return;
+    }
+
+    let actionIndex = 0;
+    let targetEntry = null;
+
+    for (const token of state.tokens) {
+      if (token === state.draft) {
+        continue;
+      }
+
+      const action = actions[actionIndex++];
+
+      if (caretOffset <= token.end) {
+        targetEntry = action?.entry;
+        break;
+      }
+    }
+
+    targetEntry ??= actions.at(-1)?.entry;
+
+    if (!targetEntry) {
+      return;
+    }
+
+    const entryBounds = targetEntry.getBoundingClientRect();
+    const textBounds = rotationText.getBoundingClientRect();
+    const textStyles = getComputedStyle(rotationText);
+    const visibleTop =
+      textBounds.top + Number.parseFloat(textStyles.paddingTop);
+    const visibleBottom =
+      textBounds.bottom - Number.parseFloat(textStyles.paddingBottom);
+
+    if (entryBounds.top < visibleTop) {
+      rotationText.scrollTop += entryBounds.top - visibleTop;
+    } else if (entryBounds.bottom > visibleBottom) {
+      rotationText.scrollTop += entryBounds.bottom - visibleBottom;
+    }
+  }
+
   function getEditedPlaybackBoundary(state, snapshot, previousActions) {
     if (!snapshot) {
       return 0;
@@ -2201,6 +2276,10 @@ export function createUI({
       getNormalizedRotationEditorCaret(state, caretOffset),
     );
     syncRotationBlockLayout();
+
+    if (document.activeElement === rotationText) {
+      scrollRotationEditorEntryIntoView(state, caretOffset, nextActions);
+    }
 
     if (actionHistoryChanged) {
       markSetupChanged();
