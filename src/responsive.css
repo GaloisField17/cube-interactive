@@ -4,8 +4,8 @@
   }
 }
 
-html.cube-viewport-collapsed {
-  background-color: #dadada;
+html {
+  background-color: var(--cube-surround-background-color, #ffffff);
 }
 
 .cube-viewport canvas {

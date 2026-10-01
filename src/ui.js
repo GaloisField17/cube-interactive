@@ -3626,6 +3626,63 @@ export function createUI({
   );
   resizeCubeControl.button.setAttribute("aria-pressed", "false");
 
+  const cubeViewportPercentage = document.createElement("span");
+
+  cubeViewportPercentage.setAttribute("aria-hidden", "true");
+  Object.assign(cubeViewportPercentage.style, {
+    position: "fixed",
+    display: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: "42px",
+    height: "20px",
+    padding: "0 5px",
+    boxSizing: "border-box",
+    borderRadius: "4px",
+    background: "rgba(31, 41, 55, 0.88)",
+    color: "#fff",
+    fontSize: "12px",
+    fontWeight: "600",
+    fontVariantNumeric: "tabular-nums",
+    lineHeight: "20px",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+    zIndex: "30",
+  });
+  document.body.appendChild(cubeViewportPercentage);
+
+  function getCubeViewportExpansionPercent(height) {
+    const defaultHeight = getCubeViewportDisplayHeight(
+      window.innerWidth,
+      window.innerHeight,
+    );
+
+    return Math.round((height / defaultHeight) * 100);
+  }
+
+  function updateCubeViewportPercentage(height) {
+    const buttonBounds = resizeCubeControl.button.getBoundingClientRect();
+
+    cubeViewportPercentage.textContent = `${getCubeViewportExpansionPercent(
+      height,
+    )}%`;
+    cubeViewportPercentage.style.display = "flex";
+
+    const badgeBounds = cubeViewportPercentage.getBoundingClientRect();
+
+    cubeViewportPercentage.style.left = `${Math.max(
+      4,
+      buttonBounds.left - badgeBounds.width - 8,
+    )}px`;
+    cubeViewportPercentage.style.top = `${
+      buttonBounds.top + (buttonBounds.height - badgeBounds.height) / 2
+    }px`;
+  }
+
+  function hideCubeViewportPercentage() {
+    cubeViewportPercentage.style.display = "none";
+  }
+
   function updateCubeResizeButton(isCollapsed) {
     const label = isCollapsed ? "Expand The Cube" : "Collapse The Cube";
 
@@ -3655,6 +3712,12 @@ export function createUI({
 
   function updateCubeViewportResizeHandle(height) {
     const bounds = getCubeViewportDisplayHeightBounds(window.innerHeight);
+    const colorPercent = MathUtils.clamp(
+      getCubeViewportExpansionPercent(height),
+      0,
+      100,
+    );
+    const colorChannel = Math.round(218 + 37 * (colorPercent / 100));
 
     cubeViewportResizeHandle.setAttribute(
       "aria-valuemin",
@@ -3672,11 +3735,20 @@ export function createUI({
       rotationToolbarFrame.getBoundingClientRect().top -
       cubeViewportResizeHandle.getBoundingClientRect().height / 2
     }px`;
+    document.documentElement.style.setProperty(
+      "--cube-surround-background-color",
+      `rgb(${colorChannel}, ${colorChannel}, ${colorChannel})`,
+    );
   }
 
   function resizeCubeViewport(height) {
     if (height <= 0) {
       updateCubeResizeButton(true);
+
+      if (activeResizePointer !== null) {
+        updateCubeViewportPercentage(0);
+      }
+
       return;
     }
 
@@ -3688,6 +3760,10 @@ export function createUI({
 
     updateCubeViewportResizeHandle(actualHeight);
     syncRotationBlockLayout();
+
+    if (activeResizePointer !== null) {
+      updateCubeViewportPercentage(actualHeight);
+    }
   }
 
   let activeResizePointer = null;
@@ -3708,6 +3784,7 @@ export function createUI({
     );
     cubeViewportResizeHandle.setPointerCapture(event.pointerId);
     event.preventDefault();
+    updateCubeViewportPercentage(resizeStartHeight);
   });
 
   cubeViewportResizeHandle.addEventListener("pointermove", (event) => {
@@ -3721,6 +3798,7 @@ export function createUI({
   function endCubeViewportResize(event) {
     if (event.pointerId === activeResizePointer) {
       activeResizePointer = null;
+      hideCubeViewportPercentage();
     }
   }
 
@@ -3765,12 +3843,17 @@ export function createUI({
           "--cube-viewport-height",
         ),
       );
-
-      updateCubeViewportResizeHandle(
-        isCollapsed || !Number.isFinite(currentHeight)
-          ? getCubeViewportDisplayHeight(window.innerWidth, window.innerHeight)
-          : currentHeight,
+      const defaultHeight = getCubeViewportDisplayHeight(
+        window.innerWidth,
+        window.innerHeight,
       );
+      const displayHeight = isCollapsed
+        ? 0
+        : Number.isFinite(currentHeight)
+          ? currentHeight
+          : defaultHeight;
+
+      updateCubeViewportResizeHandle(displayHeight);
     });
   });
 
