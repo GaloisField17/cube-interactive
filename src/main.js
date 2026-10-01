@@ -25,6 +25,7 @@ const {
   controls,
   resize,
   setCubeViewportCollapsed,
+  setCubeViewportDisplayHeight,
   resetCameraView,
 } = createScene();
 
@@ -993,6 +994,7 @@ createUI({
   controls,
   resetCameraView,
   setCubeViewportCollapsed,
+  setCubeViewportDisplayHeight,
   cubies,
   facelets,
   colors,

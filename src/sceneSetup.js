@@ -2,6 +2,7 @@ import { Color, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
   getCubeViewportDisplayHeight,
+  getCubeViewportDisplayHeightBounds,
   getCubeViewportHeight,
 } from "./responsiveLayout.js";
 
@@ -39,16 +40,41 @@ export function createScene() {
   viewport.appendChild(renderer.domElement);
 
   let cubeViewportCollapsed = false;
+  let customCubeViewportHeight = null;
 
   function resize() {
     const width = Math.max(1, viewport.clientWidth || window.innerWidth);
-    const renderHeight = getCubeViewportHeight(
+    const defaultRenderHeight = getCubeViewportHeight(
       window.innerWidth,
       window.innerHeight,
     );
+    const defaultViewportHeight = getCubeViewportDisplayHeight(
+      window.innerWidth,
+      window.innerHeight,
+    );
+    const compactLayout = window.innerWidth <= 900;
+
+    if (customCubeViewportHeight !== null && compactLayout) {
+      const bounds = getCubeViewportDisplayHeightBounds(window.innerHeight);
+
+      customCubeViewportHeight = Math.min(
+        bounds.maximum,
+        Math.max(bounds.minimum, customCubeViewportHeight),
+      );
+    }
+
     const viewportHeight = cubeViewportCollapsed
       ? 0
-      : getCubeViewportDisplayHeight(window.innerWidth, window.innerHeight);
+      : compactLayout && customCubeViewportHeight !== null
+        ? customCubeViewportHeight
+        : defaultViewportHeight;
+    const displayScale = defaultViewportHeight / defaultRenderHeight;
+    const renderHeight =
+      !cubeViewportCollapsed &&
+      compactLayout &&
+      customCubeViewportHeight !== null
+        ? viewportHeight / displayScale
+        : defaultRenderHeight;
 
     viewport.style.height = `${viewportHeight}px`;
     document.documentElement.style.setProperty(
@@ -63,11 +89,31 @@ export function createScene() {
 
   function setCubeViewportCollapsed(collapsed) {
     cubeViewportCollapsed = collapsed;
+    customCubeViewportHeight = null;
     document.documentElement.classList.toggle(
       "cube-viewport-collapsed",
       collapsed,
     );
     resize();
+  }
+
+  function setCubeViewportDisplayHeight(height) {
+    if (cubeViewportCollapsed || window.innerWidth > 900) {
+      return getCubeViewportDisplayHeight(
+        window.innerWidth,
+        window.innerHeight,
+      );
+    }
+
+    const bounds = getCubeViewportDisplayHeightBounds(window.innerHeight);
+
+    customCubeViewportHeight = Math.min(
+      bounds.maximum,
+      Math.max(bounds.minimum, height),
+    );
+    resize();
+
+    return customCubeViewportHeight;
   }
 
   resize();
@@ -95,6 +141,7 @@ export function createScene() {
     controls,
     resize,
     setCubeViewportCollapsed,
+    setCubeViewportDisplayHeight,
     resetCameraView,
   };
 }

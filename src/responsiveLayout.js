@@ -1,4 +1,15 @@
 const SMALL_SCREEN_CUBE_VIEWPORT_HEIGHT_RATIO = 0.786;
+const MIN_CUBE_VIEWPORT_DISPLAY_HEIGHT = 120;
+const MAX_CUBE_VIEWPORT_DISPLAY_HEIGHT_RATIO = 0.85;
+
+export function getCubeViewportDisplayHeightBounds(height) {
+  const minimum = Math.min(MIN_CUBE_VIEWPORT_DISPLAY_HEIGHT, height);
+
+  return {
+    minimum,
+    maximum: Math.max(minimum, height * MAX_CUBE_VIEWPORT_DISPLAY_HEIGHT_RATIO),
+  };
+}
 
 export function getCubeViewportHeight(width, height) {
   if (width <= 600) {

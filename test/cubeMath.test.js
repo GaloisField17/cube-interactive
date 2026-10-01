@@ -35,6 +35,7 @@ import {
 import { createJsonExport } from "../src/jsonExport.js";
 import {
   getCubeViewportDisplayHeight,
+  getCubeViewportDisplayHeightBounds,
   getCubeViewportHeight,
 } from "../src/responsiveLayout.js";
 import { ROTATIONS } from "../src/rotationDefinitions.js";
@@ -145,10 +146,22 @@ test("rotateVector applies exact quarter turns", () => {
     );
     assert.equal(getCubeViewportDisplayHeight(1440, 900), 900);
   });
+
   assert.deepEqual(rotateVector(vector, "x", 90), { x: 1, y: -3, z: 2 });
   assert.deepEqual(rotateVector(vector, "y", -90), { x: -3, y: 2, z: 1 });
   assert.deepEqual(rotateVector(vector, "z", 180), { x: -1, y: -2, z: 3 });
   assert.deepEqual(rotateVector(vector, "x", 360), vector);
+});
+
+test("cube viewport resize bounds leave room for controls", () => {
+  assert.deepEqual(getCubeViewportDisplayHeightBounds(844), {
+    minimum: 120,
+    maximum: 717.4,
+  });
+  assert.deepEqual(getCubeViewportDisplayHeightBounds(80), {
+    minimum: 80,
+    maximum: 80,
+  });
 });
 
 test("each generated move has inverse and half-turn variants", () => {
