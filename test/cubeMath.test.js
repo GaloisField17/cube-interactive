@@ -252,6 +252,18 @@ test("rotation editor accepts custom-angle wide moves and keeps their draft", ()
   assert.deepEqual(draft?.draft, { text: "Rw[50deg", start: 0, end: 8 });
 });
 
+test("rotation editor detects an incomplete middle move when leaving the field", () => {
+  const value = "U u[de R L";
+  const editorState = getRotationSequenceEditorState(value, value.length);
+  const blurState = getRotationSequenceEditorState(value, value.length, {
+    allowDraftOutsideCaret: true,
+  });
+
+  assert.equal(editorState, null);
+  assert.deepEqual(blurState?.moves, ["U", "R", "L"]);
+  assert.deepEqual(blurState?.draft, { text: "u[de", start: 2, end: 6 });
+});
+
 test("face definitions preserve colors, normals, and material indices", () => {
   const faceDefinitions = createFaceDefinitions(DEFAULT_COLORS);
   const sticker = createSticker("F", faceDefinitions);

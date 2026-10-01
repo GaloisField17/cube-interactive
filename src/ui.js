@@ -638,8 +638,13 @@ export function createUI({
     }
 
     .rotation-text-info.rotation-text-info-pulsing {
+      --rotation-text-info-pulse-color: rgba(229, 115, 115, 0.85);
       animation: rotation-text-info-rejection-pulse 600ms ease-in-out 2;
       border-radius: 4px;
+    }
+
+    .rotation-text-info.rotation-text-info-pulsing-orange {
+      --rotation-text-info-pulse-color: rgba(255, 152, 0, 0.9);
     }
 
     @keyframes rotation-text-info-rejection-pulse {
@@ -647,7 +652,7 @@ export function createUI({
         box-shadow: 0 0 0 0 rgba(229, 115, 115, 0);
       }
       50% {
-        box-shadow: 0 0 9px 4px rgba(229, 115, 115, 0.85);
+        box-shadow: 0 0 9px 4px var(--rotation-text-info-pulse-color);
       }
     }
 
@@ -1996,10 +2001,16 @@ export function createUI({
 
   let invalidRotationInputTimeout = null;
 
-  function pulseRotationTextInfoButton() {
+  function pulseRotationTextInfoButton(color = "red") {
     const button = rotationTextInfoControl.button;
 
-    button.classList.remove("rotation-text-info-pulsing");
+    button.classList.remove(
+      "rotation-text-info-pulsing",
+      "rotation-text-info-pulsing-orange",
+    );
+    if (color === "orange") {
+      button.classList.add("rotation-text-info-pulsing-orange");
+    }
     void button.offsetWidth;
     button.classList.add("rotation-text-info-pulsing");
   }
@@ -2248,9 +2259,11 @@ export function createUI({
     const editorState = getRotationSequenceEditorState(
       editorText,
       editorText.length,
+      { allowDraftOutsideCaret: true },
     );
 
     if (editorState?.draft) {
+      pulseRotationTextInfoButton("orange");
       const completedState = getRotationSequenceEditorState(
         rotationActions.map((action) => action.label).join(" "),
         Number.MAX_SAFE_INTEGER,
@@ -3115,6 +3128,7 @@ export function createUI({
     if (event.animationName === "rotation-text-info-rejection-pulse") {
       rotationTextInfoControl.button.classList.remove(
         "rotation-text-info-pulsing",
+        "rotation-text-info-pulsing-orange",
       );
     }
   });

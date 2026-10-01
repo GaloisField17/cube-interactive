@@ -174,7 +174,11 @@ function getCompleteMoveEnd(value, start) {
   return null;
 }
 
-export function tokenizeRotationSequence(value, caretOffset = null) {
+export function tokenizeRotationSequence(
+  value,
+  caretOffset = null,
+  { allowDraftOutsideCaret = false } = {},
+) {
   const normalizedValue = value.replace(/\u00a0/gu, " ");
   const trailingWhitespace = /\s$/u.test(normalizedValue);
   const tokens = [];
@@ -194,7 +198,7 @@ export function tokenizeRotationSequence(value, caretOffset = null) {
 
       if (
         moveEnd === null &&
-        caretIsInRemaining &&
+        (caretIsInRemaining || allowDraftOutsideCaret) &&
         isCustomMovePrefix(remaining)
       ) {
         draft = {
@@ -227,8 +231,8 @@ export function tokenizeRotationSequence(value, caretOffset = null) {
   };
 }
 
-export function getRotationSequenceEditorState(value, caretOffset) {
-  return tokenizeRotationSequence(value, caretOffset);
+export function getRotationSequenceEditorState(value, caretOffset, options) {
+  return tokenizeRotationSequence(value, caretOffset, options);
 }
 
 export function getCustomMoveLabel(
