@@ -1,50 +1,34 @@
 # Architecture
 
-## Current Structure
+## Application Structure
 
-- `src/main.js` owns cube construction/state and the animation lifecycle; it supplies grouped scene, viewport, cube, and rotation dependencies to `createUI()`.
-- `src/ui.js` is the application coordinator. It composes panels and coordinates cross-feature setup/reset operations plus rotation editor/playback/history/timeline orchestration.
-- `src/ui/faceletLabelController.js` owns facelet-label sprite creation, text/color rendering, transforms, depth, and visibility; `src/ui/labelsPanel.js` owns label controls while `src/ui.js` coordinates setup flows.
-- `src/ui/axisSceneController.js` owns axis-label and axis-arrow scene groups plus rotation-arrow geometry, colors, depth, direction, scale, visibility, and depth testing; `src/ui/colorsPanel.js` and `src/ui/labelsPanel.js` own the corresponding inputs while `src/ui.js` coordinates serialized setup.
-- `src/ui/colorsPanel.js` owns Colors panel DOM, color inputs, picker interactions, and input synchronization. `src/ui/labelsPanel.js` owns Labels panel DOM, local visibility/numeric/label-mode state, and applying or serializing that panel's setup fields.
-- `src/ui/viewPanel.js` owns View-panel DOM/input synchronization; `src/ui/viewController.js` owns Ghost/Peek settings and hidden-sticker scene effects.
-- `src/ui/cubePanel.js`, `src/ui/setupPanel.js`, `src/ui/fixedMoveControls.js`, and `src/ui/customMoveControls.js` own focused control surfaces. `src/ui/colorPicker.js` owns reusable color-picker interaction.
-- `src/sceneSetup.js` owns Three.js scene/camera setup and the shared default camera view.
-- `src/setupDefaults.js`, `src/setupDocument.js`, and `src/jsonExport.js` own fresh setup defaults, import validation/merging, and versioned export/default pruning.
-- `src/customRotation.js` owns pure rotation parsing and editor-state helpers. Rotation playback still shares mutable duration/cancellation/progress state with the animation code in `src/main.js`.
+- `src/main.js` constructs the cube and Three.js scene, owns the animation engine, and composes the application by calling `createUI()` with grouped scene, viewport, cube, and rotation dependencies.
+- `src/ui.js` is the UI composition and application-coordination layer. It connects panels and controllers, coordinates cross-feature setup/reset operations, and owns rotation editing, playback, history, and timeline interactions.
+- `src/ui/*Panel.js` modules own their panel DOM, local controls, and panel-local state. The Colors and Labels panels use scene-controller APIs for effects that span panels.
+- `src/ui/faceletLabelController.js` owns facelet-label sprites and their rendering, transforms, depth, and visibility.
+- `src/ui/axisSceneController.js` owns axis labels and arrows, rotation-arrow geometry, and their visual state.
+- `src/ui/viewController.js` owns Ghost/Peek settings and hidden-sticker scene effects; `src/ui/viewPanel.js` owns the corresponding controls.
+- `src/ui/fixedMoveControls.js`, `src/ui/customMoveControls.js`, `src/ui/colorPicker.js`, and the other focused UI modules encapsulate reusable or specialized control surfaces.
+- `src/sceneSetup.js` owns scene and camera setup, including the shared default camera view.
+- `src/setupDefaults.js`, `src/setupDocument.js`, and `src/jsonExport.js` own fresh setup defaults, import validation/default merging, and versioned setup export.
+- `src/customRotation.js` and `src/rotationDefinitions.js` provide pure rotation parsing/editor helpers and rotation definitions.
 
-## Boundaries and Conventions
+## Ownership and Change Boundaries
 
-- `createUI()` is the composition boundary. Its inputs are grouped as `scene`, `viewport`, `cube`, and `rotation`; feature modules should receive only the subset they need.
-- Panel modules own their DOM, local controls, and panel-local state; expose small synchronization/reset/setup APIs where needed. Feature controllers own cohesive scene state and effects, expose explicit get/set/reset or command methods, and do not depend on panel DOM.
-- Prefer a feature/controller boundary over one file per option or a panel-only move that leaves all state and effects in `ui.js`.
-- Keep pure state, parsing, defaults, and document validation independent of DOM/Three.js where practical. Put shared helpers with the narrowest real owner; avoid generic helper buckets and unnecessary abstraction.
-- Keep `ui.js` focused on composition and cross-feature lifecycle as feature ownership moves outward. Do not pass the entire app dependency bundle into each module.
+- `createUI()` is the UI composition boundary. Pass feature modules only the dependencies they need; avoid forwarding the full application dependency bundle.
+- Panels own panel-local DOM and state. Scene controllers own cohesive scene state and effects and should not depend on panel DOM. Keep cross-feature orchestration in `ui.js`.
+- Keep pure parsing, defaults, validation, and math independent of the DOM and Three.js where practical. Put shared helpers with their narrowest real owner; avoid generic helper buckets and one-file-per-option designs.
+- Rotation playback and timeline behavior spans `ui.js` and the animation engine in `main.js`. The UI coordinates entries, action/cursor queues, playback status, cancellation, and timeline seek/scrub/rebuild; the engine serializes cube animations and currently uses shared mutable duration, cancellation, and progress state. Preserve this lifecycle boundary unless a cohesive animation API or a narrower requirement supports a smaller interface.
 
-## Behavior and Setup Contracts
+## Setup and Behavior Contracts
 
-- Refactoring must preserve all existing user-visible behavior, defaults, control interactions, cube/scene effects, and reset/import/export semantics unless a behavior change is explicitly approved.
-- Approved contract: setup JSON stores Ghost/Peek visibility, peek depth, and hidden color in `setup.view`; older version-1 documents receive defaults for omitted optional fields.
-- Reset and import use the same `applySetup()` path. Fresh defaults come from `src/setupDefaults.js`; the default camera view is shared with startup through `getDefaultCameraView()` in `src/sceneSetup.js`.
-- Before moving behavior, identify its call sites and current tests. Make one bounded change at a time, add focused regression tests, and run `npm run check` at meaningful milestones. If preserving behavior requires broad callbacks or shared mutable state, pause and revise the boundary.
+- Preserve existing user-visible behavior, defaults, control interactions, scene effects, and reset/import/export semantics unless a behavior change is explicitly requested.
+- Reset and import share the `applySetup()` workflow. Fresh defaults come from `src/setupDefaults.js`; the default camera view is shared with startup through `getDefaultCameraView()` in `src/sceneSetup.js`.
+- Version-1 setup documents may omit optional fields; import merges them with defaults. Ghost/Peek visibility, peek depth, and hidden color are stored in `setup.view`.
+- Before changing behavior or moving ownership, trace its call sites and tests. Prefer a bounded change with focused regression coverage; reconsider the boundary if preserving behavior requires broad callbacks or duplicated state.
 
-## Known Coupling and Test Gaps
+## Verification
 
-- Colors edits cube facelet/interior colors and also label/arrow colors through the facelet-label and axis-scene controller APIs. Both panel surfaces are now isolated in UI modules; `ui.js` coordinates cross-feature reset/import/export through their controller APIs. Colors and Labels still intentionally share scene-controller APIs rather than owning duplicate scene state.
-- Rotation editor/history/playback/timeline/queue/scrub/seek/rebuild state is intertwined with DOM and the animation engine. Existing pure parsing helpers and input controls are already separate. Lifecycle coverage now exercises representative paths, but extraction remains deferred unless a narrow interface can avoid broad callbacks or split ownership across `ui.js` and `main.js`.
-- Node tests cover pure math/parsing, setup document/default behavior, and View, facelet-label, and axis-scene controllers. Playwright Chromium tests cover representative Colors/Labels changes, axis-label and arrow settings, JSON export/import, color-control synchronization, reset-to-default setup equivalence, and rotation queue/pause/stop/resume, reset cancellation, and timeline scrub/seek/rebuild. Other timing-sensitive combinations and broader UI edge cases remain without browser coverage.
-
-## Organization Roadmap
-
-Work one step at a time. After each step, update this section with its outcome and the next step, then stop and ask before continuing. Maintain the behavior contract above; clarify with the user before any scope or behavior change.
-
-1. **Establish UI regression coverage** — Complete. Playwright Test runs Chromium against Vite using `npm run test:e2e`; install its browser with `npx playwright install chromium`. Coverage verifies facelet/inner color and label edits through JSON export/import, imported color-control synchronization, and that reset returns an empty setup delta. The test exposed stale facelet/inner color inputs after import; `applySetup()` now synchronizes those controls after applying cube state. No feature ownership was reorganized in this step.
-2. **Extract facelet-label scene ownership** — Complete. Added `src/ui/faceletLabelController.js` to own sprite creation, text/color rendering, transforms, depth, and visibility. At that step, `ui.js` retained panel controls and setup orchestration while routing label scene changes through the controller; Step 4 subsequently moved panel controls into their own modules. The focused controller test verifies sprite attachment/texture, rendered names and colors, visibility/depth testing, and depth/size-driven transforms. Existing reset/import/export paths continue to use the same setup workflow.
-3. **Extract axis and rotation-arrow scene ownership** — Complete. Added `src/ui/axisSceneController.js` to own axis/rotation-arrow construction and scene effects, including text/color drawing, geometry regeneration, depth, scale, visibility, and depth testing. Labels/Colors actions use its API while setup serialization remains coordinated in `ui.js`; Step 4 subsequently moved the controls and Labels-local state into panel modules. Focused controller tests cover visual state and geometry changes; Playwright verifies the axis-label/arrow settings and colors survive JSON export/import.
-4. **Separate Colors and Labels panel UI** — Complete. Added `src/ui/colorsPanel.js` and `src/ui/labelsPanel.js`; panel modules own local controls and synchronization/state while `ui.js` coordinates cross-feature reset/import/export through compact APIs. Existing accessibility names, color-picker undo, label/numeric controls, collapse behavior, and setup flows remain covered by Playwright. Verification also exposed sub-ULP camera-position drift in reset setup diffs; JSON default pruning now ignores representational noise at the scale of one floating-point ULP, with a focused regression test.
-5. **Reassess rotation extraction** — Complete; no extraction made. `ui.js` owns the rotation-entry DOM, action/cursor queues, playback status, cancellation waiters, seek generations, and timeline scrub/preview/rebuild flow. `main.js` owns the animation queue and mutates the shared `durationState` object to coordinate pause, cancellation, finish-within, stop-after-current, and progress callbacks. Seek/scrub and rebuild replay UI-created action closures while resetting/replaying cube state. At the time of this assessment, lifecycle tests were missing; extraction was deferred because a boundary would require broad callbacks or split ownership across both files. Step 7 subsequently adds representative lifecycle coverage.
-6. **Final verification and architecture update** — Complete. `npm run check` passed (34 Node tests and the production build); `npm run test:e2e` passed all five Chromium workflows; Problems diagnostics reported no errors and `git diff --check` was clean. The build retains the existing warning that the Three.js chunk exceeds 500 kB. The ownership map and remaining rotation coupling are recorded above.
-7. **Add rotation lifecycle browser coverage** — Complete. Added `e2e/rotation-workflows.spec.js` with three workflows covering queue pause/stop/resume, reset cancellation and queued-work clearing, and timeline scrub/seek/rebuild. The focused run and the full five-workflow browser suite passed.
-8. **Reassess rotation extraction with lifecycle coverage** — Complete; keep extraction deferred. The tests establish important black-box behavior, but no small ownership boundary emerged: playback and timeline logic directly coordinates DOM entries, action/cursor queues, import/export/reset state, and callbacks, while `main.js` exposes animation through a shared mutable `durationState` object. Extracting only playback or timeline code would transfer those couplings as broad callbacks rather than isolate lifecycle ownership. Preserve the tested workflow until a cohesive animation-lifecycle interface or a concrete narrower requirement provides a safer seam.
-
-Current next action: No further rotation extraction is justified now. Keep the lifecycle browser tests as regression coverage; revisit the boundary if the animation engine gains a cohesive lifecycle API or a new requirement narrows ownership.
+- `npm run check` runs the Node test suite and production build.
+- `npm run test:e2e` runs Playwright browser tests for representative panel/setup workflows and rotation playback, cancellation, and timeline behavior.
+- Keep tests aligned with behavior changes, especially for reset/import/export and timing-sensitive animation workflows.
