@@ -3279,8 +3279,9 @@ export function createUI({
     }
 
     const actionLabel = rotationActions[previewBoundary]?.label;
-    const standardMove = getRotationDefinition(actionLabel);
-    let moveName = actionLabel;
+    const normalizedMoveName = normalizeWideMoveName(actionLabel ?? "");
+    const standardMove = getRotationDefinition(normalizedMoveName);
+    let moveName = normalizedMoveName;
     let angle = standardMove?.angle;
 
     if (!standardMove) {
@@ -3356,9 +3357,7 @@ export function createUI({
             : -1;
           const currentBoundary = Math.max(cursorIndex + 1, 0);
           const requestedBoundary = MathUtils.clamp(
-            Math.floor(
-              rotationTimelineScrubTargetPosition ?? initialPosition,
-            ),
+            Math.floor(rotationTimelineScrubTargetPosition ?? initialPosition),
             0,
             entries.length,
           );
