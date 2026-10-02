@@ -3219,6 +3219,7 @@ export function createUI({
       };
 
       resetCube();
+      updateFaceletLabelTransforms();
 
       for (let index = 0; index < prefixLength; index += 1) {
         await rotationActions[index]?.run(rebuildDuration);
@@ -7512,8 +7513,8 @@ export function createUI({
     options.style.gap = "12px";
 
     for (const [value, text] of [
-      [ALWAYS_VISIBLE, "Visible"],
-      [HIDDEN_BEHIND_CUBE, "Hidden"],
+      [ALWAYS_VISIBLE, "Through"],
+      [HIDDEN_BEHIND_CUBE, "Occluded"],
     ]) {
       const label = document.createElement("label");
 
@@ -8106,6 +8107,7 @@ export function createUI({
       label.visible = isVisible;
     }
 
+    updateFaceletLabelsVisibilityMode();
     scheduleCubePanelPositionUpdate();
   }
 
