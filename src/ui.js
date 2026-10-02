@@ -214,6 +214,9 @@ export function createUI({
     }
 
     const activePeekOverlayIds = new Set();
+    const hiddenPeekColor = isValidColorValue(peekStickersHideWhenColor)
+      ? new Color(peekStickersHideWhenColor)
+      : null;
 
     for (const facelet of facelets) {
       const face = getFaceFromNormal(facelet.normal);
@@ -249,8 +252,13 @@ export function createUI({
         facelet.currentColor ?? facelet.defaultColor ?? facelet.color;
       const shouldApplyGhostTint =
         ghostStickersVisibility === HIDDEN_BEHIND_CUBE && isHiddenFromView;
+      const matchesHiddenPeekColor =
+        hiddenPeekColor !== null &&
+        new Color(originalColor).equals(hiddenPeekColor);
       const shouldShowPeek =
-        peekStickersVisibility === HIDDEN_BEHIND_CUBE && isHiddenFromView;
+        peekStickersVisibility === HIDDEN_BEHIND_CUBE &&
+        isHiddenFromView &&
+        !matchesHiddenPeekColor;
       const nextColor = shouldApplyGhostTint
         ? dimColorForGhostEffect(originalColor)
         : originalColor;
@@ -4618,6 +4626,7 @@ export function createUI({
         updateGhostStickerVisibility();
       } else if (setting === "peekStickersHideWhenColor") {
         peekStickersHideWhenColor = value;
+        updateGhostStickerVisibility();
       }
     },
     onPeekColorPicked: updateGhostStickerVisibility,
