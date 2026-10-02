@@ -10,10 +10,14 @@ npm run dev
 npm test
 npm run build
 npm run check
+npx playwright install chromium
+npm run test:e2e
 npm run preview
 ```
 
 `npm test` uses Node's built-in test runner and covers the pure cube math, move definitions, face metadata, and configuration modules.
+
+`npm run test:e2e` runs Chromium browser tests against the Vite app and starts the development server automatically. Install the browser once with `npx playwright install chromium`.
 
 `npm run check` runs the tests and production build together.
 

@@ -126,9 +126,29 @@ export function createScene() {
     .normalize()
     .multiplyScalar(-DEFAULT_CUBE_VIEW_LIFT);
 
+  function getDefaultCameraView() {
+    const cameraPosition =
+      DEFAULT_CAMERA_POSITION.clone().add(defaultViewOffset);
+
+    return {
+      cameraPosition: {
+        x: cameraPosition.x,
+        y: cameraPosition.y,
+        z: cameraPosition.z,
+      },
+      target: {
+        x: defaultViewOffset.x,
+        y: defaultViewOffset.y,
+        z: defaultViewOffset.z,
+      },
+    };
+  }
+
   function resetCameraView() {
-    camera.position.copy(DEFAULT_CAMERA_POSITION).add(defaultViewOffset);
-    controls.target.copy(defaultViewOffset);
+    const { cameraPosition, target } = getDefaultCameraView();
+
+    camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+    controls.target.set(target.x, target.y, target.z);
     controls.update();
   }
 
@@ -142,6 +162,7 @@ export function createScene() {
     resize,
     setCubeViewportCollapsed,
     setCubeViewportDisplayHeight,
+    getDefaultCameraView,
     resetCameraView,
   };
 }

@@ -72,7 +72,18 @@ export function validateImportedDocument(document) {
   } = document.setup;
 
   if (view !== undefined) {
-    validateKeys(view, ["cameraPosition", "target"], "setup.view");
+    validateKeys(
+      view,
+      [
+        "cameraPosition",
+        "target",
+        "ghostStickersVisibility",
+        "peekStickersVisibility",
+        "peekStickersDepth",
+        "peekStickersHideWhenColor",
+      ],
+      "setup.view",
+    );
     for (const key of ["cameraPosition", "target"]) {
       if (view[key] === undefined) {
         continue;
@@ -84,6 +95,27 @@ export function validateImportedDocument(document) {
           validateFiniteNumber(view[key][axis], `setup.view.${key}.${axis}`);
         }
       }
+    }
+    for (const key of ["ghostStickersVisibility", "peekStickersVisibility"]) {
+      if (
+        view[key] !== undefined &&
+        ![ALWAYS_VISIBLE, HIDDEN_BEHIND_CUBE].includes(view[key])
+      ) {
+        throw new Error(`setup.view.${key} is invalid.`);
+      }
+    }
+    if (view.peekStickersDepth !== undefined) {
+      validateFiniteNumber(
+        view.peekStickersDepth,
+        "setup.view.peekStickersDepth",
+        0,
+      );
+    }
+    if (
+      view.peekStickersHideWhenColor !== undefined &&
+      typeof view.peekStickersHideWhenColor !== "string"
+    ) {
+      throw new Error("setup.view.peekStickersHideWhenColor must be a string.");
     }
   }
 

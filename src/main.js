@@ -26,6 +26,7 @@ const {
   resize,
   setCubeViewportCollapsed,
   setCubeViewportDisplayHeight,
+  getDefaultCameraView,
   resetCameraView,
 } = createScene();
 
@@ -988,52 +989,52 @@ const animationDuration = {
 };
 
 createUI({
-  scene,
-  renderer,
-  camera,
-  controls,
-  resetCameraView,
-  setCubeViewportCollapsed,
-  setCubeViewportDisplayHeight,
-  cubies,
-  facelets,
-  colors,
-  defaultColors,
-  defaultSize,
-  defaultGap,
-  durationState: animationDuration,
-
-  rotateSlice,
-  rotateMove,
-  orientCube,
-
-  getRotationDefinition,
-  resetCube,
-  resetCubeOrientation,
-  resetVisualRotations,
-
-  updateCubeDimensions,
-  getCubeState,
-  getDefaultCubeState,
-  applyCubeState,
-
-  get size() {
-    return size;
+  scene: {
+    scene,
+    renderer,
+    camera,
+    controls,
+    resetCameraView,
+    getDefaultCameraView,
   },
-
-  set size(value) {
-    size = value;
+  viewport: {
+    setCubeViewportCollapsed,
+    setCubeViewportDisplayHeight,
   },
-
-  get gap() {
-    return gap;
+  cube: {
+    cubies,
+    facelets,
+    colors,
+    defaultColors,
+    defaultSize,
+    defaultGap,
+    resetCube,
+    updateCubeDimensions,
+    getCubeState,
+    getDefaultCubeState,
+    applyCubeState,
+    get size() {
+      return size;
+    },
+    set size(value) {
+      size = value;
+    },
+    get gap() {
+      return gap;
+    },
+    set gap(value) {
+      gap = value;
+    },
   },
-
-  set gap(value) {
-    gap = value;
+  rotation: {
+    durationState: animationDuration,
+    rotateSlice,
+    rotateMove,
+    getRotationDefinition,
+    resetCubeOrientation,
+    resetVisualRotations,
+    normalizeAngle,
   },
-
-  normalizeAngle,
 });
 
 // ============================================================

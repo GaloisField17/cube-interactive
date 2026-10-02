@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createJsonExport } from "../src/jsonExport.js";
+import { createDefaultSetup } from "../src/setupDefaults.js";
 import {
   mergeImportedValues,
   validateImportedDocument,
@@ -20,6 +22,10 @@ const DEFAULT_SETUP = {
   view: {
     cameraPosition: { x: 5, y: 5, z: 7 },
     target: { x: 0, y: 0, z: 0 },
+    ghostStickersVisibility: "always-visible",
+    peekStickersVisibility: "always-visible",
+    peekStickersDepth: 0.2,
+    peekStickersHideWhenColor: "",
   },
   rotations: { moves: [], text: "", durationSeconds: 1 },
   colors: {
@@ -50,6 +56,20 @@ const DEFAULT_SETUP = {
   },
 };
 
+function createTestDefaultSetup() {
+  return createDefaultSetup({
+    getDefaultCubeState: () => ({ size: 1, gap: 0.035, cubies: {} }),
+    getDefaultCameraView: () => ({
+      cameraPosition: { x: 4, y: 6, z: 8 },
+      target: { x: 1, y: 2, z: 3 },
+    }),
+    faceletIds: ["F", "R"],
+    axisFaces: ["R", "U"],
+    defaultFaceletLabelColor: "#111",
+    defaultFaceColors: { R: "#f00", U: "#fff" },
+  });
+}
+
 function makeDocument(setup = {}, overrides = {}) {
   return {
     version: 1,
@@ -58,6 +78,34 @@ function makeDocument(setup = {}, overrides = {}) {
     ...overrides,
   };
 }
+
+test("default setup factory returns complete independent defaults", () => {
+  const first = createTestDefaultSetup();
+  const second = createTestDefaultSetup();
+
+  assert.deepEqual(first.view, {
+    cameraPosition: { x: 4, y: 6, z: 8 },
+    target: { x: 1, y: 2, z: 3 },
+    ghostStickersVisibility: "always-visible",
+    peekStickersVisibility: "always-visible",
+    peekStickersDepth: 0.2,
+    peekStickersHideWhenColor: "",
+  });
+  assert.deepEqual(first.colors.faceletLabels, { F: "#111", R: "#111" });
+  assert.deepEqual(first.labels.axisLabelsByFace, {
+    R: { visible: false, customText: "R" },
+    U: { visible: false, customText: "U" },
+  });
+  assert.notStrictEqual(first, second);
+  assert.notStrictEqual(first.view, second.view);
+  assert.notStrictEqual(
+    first.labels.axisLabelsByFace,
+    second.labels.axisLabelsByFace,
+  );
+
+  first.view.peekStickersDepth = 1.5;
+  assert.equal(second.view.peekStickersDepth, 0.2);
+});
 
 test("valid document accepts all supported setup sections", () => {
   const setup = {
@@ -75,6 +123,10 @@ test("valid document accepts all supported setup sections", () => {
     view: {
       cameraPosition: { x: 4, y: 5, z: 6 },
       target: { x: 0, y: 1, z: 0 },
+      ghostStickersVisibility: "hidden-behind-cube",
+      peekStickersVisibility: "hidden-behind-cube",
+      peekStickersDepth: 0.75,
+      peekStickersHideWhenColor: "#f00",
     },
     rotations: { moves: ["R", "U'"], text: "R U'", durationSeconds: 0.5 },
     colors: {
@@ -137,6 +189,28 @@ test("missing optional properties merge recursively with defaults", () => {
   );
 });
 
+test("export retains changed Ghost and Peek settings", () => {
+  const setup = structuredClone(DEFAULT_SETUP);
+
+  setup.view.ghostStickersVisibility = "hidden-behind-cube";
+  setup.view.peekStickersVisibility = "hidden-behind-cube";
+  setup.view.peekStickersDepth = 0.75;
+  setup.view.peekStickersHideWhenColor = "#f00";
+
+  const exported = createJsonExport(
+    setup,
+    DEFAULT_SETUP,
+    new Date("2026-09-23T12:34:56.000Z"),
+  );
+
+  assert.deepEqual(exported.setup.view, {
+    ghostStickersVisibility: "hidden-behind-cube",
+    peekStickersVisibility: "hidden-behind-cube",
+    peekStickersDepth: 0.75,
+    peekStickersHideWhenColor: "#f00",
+  });
+});
+
 test("date-only timestamps and arbitrary entity IDs remain accepted", () => {
   const setup = {
     cube: { cubies: { "custom-id": { position: { x: 0 } } } },
@@ -167,6 +241,18 @@ test("invalid documents and malformed values retain validation errors", () => {
       "setup must be an object.",
     ],
     [makeDocument({ view: null }), "setup.view must be an object."],
+    [
+      makeDocument({ view: { peekStickersVisibility: "sometimes" } }),
+      "setup.view.peekStickersVisibility is invalid.",
+    ],
+    [
+      makeDocument({ view: { peekStickersDepth: -0.1 } }),
+      "setup.view.peekStickersDepth must be a valid number.",
+    ],
+    [
+      makeDocument({ view: { peekStickersHideWhenColor: 7 } }),
+      "setup.view.peekStickersHideWhenColor must be a string.",
+    ],
     [
       makeDocument({ view: { target: { x: Infinity } } }),
       "setup.view.target.x must be a valid number.",

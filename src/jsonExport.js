@@ -5,6 +5,15 @@ function isObject(value) {
 }
 
 export function omitDefaultValues(value, defaults) {
+  if (
+    typeof value === "number" &&
+    typeof defaults === "number" &&
+    Math.abs(value - defaults) <=
+      Number.EPSILON * Math.max(1, Math.abs(value), Math.abs(defaults))
+  ) {
+    return undefined;
+  }
+
   if (Array.isArray(value)) {
     const defaultArray = Array.isArray(defaults) ? defaults : [];
 

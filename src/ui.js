@@ -1,18 +1,6 @@
 import {
-  ArrowHelper,
-  CanvasTexture,
-  CatmullRomCurve3,
   Color,
-  CylinderGeometry,
-  DoubleSide,
-  Group,
   MathUtils,
-  Mesh,
-  MeshBasicMaterial,
-  PlaneGeometry,
-  Sprite,
-  SpriteMaterial,
-  TubeGeometry,
   Vector3,
 } from "three";
 import arrowLimitDownIcon from "./assets/arrow-limit-down.svg";
@@ -20,10 +8,6 @@ import arrowLimitUpIcon from "./assets/arrow-limit-up.svg";
 import chevronLeftIcon from "./assets/chevron-left.svg";
 import chevronRightIcon from "./assets/chevron-right.svg";
 import copyIcon from "./assets/copy.png";
-import {
-  default as invalidColorIcon,
-  default as mixedColorIcon,
-} from "./assets/cross-transparent.png";
 import startStateIcon from "./assets/cube-state-0.svg";
 import expandCubeIcon from "./assets/expand.svg";
 import infoIcon from "./assets/info.png";
@@ -38,7 +22,6 @@ import toEndIcon from "./assets/toend.svg";
 import toStartIcon from "./assets/tostart.svg";
 import undoIcon from "./assets/undo.png";
 import { default as copiedIcon } from "./assets/yes.png";
-import { getFaceFromNormal } from "./cubeMath.js";
 import {
   getCustomMoveLabel,
   getCustomRotationAngle,
@@ -49,23 +32,30 @@ import {
   tokenizeRotationSequence,
 } from "./customRotation.js";
 import { prefixWithLocalTimestamp } from "./exportFileName.js";
-import { getFaceletLabel, MATERIAL_INDEX_BY_FACE } from "./faceDefinitions.js";
+import { getFaceletLabel } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
 import {
   getCubeViewportDisplayHeight,
   getCubeViewportDisplayHeightBounds,
 } from "./responsiveLayout.js";
 import { CUBE_BACKGROUND_COLOR } from "./sceneSetup.js";
+import {
+  createDefaultSetup,
+  DEFAULT_FACELET_LABEL_COLOR,
+} from "./setupDefaults.js";
 import { createSvgArchive } from "./svgExport.js";
-import { attachColorPicker } from "./ui/colorPicker.js";
+import { createAxisSceneController } from "./ui/axisSceneController.js";
+import { createColorsPanel } from "./ui/colorsPanel.js";
 import { createCubePanel } from "./ui/cubePanel.js";
 import { createCustomMoveControls } from "./ui/customMoveControls.js";
+import { createFaceletLabelController } from "./ui/faceletLabelController.js";
 import { createFixedMoveControls } from "./ui/fixedMoveControls.js";
+import { createLabelsPanel } from "./ui/labelsPanel.js";
 import { openSetupImportDialog } from "./ui/setupImportDialog.js";
 import { createSetupPanel } from "./ui/setupPanel.js";
+import { createViewController } from "./ui/viewController.js";
 import { createViewPanel } from "./ui/viewPanel.js";
 
-const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
 const ROTATION_SEQUENCE_PLACEHOLDER = "e.g. R U R' U'";
 const UI_FONT_FAMILY = "Arial, sans-serif";
 const UI_FONT_SIZE = "14px";
@@ -130,41 +120,53 @@ function syncEditValueFromSlider(slider, valueInput) {
 }
 
 export function createUI({
-  scene,
-  renderer,
-  camera,
-  controls,
-  resetCameraView,
-  setCubeViewportCollapsed,
-  setCubeViewportDisplayHeight,
-  cubies,
-  facelets,
-  colors,
-  defaultColors,
-  defaultSize,
-  defaultGap,
-  durationState,
-  rotateSlice: rotateSliceFromCube,
-  rotateMove: rotateMoveFromCube,
-  getRotationDefinition,
-  resetCube,
-  resetCubeOrientation: resetCubeOrientationFromCube,
-  resetVisualRotations,
-  updateCubeDimensions: updateCubeDimensionsFromCube,
-  getCubeState,
-  getDefaultCubeState,
-  applyCubeState,
-  size: initialSize,
-  gap: initialGap,
-  normalizeAngle,
+  scene: sceneDependencies,
+  viewport: viewportDependencies,
+  cube: cubeDependencies,
+  rotation: rotationDependencies,
 }) {
+  const {
+    scene,
+    renderer,
+    camera,
+    controls,
+    resetCameraView,
+    getDefaultCameraView,
+  } = sceneDependencies;
+  const { setCubeViewportCollapsed, setCubeViewportDisplayHeight } =
+    viewportDependencies;
+  const {
+    cubies,
+    facelets,
+    colors,
+    defaultColors,
+    defaultSize,
+    defaultGap,
+    resetCube,
+    updateCubeDimensions: updateCubeDimensionsFromCube,
+    getCubeState,
+    getDefaultCubeState,
+    applyCubeState,
+    size: initialSize,
+    gap: initialGap,
+  } = cubeDependencies;
+  const {
+    durationState,
+    rotateSlice: rotateSliceFromCube,
+    rotateMove: rotateMoveFromCube,
+    getRotationDefinition,
+    resetCubeOrientation: resetCubeOrientationFromCube,
+    resetVisualRotations,
+    normalizeAngle,
+  } = rotationDependencies;
+
   // ============================================================
   // Local cube settings
   // ============================================================
 
   let size = initialSize;
   let gap = initialGap;
-  let labelDepth = DEFAULT_LABEL_DEPTH;
+  let colorsPanel = null;
   let labelsPanel = null;
   let viewPanel = null;
   let viewPanelController = null;
@@ -172,167 +174,16 @@ export function createUI({
   let syncRightPanelChevron = () => {};
   let updateFaceletLabelTransforms = () => {};
   let updateAxisHelperScale = () => {};
-  let ghostStickersVisibility = ALWAYS_VISIBLE;
-  let peekStickersVisibility = ALWAYS_VISIBLE;
-  let peekStickersDepth = 0.2;
-  let peekStickersHideWhenColor = "";
-
-  function dimColorForGhostEffect(color) {
-    const baseColor = new Color(color);
-
-    return `#${baseColor.multiplyScalar(0.28).getHexString()}`;
-  }
-
-  function updateGhostStickerVisibility() {
-    scene.userData.shouldRefreshHiddenStickerState =
-      ghostStickersVisibility !== ALWAYS_VISIBLE ||
-      peekStickersVisibility !== ALWAYS_VISIBLE;
-
-    if (!facelets.length) {
-      return;
-    }
-
-    scene.updateMatrixWorld(true);
-
-    const cameraPosition = camera.getWorldPosition(new Vector3());
-    const cubieWorldPositions = new Map();
-
-    for (const cubie of cubies) {
-      cubieWorldPositions.set(
-        cubie,
-        new Vector3().setFromMatrixPosition(cubie.matrixWorld),
-      );
-
-      for (const material of cubie.material) {
-        material.visible = true;
-        material.opacity = 1;
-        material.transparent = false;
-        material.depthTest = true;
-        material.depthWrite = true;
-        material.side = 0;
-      }
-    }
-
-    const activePeekOverlayIds = new Set();
-    const hiddenPeekColor = isValidColorValue(peekStickersHideWhenColor)
-      ? new Color(peekStickersHideWhenColor)
-      : null;
-
-    for (const facelet of facelets) {
-      const face = getFaceFromNormal(facelet.normal);
-
-      if (!face) {
-        continue;
-      }
-
-      const materialIndex = MATERIAL_INDEX_BY_FACE[face];
-
-      if (materialIndex === undefined) {
-        continue;
-      }
-
-      const cubie = facelet.cubie;
-      const material = cubie.material[materialIndex];
-      if (!facelet.userData) {
-        facelet.userData = {};
-      }
-      const worldNormal = new Vector3(
-        facelet.normal.x,
-        facelet.normal.y,
-        facelet.normal.z,
-      ).transformDirection(cubie.matrixWorld);
-      const worldPosition = cubieWorldPositions
-        .get(cubie)
-        .clone()
-        .add(worldNormal.clone().multiplyScalar(0.62));
-      const toCamera = cameraPosition.clone().sub(worldPosition).normalize();
-      const isFacingCamera = worldNormal.dot(toCamera) > 0.01;
-      const isHiddenFromView = !isFacingCamera;
-      const originalColor =
-        facelet.currentColor ?? facelet.defaultColor ?? facelet.color;
-      const shouldApplyGhostTint =
-        ghostStickersVisibility === HIDDEN_BEHIND_CUBE && isHiddenFromView;
-      const matchesHiddenPeekColor =
-        hiddenPeekColor !== null &&
-        new Color(originalColor).equals(hiddenPeekColor);
-      const shouldShowPeek =
-        peekStickersVisibility === HIDDEN_BEHIND_CUBE &&
-        isHiddenFromView &&
-        !matchesHiddenPeekColor;
-      const nextColor = shouldApplyGhostTint
-        ? dimColorForGhostEffect(originalColor)
-        : originalColor;
-
-      material.color.set(nextColor);
-      material.visible = true;
-      material.transparent = shouldApplyGhostTint;
-      material.opacity = shouldApplyGhostTint ? 0.38 : 1;
-      material.depthTest = !shouldApplyGhostTint;
-      material.depthWrite = !shouldApplyGhostTint;
-      material.side = shouldApplyGhostTint ? DoubleSide : 0;
-
-      if (!cubie.userData.peekStickerOverlays) {
-        cubie.userData.peekStickerOverlays = new Map();
-      }
-
-      let overlay = cubie.userData.peekStickerOverlays.get(facelet.id);
-
-      if (!overlay) {
-        overlay = new Mesh(
-          new PlaneGeometry(0.96, 0.96),
-          new MeshBasicMaterial({
-            color: originalColor,
-            side: DoubleSide,
-            transparent: false,
-            depthTest: true,
-            depthWrite: false,
-          }),
-        );
-        overlay.renderOrder = 1;
-        cubie.add(overlay);
-        cubie.userData.peekStickerOverlays.set(facelet.id, overlay);
-      }
-
-      const localNormal = new Vector3(
-        facelet.normal.x,
-        facelet.normal.y,
-        facelet.normal.z,
-      ).normalize();
-
-      overlay.visible = shouldShowPeek;
-      overlay.position.copy(
-        localNormal.clone().multiplyScalar(0.62 + peekStickersDepth),
-      );
-      overlay.quaternion.setFromUnitVectors(
-        new Vector3(0, 0, 1),
-        localNormal.clone().normalize(),
-      );
-      overlay.material.color.set(originalColor);
-      overlay.material.transparent = false;
-      overlay.material.opacity = 1;
-      overlay.material.depthTest = true;
-      overlay.material.depthWrite = false;
-      facelet.userData.peekVisible = shouldShowPeek;
-      activePeekOverlayIds.add(`${cubie.uuid}:${facelet.id}`);
-    }
-
-    for (const cubie of cubies) {
-      const overlays = cubie.userData.peekStickerOverlays;
-
-      if (!overlays) {
-        continue;
-      }
-
-      for (const [faceletId, overlay] of overlays.entries()) {
-        if (!activePeekOverlayIds.has(`${cubie.uuid}:${faceletId}`)) {
-          overlay.visible = false;
-        }
-      }
-    }
-  }
+  const viewController = createViewController({
+    scene,
+    camera,
+    cubies,
+    facelets,
+    isValidColorValue,
+  });
 
   function markSetupChanged() {
-    updateGhostStickerVisibility();
+    viewController.refresh();
   }
 
   function updateCubeDimensions(...args) {
@@ -364,17 +215,9 @@ export function createUI({
 
   controlsRoot.className = "responsive-controls";
   document.body.appendChild(controlsRoot);
-  scene.userData.refreshHiddenStickerState = updateGhostStickerVisibility;
-  scene.userData.shouldRefreshHiddenStickerState = false;
-  const peekStickerGroup = new Group();
-  const peekStickerOverlays = new Map();
-
-  peekStickerGroup.renderOrder = 1;
-  scene.add(peekStickerGroup);
   document.addEventListener("input", markSetupChanged, true);
   document.addEventListener("change", markSetupChanged, true);
   controls.addEventListener("change", markSetupChanged);
-  controls.addEventListener("change", updateGhostStickerVisibility);
 
   // ============================================================
   // Rotation panel
@@ -787,21 +630,26 @@ export function createUI({
     cubies,
     getSize: () => size,
     getGap: () => gap,
-    getFaceletLabels: () => faceletLabels,
+    getFaceletLabels: () => faceletLabelController.getLabels(),
     getAxisGroup: () => axisGroup,
     getRotationArrowGroup: () => rotationArrowGroup,
     getAxisLabelText: (label) => {
       const axisDefinition = label.userData.axisDefinition;
 
-      return axisLabelMode === "custom"
-        ? axisDefinition?.label.custom
-        : axisDefinition?.label[axisLabelMode];
+      return axisDefinition
+        ? labelsPanelController.getAxisLabelText(axisDefinition)
+        : undefined;
     },
-    getRotationArrowThickness: () => rotationArrowThickness,
-    getFaceletLabelsVisibility: () => faceletLabelsVisibility,
-    getAxisLabelsVisibility: () => axisLabelsVisibility,
-    getAxisArrowsVisibility: () => axisArrowsVisibility,
-    getRotationArrowsVisibility: () => rotationArrowsVisibility,
+    getRotationArrowThickness: () =>
+      labelsPanelController.getSetupState().rotationArrowThickness,
+    getFaceletLabelsVisibility: () =>
+      labelsPanelController.getSetupState().faceletVisibility,
+    getAxisLabelsVisibility: () =>
+      labelsPanelController.getSetupState().axisLabelVisibility,
+    getAxisArrowsVisibility: () =>
+      labelsPanelController.getSetupState().axisArrowVisibility,
+    getRotationArrowsVisibility: () =>
+      labelsPanelController.getSetupState().rotationArrowVisibility,
   });
 
   // ============================================================
@@ -3577,6 +3425,104 @@ export function createUI({
     );
   }
 
+  function isValidColorValue(value) {
+    if (value === "") {
+      return false;
+    }
+
+    const probe = document.createElement("span");
+
+    probe.style.color = value;
+    return probe.style.color !== "";
+  }
+
+  function getFaceletPositionName(facelet) {
+    const faceletData = getFaceletData(facelet);
+
+    if (faceletData.visibilityKey === "outer") {
+      return getFaceletLabel(
+        faceletData.orientationKey,
+        facelet.cubie.userData.faces,
+      );
+    }
+
+    if (faceletData.name) {
+      return faceletData.name;
+    }
+
+    const { x, y, z } = facelet.cubie.userData;
+    const view = {
+      F: {
+        row: y,
+        column: x,
+        rowPositive: "U",
+        rowNegative: "D",
+        columnPositive: "R",
+        columnNegative: "L",
+      },
+      B: {
+        row: y,
+        column: x,
+        rowPositive: "U",
+        rowNegative: "D",
+        columnPositive: "L",
+        columnNegative: "R",
+      },
+      R: {
+        row: y,
+        column: z,
+        rowPositive: "U",
+        rowNegative: "D",
+        columnPositive: "F",
+        columnNegative: "B",
+      },
+      L: {
+        row: y,
+        column: z,
+        rowPositive: "U",
+        rowNegative: "D",
+        columnPositive: "F",
+        columnNegative: "B",
+      },
+      U: {
+        row: z,
+        column: x,
+        rowPositive: "F",
+        rowNegative: "B",
+        columnPositive: "R",
+        columnNegative: "L",
+      },
+      D: {
+        row: z,
+        column: x,
+        rowPositive: "F",
+        rowNegative: "B",
+        columnPositive: "R",
+        columnNegative: "L",
+      },
+    }[facelet.face];
+
+    if (!view) {
+      return facelet.name;
+    }
+
+    const position = [facelet.face];
+
+    if (view.row !== 0) {
+      position.push(view.row > 0 ? view.rowPositive : view.rowNegative);
+    }
+    if (view.column !== 0) {
+      position.push(
+        view.column > 0 ? view.columnPositive : view.columnNegative,
+      );
+    }
+    return position.join("");
+  }
+
+  function getFaceletSection(facelet) {
+    return getFaceletPositionName(facelet).charAt(0);
+  }
+
   function sortFaceletsBySolvedPosition(firstFacelet, secondFacelet) {
     const firstPosition = getFaceletData(firstFacelet).solvedPosition;
     const secondPosition = getFaceletData(secondFacelet).solvedPosition;
@@ -4576,21 +4522,12 @@ export function createUI({
   // ============================================================
 
   function getViewSettings() {
-    return {
-      ghostStickersVisibility,
-      peekStickersVisibility,
-      peekStickersDepth,
-      peekStickersHideWhenColor,
-    };
+    return viewController.getSettings();
   }
 
   function resetViewState() {
-    ghostStickersVisibility = ALWAYS_VISIBLE;
-    peekStickersVisibility = ALWAYS_VISIBLE;
-    peekStickersDepth = 0.2;
-    peekStickersHideWhenColor = "";
+    viewController.reset();
     viewPanelController.setSettings(getViewSettings());
-    updateGhostStickerVisibility();
     scheduleCubePanelPositionUpdate();
   }
 
@@ -4608,28 +4545,8 @@ export function createUI({
       resetViewState();
       markSetupChanged();
     },
-    onViewChange: (setting, value) => {
-      if (setting === "ghostStickersVisibility") {
-        ghostStickersVisibility = value;
-        updateGhostStickerVisibility();
-        scene.userData.shouldRefreshHiddenStickerState =
-          ghostStickersVisibility !== ALWAYS_VISIBLE ||
-          peekStickersVisibility !== ALWAYS_VISIBLE;
-      } else if (setting === "peekStickersVisibility") {
-        peekStickersVisibility = value;
-        updateGhostStickerVisibility();
-        scene.userData.shouldRefreshHiddenStickerState =
-          ghostStickersVisibility !== ALWAYS_VISIBLE ||
-          peekStickersVisibility !== ALWAYS_VISIBLE;
-      } else if (setting === "peekStickersDepth") {
-        peekStickersDepth = value;
-        updateGhostStickerVisibility();
-      } else if (setting === "peekStickersHideWhenColor") {
-        peekStickersHideWhenColor = value;
-        updateGhostStickerVisibility();
-      }
-    },
-    onPeekColorPicked: updateGhostStickerVisibility,
+    onViewChange: (setting, value) => viewController.setSetting(setting, value),
+    onPeekColorPicked: viewController.refresh,
     getColorPreviewValue: (value) => {
       const color = new Color();
 
@@ -4644,1689 +4561,9 @@ export function createUI({
   viewPanel = viewPanelController.root;
 
   // ============================================================
-  // Colors panel
-  // ============================================================
+  // Colors and Labels panels
 
-  const colorsPanel = document.createElement("div");
-
-  colorsPanel.style.position = "absolute";
-  colorsPanel.style.top = "20px";
-  colorsPanel.style.right = "20px";
-  colorsPanel.style.width = "280px";
-  colorsPanel.style.maxHeight = "calc(100vh - 40px)";
-  colorsPanel.style.overflowY = "auto";
-  colorsPanel.style.padding = "16px";
-  colorsPanel.style.background = UI_PANEL_BACKGROUND;
-  colorsPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
-  colorsPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
-  colorsPanel.style.fontFamily = UI_FONT_FAMILY;
-  colorsPanel.style.fontSize = UI_FONT_SIZE;
-  colorsPanel.style.boxSizing = "border-box";
-
-  controlsRoot.appendChild(colorsPanel);
-
-  // ============================================================
-  // Colors header
-  // ============================================================
-
-  const colorsHeader = document.createElement("div");
-
-  colorsHeader.style.display = "flex";
-  colorsHeader.style.alignItems = "center";
-  colorsHeader.style.justifyContent = "space-between";
-  colorsHeader.style.cursor = "pointer";
-  colorsHeader.style.userSelect = "none";
-
-  const colorsTitle = document.createElement("div");
-
-  colorsTitle.textContent = "Colors";
-  colorsTitle.style.fontSize = "18px";
-  colorsTitle.style.fontWeight = "bold";
-
-  const colorsTitleRow = document.createElement("div");
-
-  colorsTitleRow.style.display = "flex";
-  colorsTitleRow.style.alignItems = "center";
-  colorsTitleRow.style.gap = "6px";
-
-  const resetColorsButton = createResetButton(
-    "Reset Colors",
-    resetColorsInterface,
-  );
-
-  colorsTitleRow.appendChild(resetColorsButton);
-  colorsTitleRow.appendChild(colorsTitle);
-
-  const colorsCollapseIcon = document.createElement("span");
-
-  colorsCollapseIcon.textContent = "−";
-  colorsCollapseIcon.style.fontSize = "20px";
-  colorsCollapseIcon.style.lineHeight = "1";
-
-  colorsHeader.appendChild(colorsTitleRow);
-  colorsHeader.appendChild(colorsCollapseIcon);
-  colorsHeader.setAttribute("role", "button");
-  colorsHeader.setAttribute("aria-expanded", "false");
-  colorsHeader.tabIndex = 0;
-
-  controlsRoot.appendChild(colorsPanel);
-  controlsRoot.insertBefore(viewPanel, colorsPanel);
-
-  colorsPanel.appendChild(colorsHeader);
-
-  const colorsContent = document.createElement("div");
-
-  colorsContent.id = "colors-panel-content";
-  colorsHeader.setAttribute("aria-controls", colorsContent.id);
-  colorsContent.style.marginTop = "12px";
-
-  colorsPanel.appendChild(colorsContent);
-
-  let colorsCollapsed = true;
-  colorsContent.style.display = "none";
-  colorsPanel.style.overflowY = "hidden";
-  colorsCollapseIcon.textContent = "+";
-
-  function toggleColorsPanel() {
-    colorsCollapsed = !colorsCollapsed;
-
-    if (!colorsCollapsed) {
-      collapseOtherPanels("colors");
-    }
-
-    colorsContent.style.display = colorsCollapsed ? "none" : "block";
-
-    colorsPanel.style.overflowY = colorsCollapsed ? "hidden" : "auto";
-
-    colorsCollapseIcon.textContent = colorsCollapsed ? "+" : "−";
-    colorsHeader.setAttribute("aria-expanded", String(!colorsCollapsed));
-    scheduleCubePanelPositionUpdate();
-  }
-
-  colorsHeader.addEventListener("click", toggleColorsPanel);
-  colorsHeader.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    toggleColorsPanel();
-  });
-
-  // ============================================================
-  // Facelet color editor
-  // ============================================================
-
-  const faceletSections = [
-    ["F", "F - Front"],
-    ["B", "B - Back"],
-    ["R", "R - Right"],
-    ["L", "L - Left"],
-    ["U", "U - Up"],
-    ["D", "D - Down"],
-  ];
-
-  const colorInputs = new Map();
-  const faceColorControls = new Map();
-
-  function showInvalidColor(preview) {
-    preview.style.backgroundColor = "transparent";
-    preview.style.backgroundImage = `url(${invalidColorIcon})`;
-    preview.style.backgroundSize = "contain";
-    preview.style.backgroundRepeat = "no-repeat";
-    preview.style.backgroundPosition = "center";
-  }
-
-  function isValidColorValue(value) {
-    if (value === "") {
-      return false;
-    }
-
-    const probe = document.createElement("span");
-
-    probe.style.color = value;
-
-    return probe.style.color !== "";
-  }
-
-  function getFaceletPositionName(facelet) {
-    const faceletData = getFaceletData(facelet);
-
-    if (faceletData.visibilityKey === "outer") {
-      return getFaceletLabel(
-        faceletData.orientationKey,
-        facelet.cubie.userData.faces,
-      );
-    }
-
-    if (faceletData.name) {
-      return faceletData.name;
-    }
-
-    const { x, y, z } = facelet.cubie.userData;
-
-    const view = {
-      F: {
-        row: y,
-        column: x,
-        rowPositive: "U",
-        rowNegative: "D",
-        columnPositive: "R",
-        columnNegative: "L",
-      },
-      B: {
-        row: y,
-        column: x,
-        rowPositive: "U",
-        rowNegative: "D",
-        columnPositive: "L",
-        columnNegative: "R",
-      },
-      R: {
-        row: y,
-        column: z,
-        rowPositive: "U",
-        rowNegative: "D",
-        columnPositive: "F",
-        columnNegative: "B",
-      },
-      L: {
-        row: y,
-        column: z,
-        rowPositive: "U",
-        rowNegative: "D",
-        columnPositive: "F",
-        columnNegative: "B",
-      },
-      U: {
-        row: z,
-        column: x,
-        rowPositive: "F",
-        rowNegative: "B",
-        columnPositive: "R",
-        columnNegative: "L",
-      },
-      D: {
-        row: z,
-        column: x,
-        rowPositive: "F",
-        rowNegative: "B",
-        columnPositive: "R",
-        columnNegative: "L",
-      },
-    }[facelet.face];
-
-    if (!view) {
-      return facelet.name;
-    }
-
-    const position = [facelet.face];
-
-    if (view.row !== 0) {
-      position.push(view.row > 0 ? view.rowPositive : view.rowNegative);
-    }
-
-    if (view.column !== 0) {
-      position.push(
-        view.column > 0 ? view.columnPositive : view.columnNegative,
-      );
-    }
-
-    return position.join("");
-  }
-
-  function getFaceletSection(facelet) {
-    return getFaceletPositionName(facelet).charAt(0);
-  }
-
-  const faceletLabels = new Map();
-
-  function getFaceletColorSnapshot(filter = () => true) {
-    return facelets
-      .filter(filter)
-      .map((facelet) => [facelet, getCurrentFaceletColor(facelet)]);
-  }
-
-  function restoreFaceletColorSnapshot(snapshot) {
-    for (const [facelet, value] of snapshot) {
-      const faceletData = getFaceletData(facelet);
-      const currentFacelet = getCurrentFaceletRecord(facelet);
-
-      faceletData.currentColor = value;
-      faceletData.color = value;
-
-      const controls = colorInputs.get(faceletData);
-
-      if (controls) {
-        controls.input.value = value;
-        controls.preview.style.backgroundImage = "none";
-        controls.preview.style.backgroundColor = value;
-      }
-
-      const materialIndex = currentFacelet?.materialIndex;
-
-      if (
-        materialIndex !== undefined &&
-        currentFacelet.cubie.material[materialIndex]
-      ) {
-        currentFacelet.cubie.material[materialIndex].color.set(value);
-      }
-    }
-
-    for (const [face] of faceletSections) {
-      updateFaceColorControl(face);
-    }
-
-    updateOuterFaceletsControl();
-  }
-
-  function createFaceletLabel(facelet) {
-    const faceletData = getFaceletData(facelet);
-    const canvas = document.createElement("canvas");
-
-    canvas.width = 256;
-    canvas.height = 256;
-
-    const context = canvas.getContext("2d");
-
-    context.font = "bold 72px Arial";
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.lineJoin = "round";
-    context.lineWidth = 10;
-    context.strokeStyle = "rgba(255, 255, 255, 0.9)";
-    context.fillStyle = "#111";
-
-    const label = getFaceletPositionName(facelet);
-
-    context.strokeText(label, 128, 128);
-    context.fillText(label, 128, 128);
-
-    const texture = new CanvasTexture(canvas);
-    const material = new SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-    });
-    const sprite = new Sprite(material);
-
-    sprite.renderOrder = 10;
-    sprite.visible = false;
-    sprite.userData.canvas = canvas;
-    sprite.userData.labelText = label;
-    sprite.userData.labelColor = "#111";
-    sprite.userData.context = context;
-    facelet.cubie.add(sprite);
-    faceletLabels.set(faceletData, sprite);
-  }
-
-  function updateFaceletLabelColor(facelet, color) {
-    const label = faceletLabels.get(getFaceletData(facelet));
-
-    if (!label) {
-      return;
-    }
-
-    const context = label.userData.context;
-
-    label.userData.labelColor = color;
-    context.clearRect(0, 0, 256, 256);
-    context.fillStyle = color;
-    context.strokeText(label.userData.labelText, 128, 128);
-    context.fillText(label.userData.labelText, 128, 128);
-    label.material.map.needsUpdate = true;
-  }
-
-  function refreshFaceletLabel(facelet) {
-    const label = faceletLabels.get(getFaceletData(facelet));
-
-    if (!label) {
-      return;
-    }
-
-    const cubieSize = Math.max(
-      0,
-      (facelet.cubie.userData.currentSize ??
-        facelet.cubie.userData.size ??
-        size) -
-        (facelet.cubie.userData.currentGap ??
-          facelet.cubie.userData.gap ??
-          gap),
-    );
-    const normal = facelet.normal ?? getFaceletData(facelet)?.normal;
-    const offset = cubieSize / 2 + labelDepth;
-
-    const labelText = getFaceletPositionName(facelet);
-
-    if (label.userData.labelText !== labelText) {
-      const context = label.userData.canvas.getContext("2d");
-
-      context.clearRect(0, 0, 256, 256);
-      context.strokeText(labelText, 128, 128);
-      context.fillText(labelText, 128, 128);
-      label.material.map.needsUpdate = true;
-      label.userData.labelText = labelText;
-    }
-
-    label.position.set(normal.x * offset, normal.y * offset, normal.z * offset);
-    label.scale.setScalar(cubieSize * 0.62);
-  }
-
-  function refreshFaceletLabels() {
-    for (const facelet of facelets) {
-      refreshFaceletLabel(facelet);
-    }
-  }
-
-  for (const facelet of facelets) {
-    createFaceletLabel(facelet);
-  }
-
-  updateFaceletLabelTransforms = refreshFaceletLabels;
-
-  function createFaceletRow(facelet) {
-    const row = document.createElement("div");
-
-    row.style.display = "flex";
-    row.style.alignItems = "center";
-    row.style.gap = "6px";
-    row.style.marginBottom = "5px";
-
-    const name = document.createElement("span");
-
-    name.textContent = `${getFaceletPositionName(facelet)}:`;
-
-    name.style.width = "38px";
-    name.style.flexShrink = "0";
-    name.style.fontFamily = "monospace";
-
-    const input = document.createElement("input");
-
-    input.type = "text";
-
-    input.value = getCurrentFaceletColor(facelet);
-
-    input.style.flex = "1";
-    input.style.minWidth = "0";
-    input.style.padding = "4px";
-    input.style.boxSizing = "border-box";
-
-    const preview = document.createElement("span");
-
-    preview.style.width = "18px";
-    preview.style.height = "18px";
-    preview.style.borderRadius = "50%";
-    preview.style.border = "1px solid #999";
-    preview.style.flexShrink = "0";
-    preview.style.backgroundColor = input.value;
-
-    function updateColor() {
-      const value = input.value.trim();
-
-      const color = new Color();
-
-      if (!isValidColorValue(value)) {
-        if (value !== "") {
-          showInvalidColor(preview);
-        }
-        return;
-      }
-
-      color.set(value);
-
-      const faceletData = getFaceletData(facelet);
-      const currentFacelet = getCurrentFaceletRecord(facelet);
-
-      faceletData.currentColor = value;
-      faceletData.color = value;
-
-      const materialIndex = currentFacelet?.materialIndex;
-
-      if (
-        materialIndex !== undefined &&
-        currentFacelet.cubie.material[materialIndex]
-      ) {
-        currentFacelet.cubie.material[materialIndex].color.set(value);
-      }
-
-      preview.style.backgroundImage = "none";
-      preview.style.backgroundColor = value;
-      updateFaceColorControl(getFaceletSection(facelet));
-      updateOuterFaceletsControl();
-    }
-
-    input.addEventListener("input", updateColor);
-    input.addEventListener("change", updateColor);
-    attachColorPicker({ preview, input, onColorChange: updateColor });
-
-    colorInputs.set(getFaceletData(facelet), {
-      input,
-      preview,
-    });
-
-    row.appendChild(name);
-    row.appendChild(input);
-    row.appendChild(preview);
-
-    return row;
-  }
-
-  function updateFaceColorControl(face) {
-    const controls = faceColorControls.get(face);
-
-    if (!controls) {
-      return;
-    }
-
-    const sectionFacelets = facelets.filter(
-      (facelet) => getFaceletSection(facelet) === face,
-    );
-    const colors = sectionFacelets.map((facelet) => {
-      const color = new Color();
-
-      color.set(getCurrentFaceletColor(facelet));
-      return color.getHex();
-    });
-
-    const firstColor = colors[0];
-    const isUniform = colors.every((color) => color === firstColor);
-
-    if (isUniform) {
-      const firstFacelet = sectionFacelets[0];
-
-      controls.input.value = firstFacelet
-        ? getCurrentFaceletColor(firstFacelet)
-        : "";
-      controls.input.placeholder = "";
-      controls.preview.style.backgroundImage = "none";
-      controls.preview.style.backgroundColor = firstFacelet
-        ? getCurrentFaceletColor(firstFacelet)
-        : "transparent";
-    } else {
-      controls.input.value = "";
-      controls.input.placeholder = "Mixed";
-      controls.preview.style.backgroundColor = "transparent";
-      controls.preview.style.backgroundImage = `url(${mixedColorIcon})`;
-      controls.preview.style.backgroundSize = "contain";
-      controls.preview.style.backgroundRepeat = "no-repeat";
-      controls.preview.style.backgroundPosition = "center";
-    }
-  }
-
-  function createFaceColorControl(face) {
-    const input = document.createElement("input");
-
-    input.type = "text";
-    input.style.width = "70px";
-    input.style.padding = "3px";
-    input.style.boxSizing = "border-box";
-
-    const preview = document.createElement("span");
-
-    preview.style.width = "18px";
-    preview.style.height = "18px";
-    preview.style.borderRadius = "50%";
-    preview.style.border = "1px solid #999";
-    preview.style.flexShrink = "0";
-    preview.style.backgroundSize = "contain";
-    preview.style.backgroundRepeat = "no-repeat";
-    preview.style.backgroundPosition = "center";
-
-    const controls = { input, preview };
-
-    faceColorControls.set(face, controls);
-
-    function applyColor() {
-      const value = input.value.trim();
-      const color = new Color();
-
-      if (!isValidColorValue(value)) {
-        if (value !== "") {
-          showInvalidColor(controls.preview);
-        }
-        return;
-      }
-
-      color.set(value);
-
-      const currentFacelets = facelets.filter(
-        (facelet) => getFaceletSection(facelet) === face,
-      );
-
-      for (const facelet of currentFacelets) {
-        const faceletData = getFaceletData(facelet);
-        const currentFacelet = getCurrentFaceletRecord(facelet);
-
-        faceletData.currentColor = value;
-        faceletData.color = value;
-
-        const faceletControls = colorInputs.get(faceletData);
-
-        if (faceletControls) {
-          faceletControls.input.value = value;
-          faceletControls.preview.style.backgroundImage = "none";
-          faceletControls.preview.style.backgroundColor = value;
-        }
-
-        const materialIndex = currentFacelet?.materialIndex;
-
-        if (
-          materialIndex !== undefined &&
-          currentFacelet.cubie.material[materialIndex]
-        ) {
-          currentFacelet.cubie.material[materialIndex].color.set(value);
-        }
-      }
-
-      updateFaceColorControl(face);
-      updateOuterFaceletsControl();
-    }
-
-    input.addEventListener("input", applyColor);
-    input.addEventListener("change", applyColor);
-    attachColorPicker({
-      preview,
-      input,
-      onColorChange: applyColor,
-      getInitialColor: () =>
-        getCurrentFaceletColor(
-          facelets.find((facelet) => getFaceletSection(facelet) === face),
-        ),
-      undo: {
-        isAvailable: () => input.placeholder === "Mixed",
-        getSnapshot: () =>
-          getFaceletColorSnapshot(
-            (facelet) => getFaceletSection(facelet) === face,
-          ),
-        restoreSnapshot: restoreFaceletColorSnapshot,
-      },
-    });
-
-    return controls;
-  }
-
-  function createCollapsibleSection({
-    title,
-    titleControls = [],
-    initiallyExpanded = true,
-    headerStyles = {},
-    titleStyles = {},
-    contentStyles = {},
-    getContentId,
-  }) {
-    const section = document.createElement("div");
-    const header = document.createElement("div");
-    const titleRow = document.createElement("div");
-    const titleLabel = document.createElement("span");
-    const content = document.createElement("div");
-    const collapseIcon = document.createElement("span");
-
-    let collapsed = !initiallyExpanded;
-
-    header.style.display = "flex";
-    header.style.alignItems = "center";
-    header.style.justifyContent = "space-between";
-    header.style.gap = "6px";
-    header.style.cursor = "pointer";
-    header.style.userSelect = "none";
-    Object.assign(header.style, headerStyles);
-
-    titleRow.style.display = "flex";
-    titleRow.style.alignItems = "center";
-    titleRow.style.gap = "6px";
-    titleRow.style.flex = "1";
-    titleRow.style.minWidth = "0";
-    Object.assign(titleRow.style, titleStyles);
-
-    titleLabel.textContent = title;
-    styleUiTitle(titleLabel, { container: header });
-
-    collapseIcon.textContent = "−";
-    collapseIcon.style.fontSize = "20px";
-    collapseIcon.style.lineHeight = "1";
-    collapseIcon.style.flexShrink = "0";
-
-    titleRow.appendChild(titleLabel);
-    for (const control of titleControls) {
-      control.addEventListener("click", (event) => {
-        event.stopPropagation();
-      });
-      control.addEventListener("pointerdown", (event) => {
-        event.stopPropagation();
-      });
-      control.addEventListener("keydown", (event) => {
-        event.stopPropagation();
-      });
-      titleRow.appendChild(control);
-    }
-
-    header.appendChild(titleRow);
-    header.appendChild(collapseIcon);
-    header.setAttribute("role", "button");
-    header.setAttribute("tabindex", "0");
-
-    content.id = getContentId();
-    header.setAttribute("aria-controls", content.id);
-    Object.assign(content.style, contentStyles);
-    section.appendChild(header);
-    section.appendChild(content);
-
-    function updateCollapseState() {
-      content.style.display = collapsed ? "none" : "block";
-      collapseIcon.textContent = collapsed ? "+" : "−";
-      header.setAttribute("aria-expanded", String(!collapsed));
-    }
-
-    function toggleCollapse() {
-      collapsed = !collapsed;
-      updateCollapseState();
-      scheduleCubePanelPositionUpdate();
-    }
-
-    header.addEventListener("click", toggleCollapse);
-    header.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-
-      event.preventDefault();
-      toggleCollapse();
-    });
-
-    updateCollapseState();
-
-    return { section, header, titleRow, content, toggleCollapse, collapseIcon };
-  }
-
-  const outerFaceletsInput = document.createElement("input");
-
-  outerFaceletsInput.type = "text";
-  outerFaceletsInput.style.width = "70px";
-  outerFaceletsInput.style.padding = "3px";
-  outerFaceletsInput.style.boxSizing = "border-box";
-
-  const outerFaceletsPreview = document.createElement("span");
-
-  outerFaceletsPreview.style.width = "18px";
-  outerFaceletsPreview.style.height = "18px";
-  outerFaceletsPreview.style.borderRadius = "50%";
-  outerFaceletsPreview.style.border = "1px solid #999";
-  outerFaceletsPreview.style.flexShrink = "0";
-
-  function updateOuterFaceletsControl() {
-    const colors = facelets.map((facelet) => getCurrentFaceletColor(facelet));
-    const firstColor = colors[0];
-    const isUniform = colors.every((color) => color === firstColor);
-
-    if (isUniform) {
-      outerFaceletsInput.value = firstColor ?? "";
-      outerFaceletsInput.placeholder = "";
-      outerFaceletsPreview.style.backgroundImage = "none";
-      outerFaceletsPreview.style.backgroundColor = firstColor ?? "transparent";
-    } else {
-      outerFaceletsInput.value = "";
-      outerFaceletsInput.placeholder = "Mixed";
-      outerFaceletsPreview.style.backgroundColor = "transparent";
-      outerFaceletsPreview.style.backgroundImage = `url(${mixedColorIcon})`;
-      outerFaceletsPreview.style.backgroundSize = "contain";
-      outerFaceletsPreview.style.backgroundRepeat = "no-repeat";
-      outerFaceletsPreview.style.backgroundPosition = "center";
-    }
-  }
-
-  function applyOuterFaceletsColor() {
-    const value = outerFaceletsInput.value.trim();
-    const color = new Color();
-
-    if (!isValidColorValue(value)) {
-      if (value !== "") {
-        showInvalidColor(outerFaceletsPreview);
-      }
-      return;
-    }
-
-    color.set(value);
-
-    for (const facelet of facelets) {
-      const faceletData = getFaceletData(facelet);
-      const currentFacelet = getCurrentFaceletRecord(facelet);
-
-      faceletData.currentColor = value;
-      faceletData.color = value;
-
-      const controls = colorInputs.get(faceletData);
-
-      if (controls) {
-        controls.input.value = value;
-        controls.preview.style.backgroundImage = "none";
-        controls.preview.style.backgroundColor = value;
-      }
-
-      const materialIndex = currentFacelet?.materialIndex;
-
-      if (
-        materialIndex !== undefined &&
-        currentFacelet.cubie.material[materialIndex]
-      ) {
-        currentFacelet.cubie.material[materialIndex].color.set(value);
-      }
-    }
-
-    for (const [face] of faceletSections) {
-      updateFaceColorControl(face);
-    }
-
-    updateOuterFaceletsControl();
-  }
-
-  outerFaceletsInput.addEventListener("input", applyOuterFaceletsColor);
-  outerFaceletsInput.addEventListener("change", applyOuterFaceletsColor);
-  attachColorPicker({
-    preview: outerFaceletsPreview,
-    input: outerFaceletsInput,
-    onColorChange: applyOuterFaceletsColor,
-    getInitialColor: () =>
-      facelets[0] ? getCurrentFaceletColor(facelets[0]) : "#000000",
-    undo: {
-      isAvailable: () => outerFaceletsInput.placeholder === "Mixed",
-      getSnapshot: () => getFaceletColorSnapshot(),
-      restoreSnapshot: restoreFaceletColorSnapshot,
-    },
-  });
-
-  const outerFaceletsSection = createCollapsibleSection({
-    title: "Outer Facelets",
-    titleControls: [outerFaceletsInput, outerFaceletsPreview],
-    headerStyles: {
-      marginTop: "14px",
-      marginBottom: "7px",
-      fontWeight: "bold",
-      textAlign: "left",
-    },
-    contentStyles: { marginTop: "0" },
-    getContentId: () => "outer-facelets-panel-content",
-  });
-
-  colorsContent.appendChild(outerFaceletsSection.section);
-  updateOuterFaceletsControl();
-
-  const outerFaceletsEntries = outerFaceletsSection.content;
-
-  for (const [face, title] of faceletSections) {
-    const sectionFacelets = facelets
-      .filter((facelet) => getFaceletSection(facelet) === face)
-      .sort(sortFaceletsBySolvedPosition);
-
-    const heading = document.createElement("div");
-
-    heading.style.display = "flex";
-    heading.style.alignItems = "center";
-    heading.style.gap = "6px";
-    heading.style.marginTop = "10px";
-    heading.style.marginBottom = "7px";
-
-    const headingText = document.createElement("span");
-
-    headingText.textContent = title;
-    styleUiTitle(headingText, { container: heading });
-
-    const faceControls = createFaceColorControl(face);
-
-    heading.appendChild(headingText);
-    heading.appendChild(faceControls.input);
-    heading.appendChild(faceControls.preview);
-    outerFaceletsEntries.appendChild(heading);
-
-    for (const facelet of sectionFacelets) {
-      outerFaceletsEntries.appendChild(createFaceletRow(facelet));
-    }
-
-    updateFaceColorControl(face);
-  }
-
-  // ============================================================
-  // Inner cubie color editor
-  // ============================================================
-
-  const innerInput = document.createElement("input");
-
-  innerInput.type = "text";
-  innerInput.style.width = "70px";
-  innerInput.style.padding = "3px";
-  innerInput.style.boxSizing = "border-box";
-
-  const innerPreview = document.createElement("span");
-
-  innerPreview.style.width = "18px";
-  innerPreview.style.height = "18px";
-  innerPreview.style.borderRadius = "50%";
-  innerPreview.style.border = "1px solid #999";
-  innerPreview.style.flexShrink = "0";
-  innerPreview.style.backgroundColor = defaultColors.inner;
-
-  const innerSection = createCollapsibleSection({
-    title: "Inner",
-    titleControls: [innerInput, innerPreview],
-    headerStyles: {
-      marginTop: "14px",
-      marginBottom: "7px",
-      fontWeight: "bold",
-    },
-    contentStyles: { marginTop: "0" },
-    getContentId: () => "inner-panel-content",
-  });
-
-  colorsContent.appendChild(innerSection.section);
-
-  function getCubiePositionName(cubie) {
-    const { x, y, z } = cubie.userData;
-    const position = [];
-
-    if (z !== 0) {
-      position.push(z > 0 ? "F" : "B");
-    }
-
-    if (y !== 0) {
-      position.push(y > 0 ? "U" : "D");
-    }
-
-    if (x !== 0) {
-      position.push(x > 0 ? "R" : "L");
-    }
-
-    return position.join("") || "Core";
-  }
-
-  function setCubieInnerColor(cubie, value) {
-    cubie.userData.currentInnerColor = value;
-    cubie.userData.innerColor = value;
-
-    for (const material of cubie.material) {
-      material.color.set(value);
-    }
-
-    for (const facelet of facelets) {
-      if (facelet.cubie !== cubie) {
-        continue;
-      }
-
-      const faceColor = getCurrentFaceletColor(facelet);
-
-      facelet.cubie.material[facelet.materialIndex].color.set(faceColor);
-    }
-  }
-
-  function createInnerColorRow(cubie) {
-    const row = document.createElement("div");
-
-    row.style.display = "flex";
-    row.style.alignItems = "center";
-    row.style.gap = "6px";
-    row.style.marginBottom = "5px";
-
-    const name = document.createElement("span");
-
-    name.textContent = `${getCubiePositionName(cubie)}:`;
-    name.style.width = "38px";
-    name.style.flexShrink = "0";
-    name.style.fontFamily = "monospace";
-
-    const input = document.createElement("input");
-
-    input.type = "text";
-    input.value = getCurrentInnerColor(cubie);
-    input.style.flex = "1";
-    input.style.minWidth = "0";
-    input.style.padding = "4px";
-    input.style.boxSizing = "border-box";
-
-    const preview = document.createElement("span");
-
-    preview.style.width = "18px";
-    preview.style.height = "18px";
-    preview.style.borderRadius = "50%";
-    preview.style.border = "1px solid #999";
-    preview.style.flexShrink = "0";
-    preview.style.backgroundColor = input.value;
-
-    function updateInnerColor() {
-      const value = input.value.trim();
-
-      if (!isValidColorValue(value)) {
-        if (value !== "") {
-          showInvalidColor(preview);
-        }
-        return;
-      }
-
-      setCubieInnerColor(cubie, value);
-
-      preview.style.backgroundImage = "none";
-      preview.style.backgroundColor = value;
-      updateInnerHeading();
-    }
-
-    input.addEventListener("input", updateInnerColor);
-    input.addEventListener("change", updateInnerColor);
-    attachColorPicker({ preview, input, onColorChange: updateInnerColor });
-
-    row.appendChild(name);
-    row.appendChild(input);
-    row.appendChild(preview);
-
-    return { row, input, preview };
-  }
-
-  const innerFaceOrder = {
-    F: 0,
-    B: 1,
-    R: 2,
-    L: 3,
-    U: 4,
-    D: 5,
-  };
-
-  const sortedInnerCubies = [...cubies].sort((firstCubie, secondCubie) => {
-    const firstName = getCubiePositionName(firstCubie);
-    const secondName = getCubiePositionName(secondCubie);
-    const firstOrder = innerFaceOrder[firstName[0]] ?? 6;
-    const secondOrder = innerFaceOrder[secondName[0]] ?? 6;
-
-    if (firstOrder !== secondOrder) {
-      return firstOrder - secondOrder;
-    }
-
-    const firstPosition = firstCubie.userData;
-    const secondPosition = secondCubie.userData;
-
-    return (
-      firstPosition.x - secondPosition.x ||
-      firstPosition.y - secondPosition.y ||
-      firstPosition.z - secondPosition.z
-    );
-  });
-
-  const innerColorControls = sortedInnerCubies.map((cubie) => {
-    const controls = createInnerColorRow(cubie);
-
-    innerSection.content.appendChild(controls.row);
-
-    return { cubie, ...controls };
-  });
-
-  function updateInnerHeading() {
-    const colors = cubies.map((cubie) => {
-      const color = new Color();
-
-      color.set(getCurrentInnerColor(cubie));
-      return color.getHex();
-    });
-    const firstColor = colors[0];
-    const isUniform = colors.every((color) => color === firstColor);
-
-    if (isUniform) {
-      innerInput.value = cubies[0] ? getCurrentInnerColor(cubies[0]) : "";
-      innerInput.placeholder = "";
-      innerPreview.style.backgroundImage = "none";
-      innerPreview.style.backgroundColor = innerInput.value;
-    } else {
-      innerInput.value = "";
-      innerInput.placeholder = "Mixed";
-      innerPreview.style.backgroundColor = "transparent";
-      innerPreview.style.backgroundImage = `url(${mixedColorIcon})`;
-      innerPreview.style.backgroundSize = "contain";
-      innerPreview.style.backgroundRepeat = "no-repeat";
-      innerPreview.style.backgroundPosition = "center";
-    }
-  }
-
-  function applyInnerColor() {
-    const value = innerInput.value.trim();
-
-    if (!isValidColorValue(value)) {
-      if (value !== "") {
-        showInvalidColor(innerPreview);
-      }
-      return;
-    }
-
-    for (const { cubie, input, preview } of innerColorControls) {
-      setCubieInnerColor(cubie, value);
-      input.value = getCurrentInnerColor(cubie);
-      preview.style.backgroundImage = "none";
-      preview.style.backgroundColor = getCurrentInnerColor(cubie);
-    }
-
-    updateInnerHeading();
-  }
-
-  innerInput.addEventListener("input", applyInnerColor);
-  innerInput.addEventListener("change", applyInnerColor);
-  attachColorPicker({
-    preview: innerPreview,
-    input: innerInput,
-    onColorChange: applyInnerColor,
-    undo: {
-      isAvailable: () => innerInput.placeholder === "Mixed",
-      getSnapshot: () =>
-        cubies.map((cubie) => [cubie, getCurrentInnerColor(cubie)]),
-      restoreSnapshot: (snapshot) => {
-        for (const [cubie, value] of snapshot) {
-          setCubieInnerColor(cubie, value);
-        }
-
-        for (const { cubie, input, preview } of innerColorControls) {
-          input.value = getCurrentInnerColor(cubie);
-          preview.style.backgroundImage = "none";
-          preview.style.backgroundColor = getCurrentInnerColor(cubie);
-        }
-
-        updateInnerHeading();
-      },
-    },
-  });
-  updateInnerHeading();
-
-  // ============================================================
-  // Facelet label color editor
-  // ============================================================
-
-  const defaultFaceletLabelColor = "#111";
-  const faceletLabelColorControls = new Map();
-  const faceletLabelFaceControls = new Map();
-
-  function getFaceletLabelColor(facelet) {
-    return (
-      faceletLabels.get(getFaceletData(facelet))?.userData.labelColor ??
-      defaultFaceletLabelColor
-    );
-  }
-
-  function updateFaceletLabelColorControl(facelet) {
-    const controls = faceletLabelColorControls.get(getFaceletData(facelet));
-
-    if (!controls) {
-      return;
-    }
-
-    controls.input.value = getFaceletLabelColor(facelet);
-    controls.preview.style.backgroundImage = "none";
-    controls.preview.style.backgroundColor = controls.input.value;
-  }
-
-  function updateFaceletLabelFaceControl(face) {
-    const controls = faceletLabelFaceControls.get(face);
-
-    if (!controls) {
-      return;
-    }
-
-    const sectionFacelets = facelets.filter(
-      (facelet) => getFaceletSection(facelet) === face,
-    );
-    const colors = sectionFacelets.map((facelet) =>
-      getFaceletLabelColor(facelet),
-    );
-    const firstColor = colors[0];
-    const isUniform = colors.every((color) => color === firstColor);
-
-    if (isUniform) {
-      controls.input.value = firstColor ?? defaultFaceletLabelColor;
-      controls.input.placeholder = "";
-      controls.preview.style.backgroundImage = "none";
-      controls.preview.style.backgroundColor = controls.input.value;
-    } else {
-      controls.input.value = "";
-      controls.input.placeholder = "Mixed";
-      controls.preview.style.backgroundColor = "transparent";
-      controls.preview.style.backgroundImage = `url(${mixedColorIcon})`;
-      controls.preview.style.backgroundSize = "contain";
-      controls.preview.style.backgroundRepeat = "no-repeat";
-      controls.preview.style.backgroundPosition = "center";
-    }
-  }
-
-  function updateFaceletLabelHeading() {
-    const colors = facelets.map((facelet) => getFaceletLabelColor(facelet));
-    const firstColor = colors[0];
-    const isUniform = colors.every((color) => color === firstColor);
-
-    if (isUniform) {
-      faceletLabelInput.value = firstColor ?? defaultFaceletLabelColor;
-      faceletLabelInput.placeholder = "";
-      faceletLabelPreview.style.backgroundImage = "none";
-      faceletLabelPreview.style.backgroundColor = faceletLabelInput.value;
-    } else {
-      faceletLabelInput.value = "";
-      faceletLabelInput.placeholder = "Mixed";
-      faceletLabelPreview.style.backgroundColor = "transparent";
-      faceletLabelPreview.style.backgroundImage = `url(${mixedColorIcon})`;
-      faceletLabelPreview.style.backgroundSize = "contain";
-      faceletLabelPreview.style.backgroundRepeat = "no-repeat";
-      faceletLabelPreview.style.backgroundPosition = "center";
-    }
-  }
-
-  function createFaceletLabelColorControls(facelet, name) {
-    const row = document.createElement("div");
-
-    row.style.display = "flex";
-    row.style.alignItems = "center";
-    row.style.gap = "6px";
-    row.style.marginBottom = "5px";
-
-    const nameElement = document.createElement("span");
-
-    nameElement.textContent = `Label ${name}:`;
-    nameElement.style.width = "95px";
-    nameElement.style.flexShrink = "0";
-    nameElement.style.fontFamily = "monospace";
-
-    const input = document.createElement("input");
-
-    input.type = "text";
-    input.value = getFaceletLabelColor(facelet);
-    input.style.flex = "1";
-    input.style.minWidth = "0";
-    input.style.padding = "4px";
-    input.style.boxSizing = "border-box";
-
-    const preview = document.createElement("span");
-
-    preview.style.width = "18px";
-    preview.style.height = "18px";
-    preview.style.borderRadius = "50%";
-    preview.style.border = "1px solid #999";
-    preview.style.flexShrink = "0";
-    preview.style.backgroundColor = input.value;
-
-    function applyColor() {
-      const value = input.value.trim();
-
-      if (!isValidColorValue(value)) {
-        if (value !== "") {
-          showInvalidColor(preview);
-        }
-        return;
-      }
-
-      updateFaceletLabelColor(facelet, value);
-      preview.style.backgroundImage = "none";
-      preview.style.backgroundColor = value;
-      updateFaceletLabelFaceControl(getFaceletSection(facelet));
-      updateFaceletLabelHeading();
-    }
-
-    input.addEventListener("input", applyColor);
-    input.addEventListener("change", applyColor);
-    attachColorPicker({ preview, input, onColorChange: applyColor });
-
-    faceletLabelColorControls.set(getFaceletData(facelet), {
-      input,
-      preview,
-    });
-    row.appendChild(nameElement);
-    row.appendChild(input);
-    row.appendChild(preview);
-
-    return row;
-  }
-
-  const faceletLabelInput = document.createElement("input");
-
-  faceletLabelInput.type = "text";
-  faceletLabelInput.style.width = "70px";
-  faceletLabelInput.style.padding = "3px";
-  faceletLabelInput.style.boxSizing = "border-box";
-
-  const faceletLabelPreview = document.createElement("span");
-
-  faceletLabelPreview.style.width = "18px";
-  faceletLabelPreview.style.height = "18px";
-  faceletLabelPreview.style.borderRadius = "50%";
-  faceletLabelPreview.style.border = "1px solid #999";
-  faceletLabelPreview.style.flexShrink = "0";
-  faceletLabelPreview.style.backgroundColor = defaultFaceletLabelColor;
-
-  function applyAllFaceletLabelColor() {
-    const value = faceletLabelInput.value.trim();
-
-    if (!isValidColorValue(value)) {
-      if (value !== "") {
-        showInvalidColor(faceletLabelPreview);
-      }
-      return;
-    }
-
-    for (const facelet of facelets) {
-      updateFaceletLabelColor(facelet, value);
-      updateFaceletLabelColorControl(facelet);
-    }
-
-    faceletLabelPreview.style.backgroundImage = "none";
-    faceletLabelPreview.style.backgroundColor = value;
-
-    for (const face of faceletSections.map(([sectionFace]) => sectionFace)) {
-      updateFaceletLabelFaceControl(face);
-    }
-  }
-
-  faceletLabelInput.addEventListener("input", applyAllFaceletLabelColor);
-  faceletLabelInput.addEventListener("change", applyAllFaceletLabelColor);
-  attachColorPicker({
-    preview: faceletLabelPreview,
-    input: faceletLabelInput,
-    onColorChange: applyAllFaceletLabelColor,
-    getInitialColor: () => defaultFaceletLabelColor,
-    undo: {
-      isAvailable: () => faceletLabelInput.placeholder === "Mixed",
-      getSnapshot: () =>
-        facelets.map((facelet) => [facelet, getFaceletLabelColor(facelet)]),
-      restoreSnapshot: (snapshot) => {
-        for (const [facelet, color] of snapshot) {
-          updateFaceletLabelColor(facelet, color);
-          updateFaceletLabelColorControl(facelet);
-        }
-
-        for (const [face] of faceletSections) {
-          updateFaceletLabelFaceControl(face);
-        }
-
-        updateFaceletLabelHeading();
-      },
-    },
-  });
-
-  const faceletLabelsSection = createCollapsibleSection({
-    title: "Facelet Labels",
-    titleControls: [faceletLabelInput, faceletLabelPreview],
-    headerStyles: {
-      marginTop: "14px",
-      marginBottom: "7px",
-      fontWeight: "bold",
-    },
-    contentStyles: { marginTop: "0" },
-    getContentId: () => "facelet-labels-panel-content",
-  });
-
-  colorsContent.appendChild(faceletLabelsSection.section);
-
-  for (const [face, title] of faceletSections) {
-    const sectionFacelets = facelets
-      .filter((facelet) => getFaceletSection(facelet) === face)
-      .sort(sortFaceletsBySolvedPosition);
-    const heading = document.createElement("div");
-
-    heading.style.display = "flex";
-    heading.style.alignItems = "center";
-    heading.style.gap = "6px";
-    heading.style.fontWeight = "bold";
-    heading.style.marginTop = "10px";
-    heading.style.marginBottom = "7px";
-
-    const headingText = document.createElement("span");
-
-    headingText.textContent = title;
-    styleUiTitle(headingText, { container: heading });
-
-    const input = document.createElement("input");
-
-    input.type = "text";
-    input.style.width = "70px";
-    input.style.padding = "3px";
-    input.style.boxSizing = "border-box";
-
-    const preview = document.createElement("span");
-
-    preview.style.width = "18px";
-    preview.style.height = "18px";
-    preview.style.borderRadius = "50%";
-    preview.style.border = "1px solid #999";
-    preview.style.flexShrink = "0";
-
-    const controls = { input, preview };
-
-    faceletLabelFaceControls.set(face, controls);
-
-    function applyFaceletLabelFaceColor() {
-      const value = input.value.trim();
-
-      if (!isValidColorValue(value)) {
-        if (value !== "") {
-          showInvalidColor(preview);
-        }
-        return;
-      }
-
-      for (const facelet of sectionFacelets) {
-        updateFaceletLabelColor(facelet, value);
-        updateFaceletLabelColorControl(facelet);
-      }
-
-      updateFaceletLabelFaceControl(face);
-      updateFaceletLabelHeading();
-    }
-
-    input.addEventListener("input", applyFaceletLabelFaceColor);
-    input.addEventListener("change", applyFaceletLabelFaceColor);
-    attachColorPicker({
-      preview,
-      input,
-      onColorChange: applyFaceletLabelFaceColor,
-      getInitialColor: () => getFaceletLabelColor(sectionFacelets[0]),
-      undo: {
-        isAvailable: () => input.placeholder === "Mixed",
-        getSnapshot: () =>
-          sectionFacelets.map((facelet) => [
-            facelet,
-            getFaceletLabelColor(facelet),
-          ]),
-        restoreSnapshot: (snapshot) => {
-          for (const [facelet, color] of snapshot) {
-            updateFaceletLabelColor(facelet, color);
-            updateFaceletLabelColorControl(facelet);
-          }
-
-          updateFaceletLabelFaceControl(face);
-          updateFaceletLabelHeading();
-        },
-      },
-    });
-
-    heading.appendChild(headingText);
-    heading.appendChild(input);
-    heading.appendChild(preview);
-    faceletLabelsSection.content.appendChild(heading);
-
-    for (const facelet of sectionFacelets) {
-      faceletLabelsSection.content.appendChild(
-        createFaceletLabelColorControls(
-          facelet,
-          getFaceletPositionName(facelet),
-        ),
-      );
-    }
-
-    updateFaceletLabelFaceControl(face);
-  }
-
-  updateFaceletLabelHeading();
-
-  // ============================================================
-  // Default colors
-  // ============================================================
-
-  function resetColorsInterface() {
-    const faceColors = {
-      U: defaultColors.top,
-      D: defaultColors.bottom,
-      F: defaultColors.front,
-      B: defaultColors.back,
-      R: defaultColors.right,
-      L: defaultColors.left,
-    };
-
-    for (const facelet of facelets) {
-      const color = faceColors[facelet.face];
-
-      if (!color) {
-        continue;
-      }
-
-      const faceletData = getFaceletData(facelet);
-
-      faceletData.currentColor = color;
-      faceletData.color = color;
-
-      const materialIndex = facelet.materialIndex;
-
-      if (
-        materialIndex !== undefined &&
-        facelet.cubie.material[materialIndex]
-      ) {
-        facelet.cubie.material[materialIndex].color.set(color);
-      }
-
-      const controls = colorInputs.get(getFaceletData(facelet));
-
-      if (controls) {
-        controls.input.value = color;
-        controls.preview.style.backgroundColor = color;
-      }
-
-      updateFaceColorControl(facelet.face);
-      updateOuterFaceletsControl();
-    }
-
-    for (const { cubie, input, preview } of innerColorControls) {
-      setCubieInnerColor(cubie, defaultColors.inner);
-      input.value = defaultColors.inner;
-      preview.style.backgroundImage = "none";
-      preview.style.backgroundColor = defaultColors.inner;
-    }
-
-    updateInnerHeading();
-
-    for (const facelet of facelets) {
-      updateFaceletLabelColor(facelet, defaultFaceletLabelColor);
-      updateFaceletLabelColorControl(facelet);
-    }
-
-    updateFaceletLabelHeading();
-
-    for (const [face] of faceletSections) {
-      updateFaceletLabelFaceControl(face);
-    }
-
-    axisDefinitions.forEach((axisDefinition, index) => {
-      updateAxisLabelColor(index, axisDefinition.color);
-      updateRotationArrowColor(index, axisDefinition.color);
-    });
-    axisLabelColorControls.forEach((control) => control.sync());
-    rotationArrowColorControls.forEach((control) => control.sync());
-  }
-
-  // ============================================================
-  // Labels panel
-  // ============================================================
-
-  labelsPanel = document.createElement("div");
-
-  labelsPanel.style.position = "absolute";
-  labelsPanel.style.top = "20px";
-  labelsPanel.style.right = "20px";
-  labelsPanel.style.width = "280px";
-  labelsPanel.style.padding = "16px";
-  labelsPanel.style.background = UI_PANEL_BACKGROUND;
-  labelsPanel.style.borderRadius = UI_PANEL_BORDER_RADIUS;
-  labelsPanel.style.boxShadow = UI_PANEL_BOX_SHADOW;
-  labelsPanel.style.fontFamily = UI_FONT_FAMILY;
-  labelsPanel.style.fontSize = UI_FONT_SIZE;
-  labelsPanel.style.boxSizing = "border-box";
-
-  const labelsHeader = document.createElement("div");
-
-  labelsHeader.style.display = "flex";
-  labelsHeader.style.alignItems = "center";
-  labelsHeader.style.justifyContent = "space-between";
-  labelsHeader.style.gap = "8px";
-  labelsHeader.style.cursor = "pointer";
-  labelsHeader.style.userSelect = "none";
-  labelsHeader.style.fontSize = "18px";
-  labelsHeader.style.fontWeight = "bold";
-
-  const labelsTitleRow = document.createElement("div");
-
-  labelsTitleRow.style.display = "flex";
-  labelsTitleRow.style.alignItems = "center";
-  labelsTitleRow.style.gap = "6px";
-
-  function resetLabelsState() {
-    showFaceletLabelsCheckbox.checked = false;
-    showAxisLabelsCheckbox.checked = false;
-    showAxisArrowsCheckbox.checked = false;
-    axisGroup.visible = false;
-    axisLabelVisibilityControl.style.display = "none";
-    setAllAxisLabelVisibility(false);
-    axisArrowVisibilityControl.style.display = "none";
-    setAllAxisArrowVisibility(false);
-    faceletLabelsVisibility = ALWAYS_VISIBLE;
-    faceletLabelsVisibilityControl.setVisibilityMode(faceletLabelsVisibility);
-    faceletLabelsVisibilityControl.style.display = "none";
-    axisLabelsVisibility = ALWAYS_VISIBLE;
-    axisLabelsVisibilityControl.setVisibilityMode(axisLabelsVisibility);
-    axisLabelsVisibilityControl.style.display = "none";
-    axisArrowsVisibility = HIDDEN_BEHIND_CUBE;
-    axisArrowsVisibilityControl.setVisibilityMode(axisArrowsVisibility);
-    axisArrowsVisibilityControl.style.display = "none";
-    rotationArrowsVisibility = ALWAYS_VISIBLE;
-    rotationArrowsVisibilityControl.setVisibilityMode(rotationArrowsVisibility);
-    rotationArrowsVisibilityControl.style.display = "none";
-    updateFaceletLabelsVisibilityMode();
-    updateAxisLabelsVisibilityMode();
-    updateAxisArrowsVisibilityMode();
-    updateRotationArrowsVisibilityMode();
-    showRotationArrowsCheckbox.checked = false;
-    rotationArrowGroup.visible = false;
-    rotationArrowVisibilityControl.style.display = "none";
-    updateRotationArrowDirectionControlVisibility();
-    rotationArrowRadiusControl.style.display = "none";
-    setAllRotationArrowVisibility(true);
-    rotationArrowDepthControl.style.display = "none";
-    rotationArrowThicknessControl.style.display = "none";
-    rotationArrowDepth = DEFAULT_ROTATION_ARROW_DEPTH;
-    rotationArrowDepthSlider.value = String(rotationArrowDepth);
-    rotationArrowDepthValue.value = String(rotationArrowDepth);
-    updateRotationArrowDepth();
-    rotationArrowThickness = DEFAULT_ROTATION_ARROW_THICKNESS;
-    rotationArrowThicknessSlider.value = String(rotationArrowThickness);
-    rotationArrowThicknessValue.value = String(rotationArrowThickness);
-    updateRotationArrowThickness();
-    rotationArrowRadius = DEFAULT_ROTATION_ARROW_RADIUS;
-    rotationArrowRadiusSlider.value = String(rotationArrowRadius);
-    rotationArrowRadiusValue.value = String(rotationArrowRadius);
-    updateRotationArrowRadius();
-    rotationArrowDirection = "clockwise";
-    rotationArrowDirectionSelect.value = rotationArrowDirection;
-    updateRotationArrowDirection();
-    axisLabelNameTitle.style.display = "none";
-    axisLabelModeContainer.style.display = "none";
-    selectAxisLabelMode("face");
-    for (const [face, input] of axisLabelCustomInputs) {
-      input.value = face;
-      const axisDefinition = axisDefinitions.find(
-        (definition) => definition.label.face === face,
-      );
-
-      if (axisDefinition) {
-        axisDefinition.label.custom = face;
-      }
-    }
-    axisDepthControl.style.display = "none";
-    axisDepth = DEFAULT_AXIS_DEPTH;
-    axisDepthSlider.value = String(axisDepth);
-    axisDepthValue.value = String(axisDepth);
-    updateAxisDepth();
-    axisLabelDepthControl.style.display = "none";
-    axisLabelDepth = DEFAULT_LABEL_DEPTH;
-    axisLabelDepthSlider.value = String(axisLabelDepth);
-    axisLabelDepthValue.value = String(axisLabelDepth);
-    updateAxisLabelDepth();
-    labelDepth = DEFAULT_LABEL_DEPTH;
-    labelDepthSlider.value = String(labelDepth);
-    labelDepthValue.value = String(labelDepth);
-    updateFaceletLabelVisibility();
-  }
-
-  const resetLabelsButton = createResetButton("Reset Labels", resetLabelsState);
-
-  const labelsTitle = document.createElement("span");
-
-  labelsTitle.textContent = "Labels";
-  labelsTitleRow.appendChild(resetLabelsButton);
-  labelsTitleRow.appendChild(labelsTitle);
-  labelsHeader.appendChild(labelsTitleRow);
-
-  const labelsCollapseIcon = document.createElement("span");
-
-  labelsCollapseIcon.textContent = "+";
-  labelsCollapseIcon.style.fontSize = "20px";
-  labelsCollapseIcon.style.lineHeight = "1";
-  labelsHeader.appendChild(labelsCollapseIcon);
-
-  labelsHeader.setAttribute("role", "button");
-  labelsHeader.setAttribute("aria-expanded", "false");
-  labelsHeader.tabIndex = 0;
-
-  const labelsContent = document.createElement("div");
-
-  labelsContent.id = "labels-panel-content";
-  labelsContent.style.marginTop = "12px";
-
-  let labelsCollapsed = true;
-  labelsContent.style.display = "none";
-
-  function toggleLabelsPanel() {
-    labelsCollapsed = !labelsCollapsed;
-
-    if (!labelsCollapsed) {
-      collapseOtherPanels("labels");
-    }
-
-    labelsContent.style.display = labelsCollapsed ? "none" : "block";
-    labelsCollapseIcon.textContent = labelsCollapsed ? "+" : "−";
-    labelsHeader.setAttribute("aria-expanded", String(!labelsCollapsed));
-    scheduleCubePanelPositionUpdate();
-  }
-
-  labelsHeader.setAttribute("aria-controls", labelsContent.id);
-  labelsHeader.addEventListener("click", toggleLabelsPanel);
-  labelsHeader.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    toggleLabelsPanel();
-  });
-
-  const showFaceletLabelsLabel = document.createElement("label");
-
-  showFaceletLabelsLabel.style.display = "flex";
-  showFaceletLabelsLabel.style.alignItems = "center";
-  showFaceletLabelsLabel.style.gap = "7px";
-  showFaceletLabelsLabel.style.marginTop = "12px";
-  showFaceletLabelsLabel.style.cursor = "pointer";
-
-  const showFaceletLabelsCheckbox = document.createElement("input");
-
-  showFaceletLabelsCheckbox.type = "checkbox";
-
-  const showFaceletLabelsText = document.createElement("span");
-
-  showFaceletLabelsText.textContent = "Show Facelet Labels";
-  styleUiTitle(showFaceletLabelsText, {
-    container: showFaceletLabelsLabel,
-    marginBottom: "0",
-  });
-
-  showFaceletLabelsLabel.appendChild(showFaceletLabelsCheckbox);
-  showFaceletLabelsLabel.appendChild(showFaceletLabelsText);
-
-  const axisGroup = new Group();
-  const axisLength = 1;
-  let axisDepth = DEFAULT_AXIS_DEPTH;
-  let rotationArrowDepth = DEFAULT_ROTATION_ARROW_DEPTH;
-  let rotationArrowThickness = DEFAULT_ROTATION_ARROW_THICKNESS;
-  let rotationArrowRadius = DEFAULT_ROTATION_ARROW_RADIUS;
-  let rotationArrowDirection = "clockwise";
-  let faceletLabelsVisibility = ALWAYS_VISIBLE;
-  let axisLabelsVisibility = ALWAYS_VISIBLE;
-  let axisArrowsVisibility = HIDDEN_BEHIND_CUBE;
-  let rotationArrowsVisibility = ALWAYS_VISIBLE;
-  let axisLabelDepth = DEFAULT_LABEL_DEPTH;
-  let axisLabelMode = "face";
+  const defaultFaceletLabelColor = DEFAULT_FACELET_LABEL_COLOR;
   const defaultFaceColors = {
     R: defaultColors.right,
     L: defaultColors.left,
@@ -6373,1258 +4610,140 @@ export function createUI({
       depth: DEFAULT_LABEL_DEPTH,
     },
   ];
-
-  function getAxisLabelText(axisDefinition) {
-    return axisLabelMode === "custom"
-      ? axisDefinition.label.custom
-      : axisDefinition.label[axisLabelMode];
-  }
-
-  function createAxisLabel(axisDefinition) {
-    const canvas = document.createElement("canvas");
-    const canvasScale = 8;
-
-    canvas.width = 128 * canvasScale;
-    canvas.height = 64 * canvasScale;
-
-    const context = canvas.getContext("2d");
-
-    context.font = `bold ${36 * canvasScale}px Arial`;
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillStyle = axisDefinition.color;
-    context.strokeStyle = "rgba(0, 0, 0, 0.9)";
-    context.lineWidth = 6 * canvasScale;
-    context.lineJoin = "round";
-    context.lineCap = "round";
-    const labelText = getAxisLabelText(axisDefinition);
-
-    context.strokeText(
-      labelText,
-      (128 / 2) * canvasScale,
-      (64 / 2) * canvasScale,
-    );
-    context.fillText(
-      labelText,
-      (128 / 2) * canvasScale,
-      (64 / 2) * canvasScale,
-    );
-
-    const sprite = new Sprite(
-      new SpriteMaterial({
-        map: new CanvasTexture(canvas),
-        transparent: true,
-        depthTest: false,
-        depthWrite: false,
-      }),
-    );
-
-    sprite.scale.set(0.45, 0.225, 1);
-    sprite.userData.canvas = canvas;
-    sprite.userData.context = context;
-    sprite.userData.labelColor = axisDefinition.color;
-    sprite.userData.axisDefinition = axisDefinition;
-    sprite.userData.coordinateLabel = axisDefinition.label.coordinate;
-    sprite.userData.faceLabel = axisDefinition.label.face;
-    return sprite;
-  }
-
-  for (const axisDefinition of axisDefinitions) {
-    const guideline = new ArrowHelper(
-      axisDefinition.direction,
-      axisDefinition.direction.clone().multiplyScalar(axisDepth),
-      axisLength,
-      0x000000,
-      0.165,
-      0.095,
-    );
-    const guidelineLine = guideline.line;
-    const guidelineShaftLength = axisLength - 0.165;
-
-    guideline.remove(guidelineLine);
-    guideline.line = new Mesh(
-      new CylinderGeometry(0.008, 0.008, guidelineShaftLength, 12),
-      new MeshBasicMaterial({ color: 0x000000 }),
-    );
-    guideline.line.position.y = guidelineShaftLength / 2;
-    guideline.add(guideline.line);
-    const arrow = new ArrowHelper(
-      new Vector3(0, 1, 0),
-      new Vector3(),
-      axisLength,
-      axisDefinition.color,
-      0.16,
-      0.09,
-    );
-    const axisLabel = createAxisLabel(axisDefinition);
-
-    guideline.line.material.depthWrite = false;
-    guideline.cone.material.depthWrite = false;
-    guideline.add(arrow);
-    guideline.visible = false;
-    axisLabel.visible = false;
-    axisLabel.position
-      .copy(axisDefinition.direction)
-      .multiplyScalar(axisLength + axisDefinition.depth);
-    axisGroup.add(guideline, axisLabel);
-  }
-
-  axisGroup.visible = false;
-  scene.add(axisGroup);
-
-  const rotationArrowGroup = new Group();
-  const rotationArrowColors = axisDefinitions.map(
-    (axisDefinition) => axisDefinition.color,
-  );
-  const rotationArrowVisibility = axisDefinitions.map(() => true);
-
-  function createRotationArrow(axisDefinition, color) {
-    const direction = axisDefinition.direction;
-    let firstBasis;
-    let secondBasis;
-
-    if (Math.abs(direction.x) === 1) {
-      firstBasis = new Vector3(0, 1, 0);
-      secondBasis = new Vector3(0, 0, 1);
-    } else if (Math.abs(direction.y) === 1) {
-      firstBasis = new Vector3(1, 0, 0);
-      secondBasis = new Vector3(0, 0, 1);
-    } else {
-      firstBasis = new Vector3(1, 0, 0);
-      secondBasis = new Vector3(0, 1, 0);
-    }
-
-    if (firstBasis.clone().cross(secondBasis).dot(direction) < 0) {
-      secondBasis.negate();
-    }
-
-    const arrow = new Group();
-    arrow.userData.color = color;
-    arrow.userData.index = axisDefinitions.indexOf(axisDefinition);
-    const angleDirection = rotationArrowDirection === "clockwise" ? -1 : 1;
-
-    function addCircularArrow(startAngle, endAngle, segments = 18) {
-      const points = [];
-
-      for (let index = 0; index <= segments; index += 1) {
-        const angle = startAngle + ((endAngle - startAngle) * index) / segments;
-        const point = firstBasis
-          .clone()
-          .multiplyScalar(Math.cos(angle) * rotationArrowRadius)
-          .add(
-            secondBasis
-              .clone()
-              .multiplyScalar(Math.sin(angle) * rotationArrowRadius),
-          );
-
-        points.push(point);
-      }
-
-      const line = new Mesh(
-        new TubeGeometry(
-          new CatmullRomCurve3(points, false, "centripetal"),
-          segments,
-          rotationArrowThickness / 2,
-          8,
-          false,
-        ),
-        new MeshBasicMaterial({
-          color,
-          depthTest: false,
-          depthWrite: false,
-        }),
-      );
-      line.renderOrder = 20;
-
-      const arrowPosition = points.at(-1);
-      const previousPoint = points.at(-2);
-      const arrowDirection = arrowPosition
-        .clone()
-        .sub(previousPoint)
-        .normalize();
-      const arrowhead = new ArrowHelper(
-        arrowDirection,
-        arrowPosition,
-        rotationArrowThickness * 10,
-        color,
-        rotationArrowThickness * 6,
-        rotationArrowThickness * 4,
-      );
-      arrowhead.renderOrder = 20;
-
-      arrow.add(line, arrowhead);
-    }
-
-    addCircularArrow(Math.PI * 0.82, Math.PI * (0.82 + angleDirection * 0.74));
-    addCircularArrow(
-      -Math.PI * 0.18,
-      Math.PI * (-0.18 + angleDirection * 0.74),
-    );
-
-    arrow.position
-      .copy(axisDefinition.direction)
-      .multiplyScalar(rotationArrowDepth);
-    return arrow;
-  }
-
-  axisDefinitions.forEach((axisDefinition, index) => {
-    const arrow = createRotationArrow(
-      axisDefinition,
-      rotationArrowColors[index],
-    );
-
-    arrow.visible = rotationArrowVisibility[index];
-    rotationArrowGroup.add(arrow);
+  const faceletLabelController = createFaceletLabelController({
+    facelets,
+    getSize: () => size,
+    getGap: () => gap,
+    getLabelText: getFaceletPositionName,
+    initialDepth: DEFAULT_LABEL_DEPTH,
   });
 
-  function updateRotationArrowGeometry() {
-    const colors = rotationArrowGroup.children.map(
-      (arrow) => arrow.userData.color,
-    );
+  updateFaceletLabelTransforms = faceletLabelController.refreshAll;
 
-    rotationArrowGroup.clear();
-    axisDefinitions.forEach((axisDefinition, index) => {
-      const arrow = createRotationArrow(axisDefinition, colors[index]);
+  function setFaceletColor(facelet, value) {
+    const faceletData = getFaceletData(facelet);
 
-      arrow.visible = rotationArrowVisibility[index];
-      rotationArrowGroup.add(arrow);
-    });
-    updateRotationArrowsVisibilityMode();
-  }
+    faceletData.currentColor = value;
+    faceletData.color = value;
+    const currentFacelet = getCurrentFaceletRecord(facelet);
+    const material = currentFacelet?.cubie.material[currentFacelet.materialIndex];
 
-  const updateRotationArrowDirection = updateRotationArrowGeometry;
-  const updateRotationArrowThickness = updateRotationArrowGeometry;
-  const updateRotationArrowRadius = updateRotationArrowGeometry;
-
-  rotationArrowGroup.visible = false;
-  scene.add(rotationArrowGroup);
-
-  function updateRotationArrowDepth() {
-    for (const [index, axisDefinition] of axisDefinitions.entries()) {
-      rotationArrowGroup.children[index].position
-        .copy(axisDefinition.direction)
-        .multiplyScalar(rotationArrowDepth);
+    if (material) {
+      material.color.set(value);
     }
   }
 
-  updateRotationArrowDepth();
+  function setCubieInnerColor(cubie, value) {
+    cubie.userData.currentInnerColor = value;
+    cubie.userData.innerColor = value;
 
-  updateAxisHelperScale = () => {
-    const scale = Math.max(size * 2.4, 1.5);
+    for (const material of cubie.material) {
+      material.color.set(value);
+    }
 
-    axisGroup.scale.setScalar(scale);
-    rotationArrowGroup.scale.setScalar(scale);
-  };
-  updateAxisHelperScale();
-
-  const axisLabelColorControls = new Map();
-  const rotationArrowColorControls = new Map();
-
-  function updateAxisLabelColor(index, color) {
-    const label = axisGroup.children[index * 2 + 1];
-
-    label.userData.labelColor = color;
-    label.userData.context.fillStyle = color;
-    const canvas = label.userData.canvas;
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-
-    label.userData.context.clearRect(0, 0, canvas.width, canvas.height);
-    const labelText = getAxisLabelText(label.userData.axisDefinition);
-
-    label.userData.context.strokeText(labelText, centerX, centerY);
-    label.userData.context.fillText(labelText, centerX, centerY);
-    label.material.map.needsUpdate = true;
-  }
-
-  function updateRotationArrowColor(index, color) {
-    const arrow = rotationArrowGroup.children[index];
-
-    arrow.userData.color = color;
-    arrow.traverse((object) => {
-      if (object.material?.color) {
-        object.material.color.set(color);
+    for (const facelet of facelets) {
+      if (facelet.cubie !== cubie) {
+        continue;
       }
-    });
-  }
+      const material = cubie.material[facelet.materialIndex];
 
-  function createAxisColorControl(
-    title,
-    getColor,
-    applyColor,
-    container = colorsContent,
-  ) {
-    const heading = document.createElement("div");
-
-    heading.style.display = "flex";
-    heading.style.alignItems = "center";
-    heading.style.gap = "6px";
-    heading.style.marginTop = "10px";
-    heading.style.marginBottom = "7px";
-
-    const titleElement = document.createElement("span");
-
-    titleElement.textContent = title;
-
-    const input = document.createElement("input");
-
-    input.type = "text";
-    input.style.width = "70px";
-    input.style.padding = "3px";
-    input.style.boxSizing = "border-box";
-
-    const preview = document.createElement("span");
-
-    preview.style.width = "18px";
-    preview.style.height = "18px";
-    preview.style.borderRadius = "50%";
-    preview.style.border = "1px solid #999";
-    preview.style.flexShrink = "0";
-
-    function sync() {
-      const color = getColor();
-
-      if (color) {
-        input.value = color;
-        input.placeholder = "";
-        preview.style.backgroundImage = "none";
-        preview.style.backgroundColor = color;
-      } else {
-        input.value = "";
-        input.placeholder = "Mixed";
-        preview.style.backgroundColor = "transparent";
-        preview.style.backgroundImage = `url(${mixedColorIcon})`;
-        preview.style.backgroundSize = "contain";
-        preview.style.backgroundRepeat = "no-repeat";
-        preview.style.backgroundPosition = "center";
+      if (material) {
+        material.color.set(getCurrentFaceletColor(facelet));
       }
     }
-
-    function apply() {
-      const value = input.value.trim();
-
-      if (!isValidColorValue(value)) {
-        if (value !== "") {
-          showInvalidColor(preview);
-        }
-        return;
-      }
-
-      applyColor(value);
-      sync();
-    }
-
-    input.addEventListener("input", apply);
-    input.addEventListener("change", apply);
-    attachColorPicker({
-      preview,
-      input,
-      onColorChange: apply,
-      getInitialColor: () => getColor() ?? "#111",
-    });
-
-    heading.appendChild(titleElement);
-    heading.appendChild(input);
-    heading.appendChild(preview);
-    container.appendChild(heading);
-
-    return { input, preview, sync };
   }
 
-  function getUniformColor(getColor) {
-    const colors = axisDefinitions.map((_, index) => getColor(index));
-    const firstColor = colors[0];
+  const axisSceneController = createAxisSceneController({
+    scene,
+    axisDefinitions,
+    getAxisLabelText: (axisDefinition) => axisDefinition.label.face,
+    initialSize: size,
+    initialAxisDepth: DEFAULT_AXIS_DEPTH,
+    initialAxisLabelDepth: DEFAULT_LABEL_DEPTH,
+    initialRotationArrowDepth: DEFAULT_ROTATION_ARROW_DEPTH,
+    initialRotationArrowThickness: DEFAULT_ROTATION_ARROW_THICKNESS,
+    initialRotationArrowRadius: DEFAULT_ROTATION_ARROW_RADIUS,
+    initialRotationArrowDirection: "clockwise",
+  });
+  const axisGroup = axisSceneController.getAxisGroup();
+  const rotationArrowGroup = axisSceneController.getRotationArrowGroup();
 
-    return colors.every((color) => color === firstColor) ? firstColor : null;
-  }
+  updateAxisHelperScale = axisSceneController.setScale;
 
-  const axisLabelOrder = FACE_ORDER;
-
-  function createInlineColorField(
-    getColor,
-    applyColor,
-    getPickerState,
-    restorePickerState,
-  ) {
-    const input = document.createElement("input");
-    const preview = document.createElement("span");
-
-    input.type = "text";
-    input.style.width = "70px";
-    input.style.padding = "3px";
-    input.style.boxSizing = "border-box";
-
-    preview.style.width = "18px";
-    preview.style.height = "18px";
-    preview.style.borderRadius = "50%";
-    preview.style.border = "1px solid #999";
-    preview.style.flexShrink = "0";
-
-    function sync() {
-      const color = getColor();
-
-      if (color) {
-        input.value = color;
-        input.placeholder = "";
-        preview.style.backgroundImage = "none";
-        preview.style.backgroundColor = color;
-      } else {
-        input.value = "";
-        input.placeholder = "Mixed";
-        preview.style.backgroundColor = "transparent";
-        preview.style.backgroundImage = `url(${mixedColorIcon})`;
-        preview.style.backgroundSize = "contain";
-        preview.style.backgroundRepeat = "no-repeat";
-        preview.style.backgroundPosition = "center";
-      }
-    }
-
-    function handleInput() {
-      const value = input.value.trim();
-
-      if (!isValidColorValue(value)) {
-        if (value !== "") {
-          showInvalidColor(preview);
-        }
-        return;
-      }
-
-      applyColor(value);
-      sync();
-    }
-
-    input.addEventListener("input", handleInput);
-    input.addEventListener("change", handleInput);
-    attachColorPicker({
-      preview,
-      input,
-      onColorChange: handleInput,
-      getInitialColor: () => getColor() ?? "#111",
-      undo: {
-        isAvailable: () => input.placeholder === "Mixed",
-        getSnapshot: getPickerState,
-        restoreSnapshot: restorePickerState,
-      },
-    });
-
-    sync();
-
-    return { input, preview, sync };
-  }
-
-  const axisLabelAllControls = createInlineColorField(
-    () =>
-      getUniformColor(
-        (index) => axisGroup.children[index * 2 + 1].userData.labelColor,
-      ),
-    (color) => {
-      axisDefinitions.forEach((_, index) => updateAxisLabelColor(index, color));
-      axisLabelColorControls.forEach((control) => control.sync());
-    },
-    () =>
-      axisDefinitions.map(
-        (_, index) => axisGroup.children[index * 2 + 1].userData.labelColor,
-      ),
-    (snapshot) => {
-      snapshot.forEach((color, index) => updateAxisLabelColor(index, color));
-      axisLabelColorControls.forEach((control) => control.sync());
-    },
-  );
-
-  const axisLabelColorSection = createCollapsibleSection({
-    title: "Axis Labels",
-    titleControls: [axisLabelAllControls.input, axisLabelAllControls.preview],
-    headerStyles: {
-      marginTop: "14px",
-      marginBottom: "7px",
-      fontWeight: "bold",
-    },
-    contentStyles: { marginTop: "0" },
-    getContentId: () => "axis-label-color-panel-content",
+  const colorsPanelController = createColorsPanel({
+    facelets,
+    cubies,
+    axisDefinitions,
+    getFaceletData,
+    getFaceletPositionName,
+    getFaceletSection,
+    getFaceletColor: getCurrentFaceletColor,
+    setFaceletColor,
+    sortFaceletsBySolvedPosition,
+    getInnerColor: getCurrentInnerColor,
+    setInnerColor: setCubieInnerColor,
+    faceletLabelController,
+    axisSceneController,
+    createResetButton,
+    styleUiTitle,
+    panelBackground: UI_PANEL_BACKGROUND,
+    panelBorderRadius: UI_PANEL_BORDER_RADIUS,
+    panelBoxShadow: UI_PANEL_BOX_SHADOW,
+    fontFamily: UI_FONT_FAMILY,
+    fontSize: UI_FONT_SIZE,
+    onReset: resetColorsInterface,
+    onExpand: () => collapseOtherPanels("colors"),
+    onLayoutChange: updateCubePanelPosition,
   });
 
-  const rotationArrowAllControls = createInlineColorField(
-    () =>
-      getUniformColor(
-        (index) => rotationArrowGroup.children[index].userData.color,
-      ),
-    (color) => {
-      axisDefinitions.forEach((_, index) =>
-        updateRotationArrowColor(index, color),
-      );
-      rotationArrowColorControls.forEach((control) => control.sync());
-    },
-    () =>
-      axisDefinitions.map(
-        (_, index) => rotationArrowGroup.children[index].userData.color,
-      ),
-    (snapshot) => {
-      snapshot.forEach((color, index) =>
-        updateRotationArrowColor(index, color),
-      );
-      rotationArrowColorControls.forEach((control) => control.sync());
-    },
-  );
+  colorsPanel = colorsPanelController.root;
+  controlsRoot.appendChild(colorsPanel);
+  controlsRoot.insertBefore(viewPanel, colorsPanel);
 
-  const rotationArrowSection = createCollapsibleSection({
-    title: "Arrows",
-    titleControls: [
-      rotationArrowAllControls.input,
-      rotationArrowAllControls.preview,
-    ],
-    headerStyles: {
-      marginTop: "14px",
-      marginBottom: "7px",
-      fontWeight: "bold",
-    },
-    contentStyles: { marginTop: "0" },
-    getContentId: () => "rotation-arrow-color-panel-content",
+  const labelsPanelController = createLabelsPanel({
+    faceletLabelController,
+    axisSceneController,
+    axisDefinitions,
+    defaultLabelDepth: DEFAULT_LABEL_DEPTH,
+    defaultAxisDepth: DEFAULT_AXIS_DEPTH,
+    defaultRotationArrowDepth: DEFAULT_ROTATION_ARROW_DEPTH,
+    defaultRotationArrowThickness: DEFAULT_ROTATION_ARROW_THICKNESS,
+    defaultRotationArrowRadius: DEFAULT_ROTATION_ARROW_RADIUS,
+    panelBackground: UI_PANEL_BACKGROUND,
+    panelBorder: UI_PANEL_BORDER,
+    panelBorderRadius: UI_PANEL_BORDER_RADIUS,
+    panelBoxShadow: UI_PANEL_BOX_SHADOW,
+    fontFamily: UI_FONT_FAMILY,
+    fontSize: UI_FONT_SIZE,
+    createResetButton,
+    styleUiTitle,
+    onExpand: () => collapseOtherPanels("labels"),
+    onLayoutChange: updateCubePanelPosition,
   });
 
-  colorsContent.appendChild(axisLabelColorSection.section);
-  colorsContent.appendChild(rotationArrowSection.section);
-
-  axisLabelColorControls.set("all", {
-    input: axisLabelAllControls.input,
-    preview: axisLabelAllControls.preview,
-    sync: axisLabelAllControls.sync,
-  });
-  rotationArrowColorControls.set("all", {
-    input: rotationArrowAllControls.input,
-    preview: rotationArrowAllControls.preview,
-    sync: rotationArrowAllControls.sync,
-  });
-
-  axisLabelOrder.forEach((face) => {
-    const index = axisDefinitions.findIndex(
-      (axisDefinition) => axisDefinition.label.face === face,
-    );
-
-    if (index === -1) {
-      return;
-    }
-
-    axisLabelColorControls.set(
-      index,
-      createAxisColorControl(
-        `Axis Label ${face}`,
-        () => axisGroup.children[index * 2 + 1].userData.labelColor,
-        (color) => {
-          updateAxisLabelColor(index, color);
-          axisLabelColorControls.get("all")?.sync();
-        },
-        axisLabelColorSection.content,
-      ),
-    );
-
-    rotationArrowColorControls.set(
-      index,
-      createAxisColorControl(
-        `Arrow ${face}`,
-        () => rotationArrowGroup.children[index].userData.color,
-        (color) => {
-          updateRotationArrowColor(index, color);
-          rotationArrowColorControls.get("all")?.sync();
-        },
-        rotationArrowSection.content,
-      ),
-    );
-  });
-
-  axisLabelColorControls.forEach((control) => control.sync());
-  rotationArrowColorControls.forEach((control) => control.sync());
-
-  const showAxisLabelsLabel = document.createElement("label");
-
-  showAxisLabelsLabel.style.display = "flex";
-  showAxisLabelsLabel.style.alignItems = "center";
-  showAxisLabelsLabel.style.gap = "7px";
-  showAxisLabelsLabel.style.marginTop = "12px";
-  showAxisLabelsLabel.style.cursor = "pointer";
-
-  const showAxisLabelsCheckbox = document.createElement("input");
-
-  showAxisLabelsCheckbox.type = "checkbox";
-
-  const showAxisLabelsText = document.createElement("span");
-
-  showAxisLabelsText.textContent = "Show Axis Labels";
-  styleUiTitle(showAxisLabelsText, {
-    container: showAxisLabelsLabel,
-    marginBottom: "0",
-  });
-
-  showAxisLabelsLabel.appendChild(showAxisLabelsCheckbox);
-  showAxisLabelsLabel.appendChild(showAxisLabelsText);
-
-  const axisLabelVisibilityControl = document.createElement("div");
-
-  axisLabelVisibilityControl.style.display = "none";
-  axisLabelVisibilityControl.style.marginTop = "8px";
-  axisLabelVisibilityControl.style.marginLeft = "22px";
-
-  const axisLabelVisibilityCheckboxes = new Map();
-  const axisLabelCustomInputs = new Map();
-  const axisLabelCustomMarkers = new Map();
-
-  for (const face of FACE_ORDER) {
-    const label = document.createElement("label");
-
-    label.style.display = "flex";
-    label.style.alignItems = "center";
-    label.style.gap = "7px";
-    label.style.marginBottom = "6px";
-    label.style.cursor = "pointer";
-
-    const checkbox = document.createElement("input");
-
-    checkbox.type = "checkbox";
-    checkbox.checked = false;
-
-    const text = document.createElement("span");
-
-    text.textContent = `Show Label ${face}`;
-    const asText = document.createElement("span");
-
-    asText.textContent = "as";
-    asText.style.visibility = "hidden";
-
-    const customInput = document.createElement("input");
-
-    customInput.type = "text";
-    customInput.value = face;
-    customInput.style.visibility = "hidden";
-    customInput.style.width = "55px";
-    customInput.style.padding = "3px";
-    customInput.style.boxSizing = "border-box";
-    customInput.setAttribute("aria-label", `Custom Label ${face}`);
-    customInput.addEventListener("input", () => {
-      const axisDefinition = axisDefinitions.find(
-        (definition) => definition.label.face === face,
-      );
-
-      if (!axisDefinition) {
-        return;
-      }
-
-      axisDefinition.label.custom = customInput.value;
-      updateAxisLabelText();
-    });
-
-    label.appendChild(checkbox);
-    label.appendChild(text);
-    label.appendChild(asText);
-    label.appendChild(customInput);
-    axisLabelVisibilityControl.appendChild(label);
-    axisLabelVisibilityCheckboxes.set(face, checkbox);
-    axisLabelCustomInputs.set(face, customInput);
-    axisLabelCustomMarkers.set(face, asText);
-  }
-
-  const showRotationArrowsLabel = document.createElement("label");
-
-  showRotationArrowsLabel.style.display = "flex";
-  showRotationArrowsLabel.style.alignItems = "center";
-  showRotationArrowsLabel.style.gap = "7px";
-  showRotationArrowsLabel.style.marginTop = "10px";
-  showRotationArrowsLabel.style.cursor = "pointer";
-
-  const showRotationArrowsCheckbox = document.createElement("input");
-
-  showRotationArrowsCheckbox.type = "checkbox";
-
-  const showRotationArrowsText = document.createElement("span");
-
-  showRotationArrowsText.textContent = "Show Rotation Arrows";
-  styleUiTitle(showRotationArrowsText, {
-    container: showRotationArrowsLabel,
-    marginBottom: "0",
-  });
-  showRotationArrowsLabel.appendChild(showRotationArrowsCheckbox);
-  showRotationArrowsLabel.appendChild(showRotationArrowsText);
-
-  const rotationArrowVisibilityControl = document.createElement("div");
-
-  rotationArrowVisibilityControl.style.display = "none";
-  rotationArrowVisibilityControl.style.marginTop = "8px";
-  rotationArrowVisibilityControl.style.marginLeft = "22px";
-
-  const rotationArrowVisibilityCheckboxes = new Map();
-
-  for (const face of FACE_ORDER) {
-    const label = document.createElement("label");
-
-    label.style.display = "flex";
-    label.style.alignItems = "center";
-    label.style.gap = "7px";
-    label.style.marginBottom = "6px";
-    label.style.cursor = "pointer";
-
-    const checkbox = document.createElement("input");
-
-    checkbox.type = "checkbox";
-    checkbox.checked = false;
-
-    const text = document.createElement("span");
-
-    text.textContent = `Show Arrow ${face}`;
-    label.appendChild(checkbox);
-    label.appendChild(text);
-    rotationArrowVisibilityControl.appendChild(label);
-    rotationArrowVisibilityCheckboxes.set(face, checkbox);
-  }
-
-  const rotationArrowDepthControl = document.createElement("div");
-
-  rotationArrowDepthControl.style.display = "none";
-  rotationArrowDepthControl.style.marginTop = "10px";
-
-  const rotationArrowDepthLabel = document.createElement("label");
-
-  rotationArrowDepthLabel.textContent = "Rotation Arrow Depth";
-  rotationArrowDepthLabel.style.display = "block";
-  rotationArrowDepthLabel.style.marginBottom = "5px";
-
-  const rotationArrowDepthSlider = document.createElement("input");
-
-  rotationArrowDepthSlider.type = "range";
-  rotationArrowDepthSlider.min = "0";
-  rotationArrowDepthSlider.max = "2";
-  rotationArrowDepthSlider.step = "0.001";
-  rotationArrowDepthSlider.value = String(rotationArrowDepth);
-  rotationArrowDepthSlider.style.flex = "1";
-  rotationArrowDepthSlider.style.minWidth = "0";
-  rotationArrowDepthSlider.setAttribute("aria-label", "Rotation Arrow Depth");
-
-  const rotationArrowDepthValue = document.createElement("input");
-
-  rotationArrowDepthValue.type = "text";
-  rotationArrowDepthValue.value = String(rotationArrowDepth);
-  rotationArrowDepthValue.style.width = "55px";
-  rotationArrowDepthValue.style.boxSizing = "border-box";
-  rotationArrowDepthValue.style.textAlign = "center";
-  rotationArrowDepthValue.setAttribute(
-    "aria-label",
-    "Rotation Arrow Depth Value",
-  );
-
-  const rotationArrowDepthRow = document.createElement("div");
-
-  rotationArrowDepthRow.style.display = "flex";
-  rotationArrowDepthRow.style.alignItems = "center";
-  rotationArrowDepthRow.style.gap = "8px";
-
-  rotationArrowDepthControl.appendChild(rotationArrowDepthLabel);
-  rotationArrowDepthRow.appendChild(rotationArrowDepthSlider);
-  rotationArrowDepthRow.appendChild(rotationArrowDepthValue);
-  rotationArrowDepthControl.appendChild(rotationArrowDepthRow);
-
-  const rotationArrowThicknessControl = document.createElement("div");
-
-  rotationArrowThicknessControl.style.display = "none";
-  rotationArrowThicknessControl.style.marginTop = "10px";
-
-  const rotationArrowThicknessLabel = document.createElement("label");
-
-  rotationArrowThicknessLabel.textContent = "Rotation Arrow Thickness";
-  rotationArrowThicknessLabel.style.display = "block";
-  rotationArrowThicknessLabel.style.marginBottom = "5px";
-
-  const rotationArrowThicknessSlider = document.createElement("input");
-
-  rotationArrowThicknessSlider.type = "range";
-  rotationArrowThicknessSlider.min = "0.001";
-  rotationArrowThicknessSlider.max = "0.1";
-  rotationArrowThicknessSlider.step = "0.001";
-  rotationArrowThicknessSlider.value = String(rotationArrowThickness);
-  rotationArrowThicknessSlider.style.flex = "1";
-  rotationArrowThicknessSlider.style.minWidth = "0";
-  rotationArrowThicknessSlider.setAttribute(
-    "aria-label",
-    "Rotation Arrow Thickness",
-  );
-
-  const rotationArrowThicknessValue = document.createElement("input");
-
-  rotationArrowThicknessValue.type = "text";
-  rotationArrowThicknessValue.value = String(rotationArrowThickness);
-  rotationArrowThicknessValue.style.width = "55px";
-  rotationArrowThicknessValue.style.boxSizing = "border-box";
-  rotationArrowThicknessValue.style.textAlign = "center";
-  rotationArrowThicknessValue.setAttribute(
-    "aria-label",
-    "Rotation Arrow Thickness Value",
-  );
-
-  const rotationArrowThicknessRow = document.createElement("div");
-
-  rotationArrowThicknessRow.style.display = "flex";
-  rotationArrowThicknessRow.style.alignItems = "center";
-  rotationArrowThicknessRow.style.gap = "8px";
-
-  rotationArrowThicknessControl.appendChild(rotationArrowThicknessLabel);
-  rotationArrowThicknessRow.appendChild(rotationArrowThicknessSlider);
-  rotationArrowThicknessRow.appendChild(rotationArrowThicknessValue);
-  rotationArrowThicknessControl.appendChild(rotationArrowThicknessRow);
-
-  const rotationArrowRadiusControl = document.createElement("div");
-
-  rotationArrowRadiusControl.style.display = "none";
-  rotationArrowRadiusControl.style.marginTop = "10px";
-
-  const rotationArrowRadiusLabel = document.createElement("label");
-
-  rotationArrowRadiusLabel.textContent = "Rotation Arrow Radius";
-  rotationArrowRadiusLabel.style.display = "block";
-  rotationArrowRadiusLabel.style.marginBottom = "5px";
-
-  const rotationArrowRadiusSlider = document.createElement("input");
-
-  rotationArrowRadiusSlider.type = "range";
-  rotationArrowRadiusSlider.min = "0.1";
-  rotationArrowRadiusSlider.max = "2";
-  rotationArrowRadiusSlider.step = "0.01";
-  rotationArrowRadiusSlider.value = String(rotationArrowRadius);
-  rotationArrowRadiusSlider.style.flex = "1";
-  rotationArrowRadiusSlider.style.minWidth = "0";
-  rotationArrowRadiusSlider.setAttribute("aria-label", "Rotation Arrow Radius");
-
-  const rotationArrowRadiusValue = document.createElement("input");
-
-  rotationArrowRadiusValue.type = "text";
-  rotationArrowRadiusValue.value = String(rotationArrowRadius);
-  rotationArrowRadiusValue.style.width = "55px";
-  rotationArrowRadiusValue.style.boxSizing = "border-box";
-  rotationArrowRadiusValue.style.textAlign = "center";
-  rotationArrowRadiusValue.setAttribute(
-    "aria-label",
-    "Rotation Arrow Radius Value",
-  );
-
-  const rotationArrowRadiusRow = document.createElement("div");
-
-  rotationArrowRadiusRow.style.display = "flex";
-  rotationArrowRadiusRow.style.alignItems = "center";
-  rotationArrowRadiusRow.style.gap = "8px";
-
-  rotationArrowRadiusControl.appendChild(rotationArrowRadiusLabel);
-  rotationArrowRadiusRow.appendChild(rotationArrowRadiusSlider);
-  rotationArrowRadiusRow.appendChild(rotationArrowRadiusValue);
-  rotationArrowRadiusControl.appendChild(rotationArrowRadiusRow);
-
-  const rotationArrowDirectionControl = document.createElement("div");
-
-  rotationArrowDirectionControl.style.display = "none";
-  rotationArrowDirectionControl.style.marginTop = "10px";
-
-  const rotationArrowDirectionLabel = document.createElement("label");
-
-  rotationArrowDirectionLabel.textContent = "Arrow Direction";
-  rotationArrowDirectionLabel.style.display = "block";
-  rotationArrowDirectionLabel.style.marginBottom = "5px";
-
-  const rotationArrowDirectionSelect = document.createElement("select");
-
-  rotationArrowDirectionSelect.style.width = "100%";
-  rotationArrowDirectionSelect.style.padding = "6px";
-  rotationArrowDirectionSelect.style.boxSizing = "border-box";
-
-  for (const optionData of [
-    ["clockwise", "Clockwise"],
-    ["counter-clockwise", "Counter-Clockwise"],
-  ]) {
-    const option = document.createElement("option");
-
-    option.value = optionData[0];
-    option.textContent = optionData[1];
-    rotationArrowDirectionSelect.appendChild(option);
-  }
-
-  rotationArrowDirectionSelect.value = rotationArrowDirection;
-  rotationArrowDirectionLabel.htmlFor = "rotation-arrow-direction";
-  rotationArrowDirectionSelect.id = "rotation-arrow-direction";
-  rotationArrowDirectionControl.appendChild(rotationArrowDirectionLabel);
-  rotationArrowDirectionControl.appendChild(rotationArrowDirectionSelect);
-
-  const axisLabelNameTitle = document.createElement("div");
-
-  axisLabelNameTitle.textContent = "Label Name";
-  axisLabelNameTitle.style.display = "none";
-  axisLabelNameTitle.style.marginTop = "10px";
-  axisLabelNameTitle.style.fontSize = "14px";
-  axisLabelNameTitle.style.fontWeight = "600";
-  axisLabelNameTitle.style.color = "#374151";
-  axisLabelNameTitle.style.marginBottom = "5px";
-
-  const axisLabelModeContainer = document.createElement("div");
-
-  axisLabelModeContainer.style.display = "none";
-  axisLabelModeContainer.style.gap = "16px";
-
-  const customAxisLabel = document.createElement("label");
-
-  customAxisLabel.style.display = "flex";
-  customAxisLabel.style.alignItems = "center";
-  customAxisLabel.style.gap = "7px";
-  customAxisLabel.style.cursor = "pointer";
-
-  const customCheckbox = document.createElement("input");
-
-  customCheckbox.type = "radio";
-  customCheckbox.name = "axis-label-mode";
-  customCheckbox.value = "custom";
-
-  const customAxisText = document.createElement("span");
-
-  customAxisText.textContent = "Custom";
-  customAxisLabel.appendChild(customCheckbox);
-  customAxisLabel.appendChild(customAxisText);
-
-  const cartesianLabel = document.createElement("label");
-
-  cartesianLabel.style.display = "flex";
-  cartesianLabel.style.alignItems = "center";
-  cartesianLabel.style.gap = "7px";
-  cartesianLabel.style.cursor = "pointer";
-
-  const cartesianCheckbox = document.createElement("input");
-
-  cartesianCheckbox.type = "radio";
-  cartesianCheckbox.name = "axis-label-mode";
-  cartesianCheckbox.value = "coordinate";
-  cartesianCheckbox.checked = false;
-
-  const cartesianText = document.createElement("span");
-
-  cartesianText.textContent = "Cartesian";
-  cartesianLabel.appendChild(cartesianCheckbox);
-  cartesianLabel.appendChild(cartesianText);
-
-  const faceLabel = document.createElement("label");
-
-  faceLabel.style.display = "flex";
-  faceLabel.style.alignItems = "center";
-  faceLabel.style.gap = "7px";
-  faceLabel.style.cursor = "pointer";
-
-  const faceCheckbox = document.createElement("input");
-
-  faceCheckbox.type = "radio";
-  faceCheckbox.name = "axis-label-mode";
-  faceCheckbox.value = "face";
-  faceCheckbox.checked = true;
-
-  const faceText = document.createElement("span");
-
-  faceText.textContent = "Face";
-  faceLabel.appendChild(faceCheckbox);
-  faceLabel.appendChild(faceText);
-  axisLabelModeContainer.appendChild(faceLabel);
-  axisLabelModeContainer.appendChild(cartesianLabel);
-  axisLabelModeContainer.appendChild(customAxisLabel);
-
-  const showAxisArrowsLabel = document.createElement("label");
-
-  showAxisArrowsLabel.style.display = "flex";
-  showAxisArrowsLabel.style.alignItems = "center";
-  showAxisArrowsLabel.style.gap = "7px";
-  showAxisArrowsLabel.style.marginTop = "10px";
-  showAxisArrowsLabel.style.cursor = "pointer";
-
-  const showAxisArrowsCheckbox = document.createElement("input");
-
-  showAxisArrowsCheckbox.type = "checkbox";
-
-  const showAxisArrowsText = document.createElement("span");
-
-  showAxisArrowsText.textContent = "Show Axis Arrows";
-  styleUiTitle(showAxisArrowsText, {
-    container: showAxisArrowsLabel,
-    marginBottom: "0",
-  });
-  showAxisArrowsLabel.appendChild(showAxisArrowsCheckbox);
-  showAxisArrowsLabel.appendChild(showAxisArrowsText);
-
-  const axisArrowVisibilityControl = document.createElement("div");
-
-  axisArrowVisibilityControl.style.display = "none";
-  axisArrowVisibilityControl.style.marginTop = "8px";
-  axisArrowVisibilityControl.style.marginLeft = "22px";
-
-  const axisArrowVisibilityCheckboxes = new Map();
-
-  for (const face of FACE_ORDER) {
-    const label = document.createElement("label");
-
-    label.style.display = "flex";
-    label.style.alignItems = "center";
-    label.style.gap = "7px";
-    label.style.marginBottom = "6px";
-    label.style.cursor = "pointer";
-
-    const checkbox = document.createElement("input");
-
-    checkbox.type = "checkbox";
-    checkbox.checked = false;
-
-    const text = document.createElement("span");
-
-    text.textContent = `Show Axis ${face}`;
-    label.appendChild(checkbox);
-    label.appendChild(text);
-    axisArrowVisibilityControl.appendChild(label);
-    axisArrowVisibilityCheckboxes.set(face, checkbox);
-  }
-
-  const axisDepthControl = document.createElement("div");
-
-  axisDepthControl.style.display = "none";
-  axisDepthControl.style.marginTop = "10px";
-
-  const axisDepthLabel = document.createElement("label");
-
-  axisDepthLabel.textContent = "Axis Arrow Depth";
-  axisDepthLabel.style.display = "block";
-  axisDepthLabel.style.marginBottom = "5px";
-
-  const axisDepthSlider = document.createElement("input");
-
-  axisDepthSlider.type = "range";
-  axisDepthSlider.min = "0";
-  axisDepthSlider.max = "1";
-  axisDepthSlider.step = "0.001";
-  axisDepthSlider.value = String(axisDepth);
-  axisDepthSlider.style.flex = "1";
-  axisDepthSlider.style.minWidth = "0";
-  axisDepthSlider.setAttribute("aria-label", "Axis Arrow Depth");
-
-  const axisDepthValue = document.createElement("input");
-
-  axisDepthValue.type = "text";
-  axisDepthValue.value = String(axisDepth);
-  axisDepthValue.style.width = "55px";
-  axisDepthValue.style.boxSizing = "border-box";
-  axisDepthValue.style.textAlign = "center";
-  axisDepthValue.setAttribute("aria-label", "Axis Arrow Depth Value");
-
-  const axisDepthRow = document.createElement("div");
-
-  axisDepthRow.style.display = "flex";
-  axisDepthRow.style.alignItems = "center";
-  axisDepthRow.style.gap = "8px";
-
-  axisDepthControl.appendChild(axisDepthLabel);
-  axisDepthRow.appendChild(axisDepthSlider);
-  axisDepthRow.appendChild(axisDepthValue);
-  axisDepthControl.appendChild(axisDepthRow);
-
-  const axisLabelDepthControl = document.createElement("div");
-
-  axisLabelDepthControl.style.display = "none";
-  axisLabelDepthControl.style.marginTop = "10px";
-
-  const axisLabelDepthLabel = document.createElement("label");
-
-  axisLabelDepthLabel.textContent = "Axis Label Depth";
-  axisLabelDepthLabel.style.display = "block";
-  axisLabelDepthLabel.style.marginBottom = "5px";
-
-  const axisLabelDepthSlider = document.createElement("input");
-
-  axisLabelDepthSlider.type = "range";
-  axisLabelDepthSlider.min = "0";
-  axisLabelDepthSlider.max = "1";
-  axisLabelDepthSlider.step = "0.001";
-  axisLabelDepthSlider.value = String(axisLabelDepth);
-  axisLabelDepthSlider.style.flex = "1";
-  axisLabelDepthSlider.style.minWidth = "0";
-  axisLabelDepthSlider.setAttribute("aria-label", "Axis Label Depth");
-
-  const axisLabelDepthValue = document.createElement("input");
-
-  axisLabelDepthValue.type = "text";
-  axisLabelDepthValue.value = String(axisLabelDepth);
-  axisLabelDepthValue.style.width = "55px";
-  axisLabelDepthValue.style.boxSizing = "border-box";
-  axisLabelDepthValue.style.textAlign = "center";
-  axisLabelDepthValue.setAttribute("aria-label", "Axis Label Depth Value");
-
-  const axisLabelDepthRow = document.createElement("div");
-
-  axisLabelDepthRow.style.display = "flex";
-  axisLabelDepthRow.style.alignItems = "center";
-  axisLabelDepthRow.style.gap = "8px";
-
-  axisLabelDepthControl.appendChild(axisLabelDepthLabel);
-  axisLabelDepthRow.appendChild(axisLabelDepthSlider);
-  axisLabelDepthRow.appendChild(axisLabelDepthValue);
-  axisLabelDepthControl.appendChild(axisLabelDepthRow);
-
-  const labelDepthControl = document.createElement("div");
-
-  labelDepthControl.style.display = "none";
-  labelDepthControl.style.marginTop = "10px";
-
-  const labelDepthLabel = document.createElement("label");
-
-  labelDepthLabel.textContent = "Label Depth";
-  labelDepthLabel.style.display = "block";
-  labelDepthLabel.style.marginBottom = "5px";
-
-  const labelDepthSlider = document.createElement("input");
-
-  labelDepthSlider.type = "range";
-  labelDepthSlider.min = "0";
-  labelDepthSlider.max = "1";
-  labelDepthSlider.step = "0.001";
-  labelDepthSlider.value = String(labelDepth);
-  labelDepthSlider.style.flex = "1";
-  labelDepthSlider.style.minWidth = "0";
-  labelDepthSlider.setAttribute("aria-label", "Label Depth");
-
-  const labelDepthValue = document.createElement("input");
-
-  labelDepthValue.type = "text";
-  labelDepthValue.value = String(labelDepth);
-  labelDepthValue.style.width = "55px";
-  labelDepthValue.style.boxSizing = "border-box";
-  labelDepthValue.style.textAlign = "center";
-  labelDepthValue.setAttribute("aria-label", "Label Depth Value");
-
-  const labelDepthRow = document.createElement("div");
-
-  labelDepthRow.style.display = "flex";
-  labelDepthRow.style.alignItems = "center";
-  labelDepthRow.style.gap = "8px";
-
-  labelDepthControl.appendChild(labelDepthLabel);
-  labelDepthRow.appendChild(labelDepthSlider);
-  labelDepthRow.appendChild(labelDepthValue);
-  labelDepthControl.appendChild(labelDepthRow);
-
-  function createVisibilityControl(title, groupName, initialValue, onChange) {
-    const control = document.createElement("div");
-
-    control.style.display = "none";
-    control.style.marginTop = "10px";
-
-    const titleElement = document.createElement("div");
-
-    titleElement.textContent = title;
-    titleElement.style.fontSize = "14px";
-    titleElement.style.fontWeight = "600";
-    titleElement.style.color = "#374151";
-    titleElement.style.marginBottom = "5px";
-
-    const options = document.createElement("div");
-
-    options.style.display = "flex";
-    options.style.gap = "12px";
-
-    for (const [value, text] of [
-      [ALWAYS_VISIBLE, "Through"],
-      [HIDDEN_BEHIND_CUBE, "Occluded"],
-    ]) {
-      const label = document.createElement("label");
-
-      label.style.display = "flex";
-      label.style.alignItems = "center";
-      label.style.gap = "5px";
-      label.style.cursor = "pointer";
-
-      const radio = document.createElement("input");
-
-      radio.type = "radio";
-      radio.name = groupName;
-      radio.value = value;
-      radio.checked = value === initialValue;
-      radio.addEventListener("change", () => {
-        if (radio.checked) {
-          onChange(value);
-        }
-      });
-
-      const textElement = document.createElement("span");
-
-      textElement.textContent = text;
-      label.appendChild(radio);
-      label.appendChild(textElement);
-      options.appendChild(label);
-    }
-
-    control.appendChild(titleElement);
-    control.appendChild(options);
-    control.setVisibilityMode = (value) => {
-      for (const radio of options.querySelectorAll("input")) {
-        radio.checked = radio.value === value;
-      }
-    };
-
-    return control;
-  }
-
-  updateGhostStickerVisibility();
-
-  const faceletLabelsVisibilityControl = createVisibilityControl(
-    "Facelet Labels Visibility",
-    "facelet-labels-visibility",
-    faceletLabelsVisibility,
-    (value) => {
-      faceletLabelsVisibility = value;
-      updateFaceletLabelsVisibilityMode();
-    },
-  );
-  const axisLabelsVisibilityControl = createVisibilityControl(
-    "Axis Labels Visibility",
-    "axis-labels-visibility",
-    axisLabelsVisibility,
-    (value) => {
-      axisLabelsVisibility = value;
-      updateAxisLabelsVisibilityMode();
-    },
-  );
-  const axisArrowsVisibilityControl = createVisibilityControl(
-    "Axis Arrows Visibility",
-    "axis-arrows-visibility",
-    axisArrowsVisibility,
-    (value) => {
-      axisArrowsVisibility = value;
-      updateAxisArrowsVisibilityMode();
-    },
-  );
-  const rotationArrowsVisibilityControl = createVisibilityControl(
-    "Rotation Arrows Visibility",
-    "rotation-arrows-visibility",
-    rotationArrowsVisibility,
-    (value) => {
-      rotationArrowsVisibility = value;
-      updateRotationArrowsVisibilityMode();
-    },
-  );
-
-  labelsContent.appendChild(showFaceletLabelsLabel);
-  labelsContent.appendChild(labelDepthControl);
-  labelsContent.appendChild(faceletLabelsVisibilityControl);
-  labelsContent.appendChild(showAxisLabelsLabel);
-  labelsContent.appendChild(axisLabelVisibilityControl);
-  labelsContent.appendChild(axisLabelNameTitle);
-  labelsContent.appendChild(axisLabelModeContainer);
-  labelsContent.appendChild(axisLabelDepthControl);
-  labelsContent.appendChild(axisLabelsVisibilityControl);
-  labelsContent.appendChild(showAxisArrowsLabel);
-  labelsContent.appendChild(axisArrowVisibilityControl);
-  labelsContent.appendChild(axisDepthControl);
-  labelsContent.appendChild(axisArrowsVisibilityControl);
-  labelsContent.appendChild(showRotationArrowsLabel);
-  labelsContent.appendChild(rotationArrowVisibilityControl);
-  labelsContent.appendChild(rotationArrowDepthControl);
-  labelsContent.appendChild(rotationArrowThicknessControl);
-  labelsContent.appendChild(rotationArrowRadiusControl);
-  labelsContent.appendChild(rotationArrowDirectionControl);
-  labelsContent.appendChild(rotationArrowsVisibilityControl);
-  labelsPanel.appendChild(labelsHeader);
-  labelsPanel.appendChild(labelsContent);
+  labelsPanel = labelsPanelController.root;
   controlsRoot.appendChild(labelsPanel);
+
+  function resetColorsInterface() {
+    for (const facelet of facelets) {
+      const color = defaultFaceColors[facelet.face];
+
+      if (color) {
+        setFaceletColor(facelet, color);
+      }
+      faceletLabelController.setColor(facelet, defaultFaceletLabelColor);
+    }
+
+    for (const cubie of cubies) {
+      setCubieInnerColor(cubie, defaultColors.inner);
+    }
+
+    axisDefinitions.forEach((axisDefinition, index) => {
+      axisSceneController.setAxisLabelColor(index, axisDefinition.color);
+      axisSceneController.setRotationArrowColor(index, axisDefinition.color);
+    });
+    colorsPanelController.syncAll();
+  }
 
   function getJsonExportSetup() {
     const faceletLabels = {};
@@ -7632,34 +4751,19 @@ export function createUI({
     for (const facelet of facelets) {
       const faceletData = getFaceletData(facelet);
 
-      faceletLabels[faceletData.id] = getFaceletLabelColor(facelet);
+      faceletLabels[faceletData.id] = faceletLabelController.getColor(facelet);
     }
 
-    const axisLabels = {};
-    const axisArrows = {};
-    const rotationArrows = {};
+    const labels = labelsPanelController.getSetupState();
     const axisLabelColors = {};
     const rotationArrowColors = {};
 
     for (const [index, axisDefinition] of axisDefinitions.entries()) {
       const face = axisDefinition.label.face;
-      const axisLabel = axisGroup.children[index * 2 + 1];
-      const rotationArrow = rotationArrowGroup.children[index];
 
-      axisLabels[face] = {
-        visible: axisLabelVisibilityCheckboxes.get(face).checked,
-        customText: axisDefinition.label.custom,
-      };
-      axisLabelColors[face] = axisLabel.userData.labelColor;
-      axisArrows[face] = {
-        visible:
-          showAxisArrowsCheckbox.checked &&
-          axisArrowVisibilityCheckboxes.get(face).checked,
-      };
-      rotationArrows[face] = {
-        visible: rotationArrowVisibilityCheckboxes.get(face).checked,
-      };
-      rotationArrowColors[face] = rotationArrow.userData.color;
+      axisLabelColors[face] = axisSceneController.getAxisLabelColor(index);
+      rotationArrowColors[face] =
+        axisSceneController.getRotationArrowColor(index);
     }
 
     return {
@@ -7675,6 +4779,7 @@ export function createUI({
           y: controls.target.y,
           z: controls.target.z,
         },
+        ...getViewSettings(),
       },
       rotations: {
         moves: rotationActions.map((action) => action.label),
@@ -7688,100 +4793,21 @@ export function createUI({
         axisLabels: axisLabelColors,
         rotationArrows: rotationArrowColors,
       },
-      labels: {
-        facelets: showFaceletLabelsCheckbox.checked,
-        faceletVisibility: faceletLabelsVisibility,
-        axisLabels: showAxisLabelsCheckbox.checked,
-        axisLabelVisibility: axisLabelsVisibility,
-        axisLabelMode,
-        axisLabelDepth,
-        axisLabelsByFace: axisLabels,
-        axisArrows: showAxisArrowsCheckbox.checked,
-        axisArrowVisibility: axisArrowsVisibility,
-        axisDepth,
-        axisArrowsByFace: axisArrows,
-        rotationArrows: showRotationArrowsCheckbox.checked,
-        rotationArrowVisibility: rotationArrowsVisibility,
-        rotationArrowDepth,
-        rotationArrowThickness,
-        rotationArrowRadius,
-        rotationArrowDirection,
-        rotationArrowsByFace: rotationArrows,
-        labelDepth,
-      },
+      labels,
     };
   }
 
   function getDefaultJsonExportSetup() {
-    const defaultFaceletLabels = {};
-
-    for (const facelet of facelets) {
-      const faceletData = getFaceletData(facelet);
-
-      defaultFaceletLabels[faceletData.id] = defaultFaceletLabelColor;
-    }
-
-    const defaultAxisLabels = {};
-    const defaultAxisArrows = {};
-    const defaultRotationArrows = {};
-
-    for (const axisDefinition of axisDefinitions) {
-      const face = axisDefinition.label.face;
-
-      defaultAxisLabels[face] = {
-        visible: false,
-        customText: face,
-      };
-      defaultAxisArrows[face] = { visible: false };
-      defaultRotationArrows[face] = {
-        visible: false,
-      };
-    }
-
-    return {
-      cube: getDefaultCubeState(),
-      view: {
-        cameraPosition: { x: 5, y: 5, z: 7 },
-        target: { x: 0, y: 0, z: 0 },
-      },
-      rotations: { moves: [], text: "", durationSeconds: 1 },
-      colors: {
-        faceletLabels: defaultFaceletLabels,
-        axisLabels: Object.fromEntries(
-          axisDefinitions.map((axisDefinition) => [
-            axisDefinition.label.face,
-            defaultFaceColors[axisDefinition.label.face],
-          ]),
-        ),
-        rotationArrows: Object.fromEntries(
-          axisDefinitions.map((axisDefinition) => [
-            axisDefinition.label.face,
-            defaultFaceColors[axisDefinition.label.face],
-          ]),
-        ),
-      },
-      labels: {
-        facelets: false,
-        faceletVisibility: ALWAYS_VISIBLE,
-        axisLabels: false,
-        axisLabelVisibility: ALWAYS_VISIBLE,
-        axisLabelMode: "face",
-        axisLabelDepth: DEFAULT_LABEL_DEPTH,
-        axisLabelsByFace: defaultAxisLabels,
-        axisArrows: false,
-        axisArrowVisibility: HIDDEN_BEHIND_CUBE,
-        axisDepth: DEFAULT_AXIS_DEPTH,
-        axisArrowsByFace: defaultAxisArrows,
-        rotationArrows: false,
-        rotationArrowVisibility: ALWAYS_VISIBLE,
-        rotationArrowDepth: DEFAULT_ROTATION_ARROW_DEPTH,
-        rotationArrowThickness: DEFAULT_ROTATION_ARROW_THICKNESS,
-        rotationArrowRadius: DEFAULT_ROTATION_ARROW_RADIUS,
-        rotationArrowDirection: "clockwise",
-        rotationArrowsByFace: defaultRotationArrows,
-        labelDepth: DEFAULT_LABEL_DEPTH,
-      },
-    };
+    return createDefaultSetup({
+      getDefaultCubeState,
+      getDefaultCameraView,
+      faceletIds: facelets.map((facelet) => getFaceletData(facelet).id),
+      axisFaces: axisDefinitions.map(
+        (axisDefinition) => axisDefinition.label.face,
+      ),
+      defaultFaceletLabelColor,
+      defaultFaceColors,
+    });
   }
 
   function applyImportedColors(importedColors) {
@@ -7789,8 +4815,7 @@ export function createUI({
       const faceletData = getFaceletData(facelet);
       const color = importedColors.faceletLabels[faceletData.id];
 
-      updateFaceletLabelColor(facelet, color);
-      updateFaceletLabelColorControl(facelet);
+      faceletLabelController.setColor(facelet, color);
     }
 
     for (const [face, color] of Object.entries(importedColors.axisLabels)) {
@@ -7799,7 +4824,7 @@ export function createUI({
       );
 
       if (index !== -1) {
-        updateAxisLabelColor(index, color);
+        axisSceneController.setAxisLabelColor(index, color);
       }
     }
 
@@ -7809,186 +4834,16 @@ export function createUI({
       );
 
       if (index !== -1) {
-        updateRotationArrowColor(index, color);
+        axisSceneController.setRotationArrowColor(index, color);
       }
     }
 
-    for (const [face] of faceletSections) {
-      updateFaceletLabelFaceControl(face);
-    }
-    updateFaceletLabelHeading();
-    axisLabelColorControls.forEach((control) => control.sync());
-    rotationArrowColorControls.forEach((control) => control.sync());
-  }
-
-  function setNumericControl(controls, value) {
-    controls.slider.value = String(value);
-    controls.value.value = String(value);
+    colorsPanelController.syncFaceletLabelControls();
+    colorsPanelController.syncSceneColorControls();
   }
 
   function applyImportedLabels(importedLabels) {
-    showFaceletLabelsCheckbox.checked = importedLabels.facelets;
-    showFaceletLabelsCheckbox.dispatchEvent(
-      new Event("change", { bubbles: true }),
-    );
-    faceletLabelsVisibility = importedLabels.faceletVisibility;
-    faceletLabelsVisibilityControl.setVisibilityMode(faceletLabelsVisibility);
-    updateFaceletLabelsVisibilityMode();
-
-    showAxisLabelsCheckbox.checked = importedLabels.axisLabels;
-    showAxisLabelsCheckbox.dispatchEvent(
-      new Event("change", { bubbles: true }),
-    );
-    axisLabelsVisibility = importedLabels.axisLabelVisibility;
-    axisLabelsVisibilityControl.setVisibilityMode(axisLabelsVisibility);
-    updateAxisLabelsVisibilityMode();
-
-    for (const [face, importedLabel] of Object.entries(
-      importedLabels.axisLabelsByFace,
-    )) {
-      const checkbox = axisLabelVisibilityCheckboxes.get(face);
-      const customInput = axisLabelCustomInputs.get(face);
-      const axisDefinition = axisDefinitions.find(
-        (definition) => definition.label.face === face,
-      );
-
-      if (checkbox) {
-        checkbox.checked = importedLabel.visible;
-        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-      if (customInput && axisDefinition) {
-        customInput.value = importedLabel.customText;
-        axisDefinition.label.custom = importedLabel.customText;
-      }
-    }
-
-    selectAxisLabelMode(importedLabels.axisLabelMode);
-    axisLabelDepth = importedLabels.axisLabelDepth;
-    setNumericControl(
-      { slider: axisLabelDepthSlider, value: axisLabelDepthValue },
-      axisLabelDepth,
-    );
-    updateAxisLabelDepth();
-
-    showAxisArrowsCheckbox.checked = importedLabels.axisArrows;
-    showAxisArrowsCheckbox.dispatchEvent(
-      new Event("change", { bubbles: true }),
-    );
-    axisArrowsVisibility = importedLabels.axisArrowVisibility;
-    axisArrowsVisibilityControl.setVisibilityMode(axisArrowsVisibility);
-    updateAxisArrowsVisibilityMode();
-    for (const [face, importedArrow] of Object.entries(
-      importedLabels.axisArrowsByFace,
-    )) {
-      const checkbox = axisArrowVisibilityCheckboxes.get(face);
-
-      if (checkbox) {
-        checkbox.checked = importedArrow.visible;
-        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-    }
-    axisDepth = importedLabels.axisDepth;
-    setNumericControl(
-      { slider: axisDepthSlider, value: axisDepthValue },
-      axisDepth,
-    );
-    updateAxisDepth();
-
-    showRotationArrowsCheckbox.checked = importedLabels.rotationArrows;
-    showRotationArrowsCheckbox.dispatchEvent(
-      new Event("change", { bubbles: true }),
-    );
-    rotationArrowsVisibility = importedLabels.rotationArrowVisibility;
-    rotationArrowsVisibilityControl.setVisibilityMode(rotationArrowsVisibility);
-    updateRotationArrowsVisibilityMode();
-    for (const [face, importedArrow] of Object.entries(
-      importedLabels.rotationArrowsByFace,
-    )) {
-      const checkbox = rotationArrowVisibilityCheckboxes.get(face);
-
-      if (checkbox) {
-        checkbox.checked = importedArrow.visible;
-        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-    }
-
-    rotationArrowDepth = importedLabels.rotationArrowDepth;
-    setNumericControl(
-      { slider: rotationArrowDepthSlider, value: rotationArrowDepthValue },
-      rotationArrowDepth,
-    );
-    updateRotationArrowDepth();
-    rotationArrowThickness = importedLabels.rotationArrowThickness;
-    setNumericControl(
-      {
-        slider: rotationArrowThicknessSlider,
-        value: rotationArrowThicknessValue,
-      },
-      rotationArrowThickness,
-    );
-    updateRotationArrowThickness();
-    rotationArrowRadius = importedLabels.rotationArrowRadius;
-    rotationArrowRadiusSlider.value = String(
-      Math.min(Math.max(rotationArrowRadius, 0.1), 2),
-    );
-    rotationArrowRadiusValue.value = String(rotationArrowRadius);
-    updateRotationArrowRadius();
-    rotationArrowDirection = importedLabels.rotationArrowDirection;
-    rotationArrowDirectionSelect.value = rotationArrowDirection;
-    updateRotationArrowDirection();
-    labelDepth = importedLabels.labelDepth;
-    setNumericControl(
-      { slider: labelDepthSlider, value: labelDepthValue },
-      labelDepth,
-    );
-    refreshFaceletLabels();
-  }
-
-  function createImportedRotationAction(label) {
-    const normalizedMoveName = normalizeWideMoveName(label);
-    const definition = getRotationDefinition(normalizedMoveName);
-
-    if (definition) {
-      const inverse = getInverseMoveName(normalizedMoveName);
-
-      return {
-        label,
-        run: (duration) => rotateMove(normalizedMoveName, duration),
-        inverse: {
-          label: getInverseMoveName(label),
-          run: (duration) => rotateMove(inverse, duration),
-        },
-      };
-    }
-
-    const customMatch = label.match(/^([A-Za-z]+)\[(-?\d+(?:\.\d+)?)°\]$/u);
-
-    const customMoveName = customMatch
-      ? normalizeWideMoveName(customMatch[1])
-      : null;
-
-    if (!customMatch || !getRotationDefinition(customMoveName)) {
-      return {
-        label,
-        run: () => Promise.resolve(true),
-        inverse: { label, run: () => Promise.resolve(true) },
-      };
-    }
-
-    const moveName = customMoveName;
-    const angle = Number(customMatch[2]);
-    const signedAngle = getCustomRotationAngle(moveName, angle);
-
-    return {
-      label,
-      run: (duration) => rotateSlice(moveName, signedAngle, duration),
-      inverse: {
-        label: getCustomMoveLabel(customMatch[1], -angle, {
-          preserveEnteredAngle: true,
-        }),
-        run: (duration) => rotateSlice(moveName, -signedAngle, duration),
-      },
-    };
+    labelsPanelController.applySetup(importedLabels);
   }
 
   function restoreImportedRotations(importedRotations) {
@@ -8022,7 +4877,7 @@ export function createUI({
     updateRotationMediaControlState();
   }
 
-  function applyImportedSetup(importedSetup) {
+  function applySetup(importedSetup) {
     resetEverythingInterface();
 
     camera.position.set(
@@ -8042,6 +4897,7 @@ export function createUI({
       importedSetup.cube.gap,
     );
     applyCubeState(importedSetup.cube);
+    colorsPanelController.syncCubeControls();
     applyImportedColors(importedSetup.colors);
     applyImportedLabels(importedSetup.labels);
 
@@ -8057,7 +4913,7 @@ export function createUI({
     openSetupImportDialog({
       getDefaultSetup: getDefaultJsonExportSetup,
       onImport: (importedSetup) => {
-        applyImportedSetup(importedSetup);
+        applySetup(importedSetup);
         markSetupChanged();
       },
       dialogStyle: {
@@ -8106,599 +4962,6 @@ export function createUI({
 
   controlsRoot.appendChild(setupPanel.root);
 
-  function updateFaceletLabelVisibility() {
-    const isVisible = showFaceletLabelsCheckbox.checked;
-
-    labelDepthControl.style.display = isVisible ? "block" : "none";
-    refreshFaceletLabels();
-
-    for (const label of faceletLabels.values()) {
-      label.visible = isVisible;
-    }
-
-    updateFaceletLabelsVisibilityMode();
-    scheduleCubePanelPositionUpdate();
-  }
-
-  showFaceletLabelsCheckbox.addEventListener("change", () => {
-    updateFaceletLabelVisibility();
-    faceletLabelsVisibilityControl.style.display =
-      showFaceletLabelsCheckbox.checked ? "block" : "none";
-  });
-
-  showAxisLabelsCheckbox.addEventListener("change", () => {
-    axisGroup.visible =
-      showAxisLabelsCheckbox.checked || showAxisArrowsCheckbox.checked;
-    axisLabelVisibilityControl.style.display = showAxisLabelsCheckbox.checked
-      ? "block"
-      : "none";
-
-    if (showAxisLabelsCheckbox.checked) {
-      setAllAxisLabelVisibility(true);
-    } else {
-      setAllAxisLabelVisibility(false);
-    }
-
-    axisLabelNameTitle.style.display = showAxisLabelsCheckbox.checked
-      ? "block"
-      : "none";
-    axisLabelModeContainer.style.display = showAxisLabelsCheckbox.checked
-      ? "flex"
-      : "none";
-    axisLabelDepthControl.style.display = showAxisLabelsCheckbox.checked
-      ? "block"
-      : "none";
-    axisLabelsVisibilityControl.style.display = showAxisLabelsCheckbox.checked
-      ? "block"
-      : "none";
-    scheduleCubePanelPositionUpdate();
-  });
-
-  showAxisArrowsCheckbox.addEventListener("change", () => {
-    axisGroup.visible =
-      showAxisLabelsCheckbox.checked || showAxisArrowsCheckbox.checked;
-    axisArrowVisibilityControl.style.display = showAxisArrowsCheckbox.checked
-      ? "block"
-      : "none";
-
-    if (showAxisArrowsCheckbox.checked) {
-      setAllAxisArrowVisibility(true);
-    } else {
-      setAllAxisArrowVisibility(false);
-    }
-
-    axisDepthControl.style.display = showAxisArrowsCheckbox.checked
-      ? "block"
-      : "none";
-    axisArrowsVisibilityControl.style.display = showAxisArrowsCheckbox.checked
-      ? "block"
-      : "none";
-    scheduleCubePanelPositionUpdate();
-  });
-
-  function setAllAxisLabelVisibility(isVisible) {
-    for (const [face, checkbox] of axisLabelVisibilityCheckboxes) {
-      const index = axisDefinitions.findIndex(
-        (axisDefinition) => axisDefinition.label.face === face,
-      );
-
-      checkbox.checked = isVisible;
-      axisGroup.children[index * 2 + 1].visible = isVisible;
-    }
-  }
-
-  for (const [face, checkbox] of axisLabelVisibilityCheckboxes) {
-    checkbox.addEventListener("change", () => {
-      const index = axisDefinitions.findIndex(
-        (axisDefinition) => axisDefinition.label.face === face,
-      );
-
-      axisGroup.children[index * 2 + 1].visible = checkbox.checked;
-    });
-  }
-
-  function setAllAxisArrowVisibility(isVisible) {
-    for (const [face, checkbox] of axisArrowVisibilityCheckboxes) {
-      const index = axisDefinitions.findIndex(
-        (axisDefinition) => axisDefinition.label.face === face,
-      );
-
-      checkbox.checked = isVisible;
-      axisGroup.children[index * 2].visible = isVisible;
-    }
-  }
-
-  for (const [face, checkbox] of axisArrowVisibilityCheckboxes) {
-    checkbox.addEventListener("change", () => {
-      const index = axisDefinitions.findIndex(
-        (axisDefinition) => axisDefinition.label.face === face,
-      );
-
-      axisGroup.children[index * 2].visible = checkbox.checked;
-    });
-  }
-
-  function setDepthTest(root, depthTest) {
-    root.traverse((object) => {
-      if (object.material) {
-        object.material.depthTest = depthTest;
-        object.material.needsUpdate = true;
-      }
-    });
-  }
-
-  function updateFaceletLabelsVisibilityMode() {
-    for (const label of faceletLabels.values()) {
-      setDepthTest(label, faceletLabelsVisibility === HIDDEN_BEHIND_CUBE);
-    }
-  }
-
-  function updateAxisLabelsVisibilityMode() {
-    for (let index = 1; index < axisGroup.children.length; index += 2) {
-      setDepthTest(
-        axisGroup.children[index],
-        axisLabelsVisibility === HIDDEN_BEHIND_CUBE,
-      );
-    }
-  }
-
-  function updateAxisArrowsVisibilityMode() {
-    for (let index = 0; index < axisGroup.children.length; index += 2) {
-      setDepthTest(
-        axisGroup.children[index],
-        axisArrowsVisibility === HIDDEN_BEHIND_CUBE,
-      );
-    }
-  }
-
-  function updateRotationArrowsVisibilityMode() {
-    for (const arrow of rotationArrowGroup.children) {
-      setDepthTest(arrow, rotationArrowsVisibility === HIDDEN_BEHIND_CUBE);
-    }
-  }
-
-  function updateRotationArrowDirectionControlVisibility() {
-    rotationArrowDirectionControl.style.display =
-      showRotationArrowsCheckbox.checked ? "block" : "none";
-  }
-
-  showRotationArrowsCheckbox.addEventListener("change", () => {
-    rotationArrowGroup.visible = showRotationArrowsCheckbox.checked;
-    rotationArrowVisibilityControl.style.display =
-      showRotationArrowsCheckbox.checked ? "block" : "none";
-
-    if (showRotationArrowsCheckbox.checked) {
-      setAllRotationArrowVisibility(true);
-    }
-
-    rotationArrowDepthControl.style.display = showRotationArrowsCheckbox.checked
-      ? "block"
-      : "none";
-    updateRotationArrowDirectionControlVisibility();
-    rotationArrowThicknessControl.style.display =
-      showRotationArrowsCheckbox.checked ? "block" : "none";
-    rotationArrowRadiusControl.style.display =
-      showRotationArrowsCheckbox.checked ? "block" : "none";
-    rotationArrowsVisibilityControl.style.display =
-      showRotationArrowsCheckbox.checked ? "block" : "none";
-    scheduleCubePanelPositionUpdate();
-  });
-
-  function setAllRotationArrowVisibility(isVisible) {
-    for (const [face, checkbox] of rotationArrowVisibilityCheckboxes) {
-      const index = axisDefinitions.findIndex(
-        (axisDefinition) => axisDefinition.label.face === face,
-      );
-
-      checkbox.checked = isVisible;
-      rotationArrowVisibility[index] = isVisible;
-      rotationArrowGroup.children[index].visible = isVisible;
-    }
-  }
-
-  for (const [face, checkbox] of rotationArrowVisibilityCheckboxes) {
-    checkbox.addEventListener("change", () => {
-      const index = axisDefinitions.findIndex(
-        (axisDefinition) => axisDefinition.label.face === face,
-      );
-
-      rotationArrowVisibility[index] = checkbox.checked;
-      rotationArrowGroup.children[index].visible = checkbox.checked;
-    });
-  }
-
-  rotationArrowDirectionSelect.addEventListener("change", () => {
-    rotationArrowDirection = rotationArrowDirectionSelect.value;
-    updateRotationArrowDirection();
-  });
-
-  rotationArrowDepthSlider.addEventListener("input", () => {
-    rotationArrowDepth = syncEditValueFromSlider(
-      rotationArrowDepthSlider,
-      rotationArrowDepthValue,
-    );
-    updateRotationArrowDepth();
-  });
-
-  rotationArrowDepthValue.addEventListener("input", () => {
-    const raw = rotationArrowDepthValue.value;
-
-    if (raw === "" || raw === "-" || raw === "." || raw === "-.") {
-      return;
-    }
-
-    if (!/^-?\d*\.?\d+$/.test(raw)) {
-      rotationArrowDepthValue.value = raw
-        .replace(/(?!^)-/g, "")
-        .replace(/[^\d.-]/g, "")
-        .replace(/(\..*)\./g, "$1");
-      return;
-    }
-
-    const value = Number(raw);
-
-    if (!Number.isFinite(value)) {
-      return;
-    }
-
-    rotationArrowDepth = syncSliderFromEditValue(
-      rotationArrowDepthSlider,
-      rotationArrowDepthValue,
-      value,
-    );
-    updateRotationArrowDepth();
-  });
-
-  rotationArrowDepthValue.addEventListener("blur", () => {
-    const value = Number(rotationArrowDepthValue.value);
-
-    const nextValue = Number.isFinite(value)
-      ? value
-      : DEFAULT_ROTATION_ARROW_DEPTH;
-    rotationArrowDepth = syncSliderFromEditValue(
-      rotationArrowDepthSlider,
-      rotationArrowDepthValue,
-      nextValue,
-    );
-    rotationArrowDepthValue.value = String(rotationArrowDepth);
-    updateRotationArrowDepth();
-  });
-
-  rotationArrowThicknessSlider.addEventListener("input", () => {
-    rotationArrowThickness = syncEditValueFromSlider(
-      rotationArrowThicknessSlider,
-      rotationArrowThicknessValue,
-    );
-    updateRotationArrowThickness();
-  });
-
-  rotationArrowThicknessValue.addEventListener("input", () => {
-    const raw = rotationArrowThicknessValue.value;
-
-    if (raw === "" || raw === ".") {
-      return;
-    }
-
-    if (!/^\d*\.?\d+$/.test(raw)) {
-      rotationArrowThicknessValue.value = raw
-        .replace(/[^\d.]/g, "")
-        .replace(/(\..*)\./g, "$1");
-      return;
-    }
-
-    const value = Number(raw);
-
-    if (!Number.isFinite(value) || value < 0) {
-      return;
-    }
-
-    rotationArrowThickness = syncSliderFromEditValue(
-      rotationArrowThicknessSlider,
-      rotationArrowThicknessValue,
-      value,
-    );
-    updateRotationArrowThickness();
-  });
-
-  rotationArrowThicknessValue.addEventListener("blur", () => {
-    const value = Number(rotationArrowThicknessValue.value);
-
-    const nextValue = Number.isFinite(value)
-      ? Math.max(value, 0.001)
-      : DEFAULT_ROTATION_ARROW_THICKNESS;
-    rotationArrowThickness = syncSliderFromEditValue(
-      rotationArrowThicknessSlider,
-      rotationArrowThicknessValue,
-      nextValue,
-    );
-    rotationArrowThicknessValue.value = String(rotationArrowThickness);
-    updateRotationArrowThickness();
-  });
-
-  rotationArrowRadiusSlider.addEventListener("input", () => {
-    rotationArrowRadius = syncEditValueFromSlider(
-      rotationArrowRadiusSlider,
-      rotationArrowRadiusValue,
-    );
-    updateRotationArrowRadius();
-  });
-
-  rotationArrowRadiusValue.addEventListener("input", () => {
-    const raw = rotationArrowRadiusValue.value;
-
-    if (raw === "" || raw === ".") {
-      return;
-    }
-
-    if (!/^\d*\.?\d+$/.test(raw)) {
-      rotationArrowRadiusValue.value = raw
-        .replace(/[^\d.]/g, "")
-        .replace(/(\..*)\./g, "$1");
-      return;
-    }
-
-    const value = Number(raw);
-
-    if (!Number.isFinite(value) || value < 0.1) {
-      return;
-    }
-
-    rotationArrowRadius = syncSliderFromEditValue(
-      rotationArrowRadiusSlider,
-      rotationArrowRadiusValue,
-      value,
-    );
-    updateRotationArrowRadius();
-  });
-
-  rotationArrowRadiusValue.addEventListener("blur", () => {
-    const value = Number(rotationArrowRadiusValue.value);
-
-    const nextValue = Number.isFinite(value)
-      ? Math.max(value, 0.1)
-      : DEFAULT_ROTATION_ARROW_RADIUS;
-    rotationArrowRadius = syncSliderFromEditValue(
-      rotationArrowRadiusSlider,
-      rotationArrowRadiusValue,
-      nextValue,
-    );
-    rotationArrowRadiusValue.value = String(rotationArrowRadius);
-    updateRotationArrowRadius();
-  });
-
-  function updateAxisLabelText() {
-    for (let index = 1; index < axisGroup.children.length; index += 2) {
-      const axisLabel = axisGroup.children[index];
-      const axisDefinition = axisLabel.userData.axisDefinition;
-      const context = axisLabel.userData.context;
-      const labelText = getAxisLabelText(axisDefinition);
-
-      const canvas = axisLabel.userData.canvas;
-
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = axisLabel.userData.labelColor;
-      context.strokeText(labelText, canvas.width / 2, canvas.height / 2);
-      context.fillText(labelText, canvas.width / 2, canvas.height / 2);
-      axisLabel.material.map.needsUpdate = true;
-    }
-  }
-
-  function selectAxisLabelMode(mode) {
-    axisLabelMode = mode;
-    customCheckbox.checked = mode === "custom";
-    cartesianCheckbox.checked = mode === "coordinate";
-    faceCheckbox.checked = mode === "face";
-    for (const input of axisLabelCustomInputs.values()) {
-      input.style.visibility = mode === "custom" ? "visible" : "hidden";
-    }
-    for (const marker of axisLabelCustomMarkers.values()) {
-      marker.style.visibility = mode === "custom" ? "visible" : "hidden";
-    }
-    updateAxisLabelText();
-  }
-
-  customCheckbox.addEventListener("change", () => {
-    if (customCheckbox.checked) {
-      selectAxisLabelMode("custom");
-    }
-  });
-
-  cartesianCheckbox.addEventListener("change", () => {
-    if (cartesianCheckbox.checked) {
-      selectAxisLabelMode("coordinate");
-    }
-  });
-
-  faceCheckbox.addEventListener("change", () => {
-    if (faceCheckbox.checked) {
-      selectAxisLabelMode("face");
-    }
-  });
-
-  function updateAxisDepth() {
-    let arrowIndex = 0;
-
-    for (const axisDefinition of axisDefinitions) {
-      const arrow = axisGroup.children[arrowIndex];
-
-      arrow.position.copy(axisDefinition.direction).multiplyScalar(axisDepth);
-      arrowIndex += 2;
-    }
-  }
-
-  axisDepthSlider.addEventListener("input", () => {
-    axisDepth = syncEditValueFromSlider(axisDepthSlider, axisDepthValue);
-    updateAxisDepth();
-  });
-
-  axisDepthValue.addEventListener("input", () => {
-    const raw = axisDepthValue.value;
-
-    if (raw === "" || raw === ".") {
-      return;
-    }
-
-    if (!/^\d*\.?\d+$/.test(raw)) {
-      axisDepthValue.value = raw
-        .replace(/[^\d.]/g, "")
-        .replace(/(\..*)\./g, "$1");
-      return;
-    }
-
-    const value = Number(raw);
-
-    if (!Number.isFinite(value) || value < 0) {
-      return;
-    }
-
-    axisDepth = syncSliderFromEditValue(axisDepthSlider, axisDepthValue, value);
-    updateAxisDepth();
-  });
-
-  axisDepthValue.addEventListener("blur", () => {
-    const value = Number(axisDepthValue.value);
-
-    const nextValue = Number.isFinite(value) ? Math.max(value, 0) : 0;
-    axisDepth = syncSliderFromEditValue(
-      axisDepthSlider,
-      axisDepthValue,
-      nextValue,
-    );
-    axisDepthValue.value = String(axisDepth);
-    updateAxisDepth();
-  });
-
-  function updateAxisLabelDepth() {
-    for (const axisDefinition of axisDefinitions) {
-      axisDefinition.depth = axisLabelDepth;
-    }
-
-    let labelIndex = 0;
-
-    for (const axisDefinition of axisDefinitions) {
-      const axisLabel = axisGroup.children[labelIndex + 1];
-
-      axisLabel.position
-        .copy(axisDefinition.direction)
-        .multiplyScalar(axisLength + axisDefinition.depth);
-      labelIndex += 2;
-    }
-  }
-
-  axisLabelDepthSlider.addEventListener("input", () => {
-    axisLabelDepth = syncEditValueFromSlider(
-      axisLabelDepthSlider,
-      axisLabelDepthValue,
-    );
-    updateAxisLabelDepth();
-  });
-
-  axisLabelDepthValue.addEventListener("input", () => {
-    const raw = axisLabelDepthValue.value;
-
-    if (raw === "" || raw === ".") {
-      return;
-    }
-
-    if (!/^\d*\.?\d+$/.test(raw)) {
-      axisLabelDepthValue.value = raw
-        .replace(/[^\d.]/g, "")
-        .replace(/(\..*)\./g, "$1");
-      return;
-    }
-
-    const value = Number(raw);
-
-    if (!Number.isFinite(value) || value <= 0) {
-      return;
-    }
-
-    axisLabelDepth = syncSliderFromEditValue(
-      axisLabelDepthSlider,
-      axisLabelDepthValue,
-      value,
-    );
-    updateAxisLabelDepth();
-  });
-
-  axisLabelDepthValue.addEventListener("blur", () => {
-    const value = Number(axisLabelDepthValue.value);
-
-    if (!Number.isFinite(value) || value <= 0) {
-      axisLabelDepth = syncSliderFromEditValue(
-        axisLabelDepthSlider,
-        axisLabelDepthValue,
-        DEFAULT_LABEL_DEPTH,
-      );
-      axisLabelDepthValue.value = String(axisLabelDepth);
-    } else {
-      axisLabelDepth = syncSliderFromEditValue(
-        axisLabelDepthSlider,
-        axisLabelDepthValue,
-        value,
-      );
-      axisLabelDepthValue.value = String(axisLabelDepth);
-    }
-
-    updateAxisLabelDepth();
-  });
-
-  labelDepthSlider.addEventListener("input", () => {
-    labelDepth = syncEditValueFromSlider(labelDepthSlider, labelDepthValue);
-    refreshFaceletLabels();
-  });
-
-  labelDepthValue.addEventListener("input", () => {
-    const raw = labelDepthValue.value;
-
-    if (raw === "" || raw === ".") {
-      return;
-    }
-
-    if (!/^\d*\.?\d+$/.test(raw)) {
-      labelDepthValue.value = raw
-        .replace(/[^\d.]/g, "")
-        .replace(/(\..*)\./g, "$1");
-      return;
-    }
-
-    const value = Number(raw);
-
-    if (!Number.isFinite(value) || value <= 0) {
-      return;
-    }
-
-    labelDepth = syncSliderFromEditValue(
-      labelDepthSlider,
-      labelDepthValue,
-      value,
-    );
-    refreshFaceletLabels();
-  });
-
-  labelDepthValue.addEventListener("blur", () => {
-    const value = Number(labelDepthValue.value);
-
-    if (!Number.isFinite(value) || value <= 0) {
-      labelDepth = syncSliderFromEditValue(
-        labelDepthSlider,
-        labelDepthValue,
-        DEFAULT_LABEL_DEPTH,
-      );
-      labelDepthValue.value = String(labelDepth);
-    } else {
-      labelDepth = syncSliderFromEditValue(
-        labelDepthSlider,
-        labelDepthValue,
-        value,
-      );
-      labelDepthValue.value = String(labelDepth);
-    }
-
-    refreshFaceletLabels();
-  });
-
-  // ============================================================
   // Cube panel
   // ============================================================
 
@@ -8854,11 +5117,8 @@ export function createUI({
       viewPanelController.setExpanded(false);
     }
 
-    if (activePanel !== "colors" && !colorsCollapsed) {
-      colorsCollapsed = true;
-      colorsContent.style.display = "none";
-      colorsPanel.style.overflowY = "hidden";
-      colorsCollapseIcon.textContent = "+";
+    if (activePanel !== "colors") {
+      colorsPanelController.setExpanded(false);
     }
 
     if (activePanel !== "cube" && !cubeCollapsed) {
@@ -8867,11 +5127,8 @@ export function createUI({
       cubeCollapseIcon.textContent = "+";
     }
 
-    if (activePanel !== "labels" && !labelsCollapsed) {
-      labelsCollapsed = true;
-      labelsContent.style.display = "none";
-      labelsCollapseIcon.textContent = "+";
-      labelsHeader.setAttribute("aria-expanded", "false");
+    if (activePanel !== "labels") {
+      labelsPanelController.setExpanded(false);
     }
 
     if (activePanel !== "setup") {
@@ -9062,7 +5319,7 @@ export function createUI({
     cubeDimensionPanel.reset();
     resetColorsInterface();
     resetRotationInterface();
-    resetLabelsState();
+    labelsPanelController.reset();
     resetViewState();
 
     viewPanelController.setExpanded(false);
@@ -9073,16 +5330,8 @@ export function createUI({
 
     cubeDimensionPanel.useGlobalMode();
 
-    labelsCollapsed = true;
-    labelsContent.style.display = "none";
-    labelsCollapseIcon.textContent = "+";
-    labelsHeader.setAttribute("aria-expanded", "false");
-
-    colorsCollapsed = true;
-    colorsContent.style.display = "none";
-    colorsPanel.style.overflowY = "hidden";
-    colorsCollapseIcon.textContent = "+";
-    colorsHeader.setAttribute("aria-expanded", "false");
+    labelsPanelController.setExpanded(false);
+    colorsPanelController.setExpanded(false);
 
     cubeCollapsed = true;
     cubeContent.style.display = "none";
@@ -9119,7 +5368,7 @@ export function createUI({
 
     try {
       await stopRotationAndWait({ force: true });
-      resetEverythingInterface();
+      applySetup(getDefaultJsonExportSetup());
       markSetupChanged();
     } finally {
       resetToDefaultsButton.disabled = false;

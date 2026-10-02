@@ -91,6 +91,15 @@ test("JSON export prunes unchanged nested state", () => {
   });
 });
 
+test("JSON export ignores floating-point noise around default numbers", () => {
+  const exported = createJsonExport(
+    { cameraPosition: { x: 5.3260232479496805 }, intentional: 0.000001 },
+    { cameraPosition: { x: 5.32602324794968 }, intentional: 0 },
+  );
+
+  assert.deepEqual(exported.setup, { intentional: 0.000001 });
+});
+
 test("export filenames use the local YYYYMMDDTHHMMSS prefix", () => {
   const date = new Date(2026, 8, 7, 4, 5, 6);
 
