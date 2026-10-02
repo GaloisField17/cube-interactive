@@ -2041,15 +2041,34 @@ export function createUI({
     scheduleRotationTimelineScrub();
   });
 
+  function getAdjacentRotationTimelineBoundary(
+    position,
+    direction,
+    entries = getRotationEntries(),
+  ) {
+    const boundary =
+      direction === "next" ? Math.floor(position) + 1 : Math.ceil(position) - 1;
+
+    return MathUtils.clamp(boundary, 0, entries.length);
+  }
+
   rotationTimeline.addEventListener("keydown", (event) => {
     const entries = getRotationEntries();
     const currentPosition = Number(rotationTimeline.value);
     let targetBoundary = null;
 
     if (event.key === "ArrowRight" || event.key === "ArrowUp") {
-      targetBoundary = Math.floor(currentPosition) + 1;
+      targetBoundary = getAdjacentRotationTimelineBoundary(
+        currentPosition,
+        "next",
+        entries,
+      );
     } else if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
-      targetBoundary = Math.ceil(currentPosition) - 1;
+      targetBoundary = getAdjacentRotationTimelineBoundary(
+        currentPosition,
+        "previous",
+        entries,
+      );
     } else if (event.key === "Home") {
       targetBoundary = 0;
     } else if (event.key === "End") {
@@ -2148,6 +2167,18 @@ export function createUI({
     const hasActiveRotation = pendingRotationEntries.length > 0;
     const hasQueuedRotations = queuedRotationActions.length > 0;
     const isRebuilding = rebuildInProgress;
+    const canStepPausedRotation = isPaused && hasActiveRotation;
+    const timelinePosition = Number(rotationTimeline.value);
+    const previousStepBoundary = getAdjacentRotationTimelineBoundary(
+      timelinePosition,
+      "previous",
+      entries,
+    );
+    const nextStepBoundary = getAdjacentRotationTimelineBoundary(
+      timelinePosition,
+      "next",
+      entries,
+    );
     const canEditSequence = !hasActiveRotation && !isAnimating && !isPaused;
 
     syncRotationTimeline(entries, currentCursor);
@@ -2163,15 +2194,19 @@ export function createUI({
 
     toStartButton.disabled = !hasRotations || isAtStartPosition;
     previousRotationButton.disabled =
-      !hasRotations || isAtStartPosition || isRotationAnimating || isRebuilding;
+      !hasRotations ||
+      isRebuilding ||
+      (canStepPausedRotation
+        ? previousStepBoundary >= timelinePosition
+        : isAtStartPosition || isRotationAnimating);
     toEndButton.disabled =
       !hasRotations || (isStopped && isAtLastEntry && !hasActiveRotation);
     nextRotationButton.disabled =
       !hasRotations ||
-      !hasNextRotation ||
-      isRotationAnimating ||
-      hasActiveRotation ||
-      isRebuilding;
+      isRebuilding ||
+      (canStepPausedRotation
+        ? nextStepBoundary <= timelinePosition
+        : !hasNextRotation || isRotationAnimating || hasActiveRotation);
     playPauseButton.disabled =
       !hasRotations ||
       isRebuilding ||
@@ -4241,7 +4276,23 @@ export function createUI({
   }
 
   previousRotationButton.addEventListener("click", async () => {
-    if (pendingRotationEntries.length > 0 || rebuildInProgress) {
+    if (rebuildInProgress) {
+      return;
+    }
+
+    if (
+      rotationPlaybackState === "paused" &&
+      pendingRotationEntries.length > 0
+    ) {
+      const targetBoundary = getAdjacentRotationTimelineBoundary(
+        Number(rotationTimeline.value),
+        "previous",
+      );
+      await seekRotationTimeline(targetBoundary);
+      return;
+    }
+
+    if (pendingRotationEntries.length > 0) {
       return;
     }
 
@@ -4281,6 +4332,18 @@ export function createUI({
   nextRotationButton.classList.add("rotation-control-next");
 
   nextRotationButton.addEventListener("click", async () => {
+    if (
+      rotationPlaybackState === "paused" &&
+      pendingRotationEntries.length > 0
+    ) {
+      const targetBoundary = getAdjacentRotationTimelineBoundary(
+        Number(rotationTimeline.value),
+        "next",
+      );
+      await seekRotationTimeline(targetBoundary);
+      return;
+    }
+
     await playNextQueuedRotation();
   });
 
