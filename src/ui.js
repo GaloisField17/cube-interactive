@@ -9096,37 +9096,37 @@ export function createUI({
     scheduleCubePanelPositionUpdate();
   }
 
-  const resetEverythingButton = document.createElement("button");
+  const resetToDefaultsButton = document.createElement("button");
 
-  resetEverythingButton.type = "button";
-  resetEverythingButton.textContent = "RESET EVERYTHING";
-  resetEverythingButton.style.position = "absolute";
-  resetEverythingButton.style.top = "20px";
-  resetEverythingButton.style.left = "20px";
-  resetEverythingButton.style.height = "42px";
-  resetEverythingButton.style.width = "220px";
-  resetEverythingButton.style.padding = "8px";
-  resetEverythingButton.style.cursor = "pointer";
-  resetEverythingButton.style.background = "#f8d7da";
-  resetEverythingButton.style.border = "1px solid #c94c59";
-  resetEverythingButton.style.color = "#842029";
-  resetEverythingButton.style.fontWeight = "bold";
-  resetEverythingButton.style.boxSizing = "border-box";
-  addHoverEffect(resetEverythingButton, "#f3c7cc");
+  resetToDefaultsButton.type = "button";
+  resetToDefaultsButton.textContent = "RESET TO DEFAULTS";
+  resetToDefaultsButton.style.position = "absolute";
+  resetToDefaultsButton.style.top = "20px";
+  resetToDefaultsButton.style.left = "20px";
+  resetToDefaultsButton.style.height = "42px";
+  resetToDefaultsButton.style.width = "220px";
+  resetToDefaultsButton.style.padding = "8px";
+  resetToDefaultsButton.style.cursor = "pointer";
+  resetToDefaultsButton.style.background = "#f8d7da";
+  resetToDefaultsButton.style.border = "1px solid #c94c59";
+  resetToDefaultsButton.style.color = "#842029";
+  resetToDefaultsButton.style.fontWeight = "bold";
+  resetToDefaultsButton.style.boxSizing = "border-box";
+  addHoverEffect(resetToDefaultsButton, "#f3c7cc");
 
-  resetEverythingButton.addEventListener("click", async () => {
-    resetEverythingButton.disabled = true;
+  resetToDefaultsButton.addEventListener("click", async () => {
+    resetToDefaultsButton.disabled = true;
 
     try {
       await stopRotationAndWait({ force: true });
       resetEverythingInterface();
       markSetupChanged();
     } finally {
-      resetEverythingButton.disabled = false;
+      resetToDefaultsButton.disabled = false;
     }
   });
 
-  controlsRoot.appendChild(resetEverythingButton);
+  controlsRoot.appendChild(resetToDefaultsButton);
 
   const historyButton = document.createElement("button");
 
