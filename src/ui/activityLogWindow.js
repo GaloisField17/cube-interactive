@@ -94,10 +94,29 @@ function renderActivityDescription(
       if (targetActivity) {
         element.appendChild(target);
       }
-      continue;
+    } else {
+      element.appendChild(code);
     }
 
-    element.appendChild(code);
+    if (part.colorSwatch) {
+      const swatch = document.createElement("span");
+
+      swatch.setAttribute("role", "img");
+      swatch.setAttribute("aria-label", `Color ${part.colorSwatch}`);
+      swatch.title = part.colorSwatch;
+      Object.assign(swatch.style, {
+        display: "inline-block",
+        width: "10px",
+        height: "10px",
+        marginLeft: "0",
+        borderRadius: "50%",
+        border: "1px solid rgba(0, 0, 0, 0.25)",
+        backgroundColor: part.colorSwatch,
+        boxSizing: "border-box",
+        verticalAlign: "middle",
+      });
+      element.append(document.createTextNode(" "), swatch);
+    }
   }
 }
 

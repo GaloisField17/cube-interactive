@@ -53,6 +53,37 @@ function code(value) {
   return { code: String(value) };
 }
 
+function colorCode(value) {
+  const color = getUniformColorValue(value);
+
+  return {
+    code: formatValue(value),
+    ...(color === null ? {} : { colorSwatch: color }),
+  };
+}
+
+function getUniformColorValue(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || typeof value !== "object") {
+    return null;
+  }
+
+  const values = Object.values(value);
+
+  if (values.length === 0) {
+    return null;
+  }
+
+  const colors = values.map(getUniformColorValue);
+  const firstColor = colors[0];
+
+  return firstColor !== null && colors.every((color) => color === firstColor)
+    ? firstColor
+    : null;
+}
+
 function describe(parts) {
   return {
     description: parts
@@ -263,9 +294,21 @@ function describeValueChange(activity, reverting) {
     };
     prefix = names[focus];
     if (focus === "Peek Hide Color") {
-      return describe([prefix, reverting ? " was changed back to " : " was changed to ", value(to), "."]);
+      return describe([
+        prefix,
+        reverting ? " was changed back to " : " was changed to ",
+        colorCode(to),
+        ".",
+      ]);
     }
-    return describe([prefix, " was changed from ", value(from), connector, value(to), "."]);
+    return describe([
+      prefix,
+      " was changed from ",
+      value(from),
+      connector,
+      value(to),
+      ".",
+    ]);
   }
   if (activity.parent === "Colors") {
     const isGrouped = to !== null && typeof to === "object" && !Array.isArray(to);
@@ -298,7 +341,14 @@ function describeValueChange(activity, reverting) {
           ? "Color of all rotation arrows"
           : `Color of the ${target} rotation arrow`;
     }
-    return describe([prefix, " was changed from ", value(from), connector, value(to), "."]);
+    return describe([
+      prefix,
+      " was changed from ",
+      colorCode(from),
+      connector,
+      colorCode(to),
+      ".",
+    ]);
   }
   if (activity.parent === "Labels") {
     const featureToggles = {

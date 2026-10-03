@@ -75,6 +75,7 @@ test("setting changes create Activity Log entries with before and after values",
   const outerFaceletColor = page
     .locator("#outer-facelets-panel-content input")
     .first();
+  const originalColor = await outerFaceletColor.inputValue();
 
   await outerFaceletColor.fill("#123456");
   await outerFaceletColor.press("Tab");
@@ -125,6 +126,40 @@ test("setting changes create Activity Log entries with before and after values",
       hasText: "Colors: Outer Facelet",
     }),
   ).toBeVisible();
+  const colorActivity = dialog
+    .locator("button[aria-pressed]")
+    .filter({ hasText: "Colors: Outer Facelet" })
+    .first()
+    .locator("..");
+  const colorValues = colorActivity.locator("code");
+  const colorSwatches = colorActivity.locator(
+    '[role="img"][aria-label^="Color "]',
+  );
+
+  await expect(colorValues).toHaveText([originalColor, "#123456"]);
+  await expect(colorSwatches).toHaveCount(2);
+  await expect(colorSwatches.nth(0)).toHaveAttribute(
+    "aria-label",
+    `Color ${originalColor}`,
+  );
+  await expect(colorSwatches.nth(1)).toHaveAttribute(
+    "aria-label",
+    "Color #123456",
+  );
+  await expect(colorSwatches.nth(1)).toHaveCSS(
+    "background-color",
+    "rgb(18, 52, 86)",
+  );
+  for (let index = 0; index < 2; index += 1) {
+    await expect
+      .poll(() =>
+        colorSwatches.nth(index).evaluate((swatch) => ({
+          radius: swatch.style.borderRadius,
+          precedingSpace: swatch.previousSibling?.textContent,
+        })),
+      )
+      .toEqual({ radius: "50%", precedingSpace: " " });
+  }
   await expect(
     dialog.getByText(
       "Sticker ghost visibility was changed from shown through the cube to hidden behind the cube.",
@@ -182,6 +217,27 @@ test("Reset Rotation records Rotation and Camera entries with the same time", as
   );
   await expect(rotationReset.locator("time")).toHaveText(
     await cameraReset.locator("time").textContent(),
+  );
+});
+
+test("Reset Cube Settings records an Activity Log entry", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[aria-controls="cube-panel-content"]').click();
+
+  const cubeSize = page.locator("#cube-panel-content input[type='text']").first();
+
+  await cubeSize.fill("1.2");
+  await cubeSize.press("Tab");
+  await page.getByRole("button", { name: "Reset Cube Settings", exact: true }).click();
+
+  await expect(cubeSize).toHaveValue("1");
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const cubeReset = dialog.getByRole("button", { name: "Cube: Settings" });
+
+  await expect(cubeReset.locator("..")).toContainText(
+    "Settings were reset using the individual reset button.",
   );
 });
 

@@ -5655,9 +5655,9 @@ export function createUI({
   cubeTitleRow.style.alignItems = "center";
   cubeTitleRow.style.gap = "6px";
 
-  const resetCubeButton = createResetButton("Reset Cube Settings", () => {
-    cubeDimensionPanel.reset();
-  });
+  const resetCubeButton = createResetButton("Reset Cube Settings", () =>
+    runResetActivity("Cube", "Settings", () => cubeDimensionPanel.reset()),
+  );
 
   cubeTitleRow.appendChild(resetCubeButton);
   cubeTitleRow.appendChild(cubeTitle);
