@@ -22,7 +22,7 @@ const DEFAULT_SETUP = {
   view: {
     cameraPosition: { x: 5, y: 5, z: 7 },
     target: { x: 0, y: 0, z: 0 },
-    ghostStickersVisibility: "always-visible",
+    transparentStickersVisibility: "always-visible",
     peekStickersVisibility: "always-visible",
     peekStickersDepth: 0.2,
     peekStickersHideWhenColor: "",
@@ -86,7 +86,7 @@ test("default setup factory returns complete independent defaults", () => {
   assert.deepEqual(first.view, {
     cameraPosition: { x: 4, y: 6, z: 8 },
     target: { x: 1, y: 2, z: 3 },
-    ghostStickersVisibility: "always-visible",
+    transparentStickersVisibility: "always-visible",
     peekStickersVisibility: "always-visible",
     peekStickersDepth: 0.2,
     peekStickersHideWhenColor: "",
@@ -125,7 +125,7 @@ test("valid document accepts all supported setup sections", () => {
     view: {
       cameraPosition: { x: 4, y: 5, z: 6 },
       target: { x: 0, y: 1, z: 0 },
-      ghostStickersVisibility: "hidden-behind-cube",
+      transparentStickersVisibility: "hidden-behind-cube",
       peekStickersVisibility: "hidden-behind-cube",
       peekStickersDepth: 0.75,
       peekStickersHideWhenColor: "#f00",
@@ -162,6 +162,39 @@ test("valid document accepts all supported setup sections", () => {
   assert.deepEqual(
     validateImportedDocument(makeDocument(setup, { version: 2 })),
     setup,
+  );
+});
+
+test("legacy ghost visibility field imports as transparent sticker visibility", () => {
+  const setup = {
+    view: { ghostStickersVisibility: "hidden-behind-cube" },
+  };
+  const imported = validateImportedDocument(makeDocument(setup));
+
+  assert.deepEqual(imported, {
+    view: { transparentStickersVisibility: "hidden-behind-cube" },
+  });
+  assert.deepEqual(
+    mergeImportedValues(DEFAULT_SETUP, imported).view,
+    {
+      ...DEFAULT_SETUP.view,
+      transparentStickersVisibility: "hidden-behind-cube",
+    },
+  );
+});
+
+test("conflicting legacy and transparent visibility fields are rejected", () => {
+  assert.throws(
+    () =>
+      validateImportedDocument(
+        makeDocument({
+          view: {
+            ghostStickersVisibility: "always-visible",
+            transparentStickersVisibility: "hidden-behind-cube",
+          },
+        }),
+      ),
+    /conflicts with legacy/u,
   );
 });
 
@@ -204,10 +237,10 @@ test("missing optional properties merge recursively with defaults", () => {
   );
 });
 
-test("export retains changed Ghost and Peek settings", () => {
+test("export retains changed Transparent and Peek settings", () => {
   const setup = structuredClone(DEFAULT_SETUP);
 
-  setup.view.ghostStickersVisibility = "hidden-behind-cube";
+  setup.view.transparentStickersVisibility = "hidden-behind-cube";
   setup.view.peekStickersVisibility = "hidden-behind-cube";
   setup.view.peekStickersDepth = 0.75;
   setup.view.peekStickersHideWhenColor = "#f00";
@@ -219,7 +252,7 @@ test("export retains changed Ghost and Peek settings", () => {
   );
 
   assert.deepEqual(exported.setup.view, {
-    ghostStickersVisibility: "hidden-behind-cube",
+    transparentStickersVisibility: "hidden-behind-cube",
     peekStickersVisibility: "hidden-behind-cube",
     peekStickersDepth: 0.75,
     peekStickersHideWhenColor: "#f00",

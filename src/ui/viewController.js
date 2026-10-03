@@ -22,7 +22,7 @@ export function createViewController({
 }) {
   let settings = { ...DEFAULT_VIEW_SETTINGS };
 
-  function dimColorForGhostEffect(color) {
+  function dimColorForTransparentEffect(color) {
     const baseColor = new Color(color);
 
     return `#${baseColor.multiplyScalar(0.28).getHexString()}`;
@@ -30,7 +30,7 @@ export function createViewController({
 
   function refresh() {
     scene.userData.shouldRefreshHiddenStickerState =
-      settings.ghostStickersVisibility !== ALWAYS_VISIBLE ||
+      settings.transparentStickersVisibility !== ALWAYS_VISIBLE ||
       settings.peekStickersVisibility !== ALWAYS_VISIBLE;
 
     if (!facelets.length) {
@@ -99,8 +99,8 @@ export function createViewController({
       const isHiddenFromView = !isFacingCamera;
       const originalColor =
         facelet.currentColor ?? facelet.defaultColor ?? facelet.color;
-      const shouldApplyGhostTint =
-        settings.ghostStickersVisibility === HIDDEN_BEHIND_CUBE &&
+      const shouldApplyTransparentEffect =
+        settings.transparentStickersVisibility === HIDDEN_BEHIND_CUBE &&
         isHiddenFromView;
       const matchesHiddenPeekColor =
         hiddenPeekColor !== null &&
@@ -109,17 +109,17 @@ export function createViewController({
         settings.peekStickersVisibility === HIDDEN_BEHIND_CUBE &&
         isHiddenFromView &&
         !matchesHiddenPeekColor;
-      const nextColor = shouldApplyGhostTint
-        ? dimColorForGhostEffect(originalColor)
+      const nextColor = shouldApplyTransparentEffect
+        ? dimColorForTransparentEffect(originalColor)
         : originalColor;
 
       material.color.set(nextColor);
       material.visible = true;
-      material.transparent = shouldApplyGhostTint;
-      material.opacity = shouldApplyGhostTint ? 0.38 : 1;
-      material.depthTest = !shouldApplyGhostTint;
-      material.depthWrite = !shouldApplyGhostTint;
-      material.side = shouldApplyGhostTint ? DoubleSide : 0;
+      material.transparent = shouldApplyTransparentEffect;
+      material.opacity = shouldApplyTransparentEffect ? 0.38 : 1;
+      material.depthTest = !shouldApplyTransparentEffect;
+      material.depthWrite = !shouldApplyTransparentEffect;
+      material.side = shouldApplyTransparentEffect ? DoubleSide : 0;
 
       if (!cubie.userData.peekStickerOverlays) {
         cubie.userData.peekStickerOverlays = new Map();

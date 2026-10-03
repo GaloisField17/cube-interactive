@@ -1,7 +1,7 @@
 export const DEFAULT_FACELET_LABEL_COLOR = "#111";
 
 export const DEFAULT_VIEW_SETTINGS = Object.freeze({
-  ghostStickersVisibility: "always-visible",
+  transparentStickersVisibility: "always-visible",
   peekStickersVisibility: "always-visible",
   peekStickersDepth: 0.2,
   peekStickersHideWhenColor: "",

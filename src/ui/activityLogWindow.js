@@ -205,7 +205,7 @@ export function createActivityLogWindow({
   filterMenu.style.zIndex = "1";
   filterMenu.style.display = "none";
   filterMenu.style.width = "min(320px, calc(100vw - 80px))";
-  filterMenu.style.maxHeight = "min(360px, calc(100vh - 180px))";
+  filterMenu.style.maxHeight = "360px";
   filterMenu.style.overflowY = "auto";
   filterMenu.style.padding = "6px";
   filterMenu.style.background = "white";
@@ -238,6 +238,39 @@ export function createActivityLogWindow({
   status.style.minHeight = "20px";
   status.style.marginTop = "8px";
   status.style.color = "#b42318";
+
+  function positionFilterMenu() {
+    if (
+      filterMenu.style.display === "none" ||
+      overlay.style.display === "none"
+    ) {
+      return;
+    }
+
+    const dialogStyles = window.getComputedStyle(dialog);
+    const dialogRect = dialog.getBoundingClientRect();
+    const buttonRect = filterButton.getBoundingClientRect();
+    const contentTop =
+      dialogRect.top +
+      dialog.clientTop +
+      Number.parseFloat(dialogStyles.paddingTop);
+    const contentBottom =
+      dialogRect.top +
+      dialog.clientTop +
+      dialog.clientHeight -
+      Number.parseFloat(dialogStyles.paddingBottom);
+    const gap = 6;
+    const spaceAbove = Math.max(0, buttonRect.top - gap - contentTop);
+    const spaceBelow = Math.max(0, contentBottom - buttonRect.bottom - gap);
+    const openAbove = spaceAbove > spaceBelow;
+    const availableSpace = openAbove ? spaceAbove : spaceBelow;
+
+    filterMenu.style.top = openAbove ? "auto" : `calc(100% + ${gap}px)`;
+    filterMenu.style.bottom = openAbove ? `calc(100% + ${gap}px)` : "auto";
+    filterMenu.style.maxHeight = `${Math.floor(
+      Math.min(360, availableSpace),
+    )}px`;
+  }
 
   function renderFilterOptions() {
     filterOptions.replaceChildren();
@@ -391,6 +424,7 @@ export function createActivityLogWindow({
     syncButtonDisabledAppearance(jumpButton);
     renderFilterOptions();
     renderActivityList();
+    positionFilterMenu();
   }
 
   function close() {
@@ -465,12 +499,13 @@ export function createActivityLogWindow({
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
   refresh();
+  window.addEventListener("resize", positionFilterMenu);
 
   return {
     close,
     open() {
-      refresh();
       overlay.style.display = "flex";
+      refresh();
     },
     refresh,
   };

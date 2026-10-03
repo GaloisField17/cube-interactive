@@ -28,24 +28,70 @@ export function attachColorPicker({
   const undoButton = undo ? document.createElement("button") : null;
   let initialColor = "";
   let initialUndoState;
-  let pickerStartedMixed = false;
+  let editUndoState;
+  let committedUndoState;
   let pickerOpen = false;
   let pickerSelectionCommitted = false;
   let pickerCancellationRequested = false;
 
+  function setUndoAvailable(available) {
+    undoButton.style.display = available ? "block" : "none";
+    preview.style.marginRight = available ? "22px" : "0";
+  }
+
+  function cloneUndoState(value) {
+    return structuredClone(value);
+  }
+
+  function areUndoStatesEqual(first, second) {
+    return JSON.stringify(first) === JSON.stringify(second);
+  }
+
+  function captureEditUndoState() {
+    if (undo) {
+      editUndoState = cloneUndoState(undo.getSnapshot());
+    }
+  }
+
+  function restoreUndoState(snapshot, activityCommitter = null) {
+    if (undo?.restoreSnapshot) {
+      undo.restoreSnapshot(snapshot, activityCommitter);
+      return;
+    }
+
+    if (undo) {
+      input.value = snapshot;
+      onColorChange();
+    }
+  }
+
+  function commitColorChange() {
+    if (undo) {
+      const nextUndoState = undo.getSnapshot();
+      const previousUndoState = editUndoState ?? nextUndoState;
+
+      if (!areUndoStatesEqual(previousUndoState, nextUndoState)) {
+        committedUndoState = cloneUndoState(previousUndoState);
+        setUndoAvailable(true);
+      }
+      editUndoState = null;
+    }
+
+    onColorCommit?.();
+  }
+
   function openPicker() {
     initialColor = input.value;
-    pickerStartedMixed = Boolean(undo?.isAvailable());
-    initialUndoState = pickerStartedMixed ? undo.getSnapshot() : input.value;
+    captureEditUndoState();
+    initialUndoState = undo
+      ? cloneUndoState(editUndoState)
+      : input.value;
     const pickerColor = input.value || getInitialColor?.() || "#000000";
 
     picker.value = getColorPickerValue(pickerColor);
     pickerOpen = true;
     pickerSelectionCommitted = false;
     pickerCancellationRequested = false;
-    if (undoButton && pickerStartedMixed) {
-      undoButton.style.display = "block";
-    }
     picker.click();
   }
 
@@ -63,7 +109,7 @@ export function attachColorPicker({
     pickerOpen = false;
     input.value = getNamedColorOrHex(picker.value);
     onColorChange();
-    onColorCommit?.();
+    commitColorChange();
   }
 
   function restoreCancelledColor() {
@@ -73,15 +119,13 @@ export function attachColorPicker({
 
     pickerOpen = false;
     pickerCancellationRequested = true;
-    if (pickerStartedMixed) {
-      undo.restoreSnapshot(initialUndoState);
+    if (undo) {
+      restoreUndoState(initialUndoState);
     } else {
       input.value = initialColor;
       onColorChange();
     }
-    if (undoButton) {
-      undoButton.style.display = "none";
-    }
+    editUndoState = null;
   }
 
   function handlePickerCancel() {
@@ -89,16 +133,19 @@ export function attachColorPicker({
     pickerSelectionCommitted = false;
     pickerCancellationRequested = true;
     window.setTimeout(() => {
-      if (pickerStartedMixed) {
-        undo.restoreSnapshot(initialUndoState);
+      if (undo) {
+        restoreUndoState(initialUndoState);
       } else {
         input.value = initialColor;
         onColorChange();
       }
-      if (undoButton) {
-        undoButton.style.display = "none";
-      }
+      editUndoState = null;
     }, 0);
+  }
+
+  if (undo) {
+    input.addEventListener("focus", captureEditUndoState);
+    input.addEventListener("change", commitColorChange);
   }
 
   preview.style.cursor = "pointer";
@@ -151,12 +198,14 @@ export function attachColorPicker({
       pickerOpen = false;
       pickerSelectionCommitted = false;
       pickerCancellationRequested = true;
-      undo.restoreSnapshot(initialUndoState);
+      restoreUndoState(committedUndoState, undo.activityCommitter);
       onColorCommit?.();
-      undoButton.style.display = "none";
+      committedUndoState = null;
+      editUndoState = null;
+      setUndoAvailable(false);
     });
     preview.style.position = "relative";
-    preview.style.marginRight = "22px";
+    preview.style.marginRight = "0";
     preview.appendChild(undoButton);
   }
 

@@ -201,14 +201,14 @@ export function createViewPanel({
     return { root: control, setValue };
   }
 
-  const ghostVisibilityControl = createVisibilityControl(
+  const transparentVisibilityControl = createVisibilityControl(
     "Transparent Stickers",
-    "ghost-stickers-visibility",
-    initialSettings.ghostStickersVisibility,
-    (value) => setViewSetting("ghostStickersVisibility", value),
+    "transparent-stickers-visibility",
+    initialSettings.transparentStickersVisibility,
+    (value) => setViewSetting("transparentStickersVisibility", value),
     createSettingCommitter(
-      "ghostStickersVisibility",
-      "Ghost Sticker Visibility",
+      "transparentStickersVisibility",
+      "Transparent Stickers",
     ),
   );
   const peekVisibilityControl = createVisibilityControl(
@@ -219,7 +219,7 @@ export function createViewPanel({
       syncPeekDepthVisibility(value);
       setViewSetting("peekStickersVisibility", value);
     },
-    createSettingCommitter("peekStickersVisibility", "Peek Sticker Visibility"),
+    createSettingCommitter("peekStickersVisibility", "Peek Stickers"),
   );
 
   const peekHideWhenControl = document.createElement("div");
@@ -318,6 +318,14 @@ export function createViewPanel({
     },
     onColorCommit: () => peekColorActivity.commit(),
     getInitialColor: () => "#000000",
+    undo: {
+      getSnapshot: () => peekHideWhenInput.value,
+      restoreSnapshot: (color) => {
+        peekHideWhenInput.value = color;
+        updatePeekColor();
+        onPeekColorPicked();
+      },
+    },
   });
 
   peekHideWhenRow.appendChild(peekHideWhenLabel);
@@ -405,7 +413,7 @@ export function createViewPanel({
   peekDepthControl.appendChild(peekDepthLabel);
   peekDepthControl.appendChild(peekDepthRow);
 
-  content.appendChild(ghostVisibilityControl.root);
+  content.appendChild(transparentVisibilityControl.root);
   content.appendChild(peekVisibilityControl.root);
   content.appendChild(peekHideWhenControl);
   content.appendChild(peekDepthControl);
@@ -423,7 +431,7 @@ export function createViewPanel({
 
   function setSettings(settings) {
     Object.assign(currentSettings, settings);
-    ghostVisibilityControl.setValue(settings.ghostStickersVisibility);
+    transparentVisibilityControl.setValue(settings.transparentStickersVisibility);
     peekVisibilityControl.setValue(settings.peekStickersVisibility);
     peekDepthSlider.value = String(settings.peekStickersDepth);
     peekDepthValue.value = String(settings.peekStickersDepth);

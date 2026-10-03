@@ -13,7 +13,10 @@ function formatValue(value) {
   }
 
   if (value && typeof value === "object") {
-    if (Object.hasOwn(value, "cameraPosition") && Object.hasOwn(value, "target")) {
+    if (
+      Object.hasOwn(value, "cameraPosition") &&
+      Object.hasOwn(value, "target")
+    ) {
       return "camera pose";
     }
 
@@ -88,11 +91,7 @@ function getUniformColorValue(value) {
 function describe(parts) {
   return {
     description: parts
-      .map((part) =>
-        typeof part === "string"
-          ? part
-          : part.code ?? "",
-      )
+      .map((part) => (typeof part === "string" ? part : (part.code ?? "")))
       .join(""),
     descriptionParts: parts,
   };
@@ -186,7 +185,9 @@ function describeCamera(activity, reverting, defaultCameraView) {
 
   if (activity.focus === "Orbit") {
     return describe([
-      reverting ? "Camera was orbited back to azimuth " : "Camera was orbited to azimuth ",
+      reverting
+        ? "Camera was orbited back to azimuth "
+        : "Camera was orbited to azimuth ",
       code(`${metrics.azimuth}°`),
       " and elevation ",
       code(`${metrics.elevation}°`),
@@ -195,7 +196,9 @@ function describeCamera(activity, reverting, defaultCameraView) {
   }
   if (activity.focus === "Zoom") {
     return describe([
-      reverting ? "Camera zoom was changed back to " : "Camera zoom was changed to ",
+      reverting
+        ? "Camera zoom was changed back to "
+        : "Camera zoom was changed to ",
       code(`${metrics.zoomPercent}%`),
       ".",
     ]);
@@ -288,17 +291,44 @@ function describeValueChange(activity, reverting) {
   }
   if (activity.parent === "View") {
     const names = {
-      "Ghost Sticker Visibility": "Sticker ghost visibility",
-      "Peek Sticker Visibility": "Peek sticker visibility",
+      "Transparent Stickers": "Transparent stickers setting",
       "Peek Sticker Depth": "Peek sticker depth",
       "Peek Hide Color": "Peek hide color",
     };
     prefix = names[focus];
+    if (focus === "Transparent Stickers") {
+      const visibility = (value) =>
+        code(value === "always-visible" ? "disabled" : "enabled");
+
+      return describe([
+        "Transparent stickers setting was changed from ",
+        visibility(from),
+        connector,
+        visibility(to),
+        ".",
+      ]);
+    }
+    if (focus === "Peek Stickers") {
+      const visibility = (value) =>
+        code(value === "always-visible" ? "disabled" : "enabled");
+
+      return describe([
+        "Peek stickers setting was changed from ",
+        visibility(from),
+        connector,
+        visibility(to),
+        ".",
+      ]);
+    }
     if (focus === "Peek Hide Color") {
+      const colorValue = (item) => (item ? colorCode(item) : code("none"));
+
       return describe([
         prefix,
-        reverting ? " was changed back to " : " was changed to ",
-        colorCode(to),
+        " was changed from ",
+        colorValue(from),
+        connector,
+        colorValue(to),
         ".",
       ]);
     }
@@ -312,7 +342,11 @@ function describeValueChange(activity, reverting) {
     ]);
   }
   if (activity.parent === "Colors") {
-    const isGrouped = to !== null && typeof to === "object" && !Array.isArray(to);
+    const isGrouped =
+      to !== null &&
+      typeof to === "object" &&
+      !Array.isArray(to) &&
+      Object.keys(to).length > 1;
 
     if (focus.startsWith("Outer Facelet")) {
       prefix =
@@ -385,7 +419,9 @@ function describeValueChange(activity, reverting) {
     }
 
     if (focus.endsWith(" Visibility")) {
-      const focusTarget = focus.match(/^(Axis Label|Axis Arrow|Rotation Arrow) \((.+)\) Visibility$/u);
+      const focusTarget = focus.match(
+        /^(Axis Label|Axis Arrow|Rotation Arrow) \((.+)\) Visibility$/u,
+      );
       const nameByFocus = {
         "Facelet Label Visibility": "Facelet label visibility",
         "Axis Label Visibility": "Axis label visibility",
@@ -396,7 +432,14 @@ function describeValueChange(activity, reverting) {
         ? `Visibility of the ${focusTarget[2]} ${focusTarget[1].replace("Axis Label", "axis label").replace("Axis Arrow", "axis arrow").replace("Rotation Arrow", "rotation arrow")}`
         : nameByFocus[focus];
 
-      return describe([subject, " was changed from ", value(from), connector, value(to), "."]);
+      return describe([
+        subject,
+        " was changed from ",
+        value(from),
+        connector,
+        value(to),
+        ".",
+      ]);
     }
 
     const names = {
@@ -410,10 +453,19 @@ function describeValueChange(activity, reverting) {
       "Rotation Arrow Direction": "Rotation arrow direction",
     };
     prefix = names[focus];
-    return describe([prefix, " was changed from ", value(from), connector, value(to), "."]);
+    return describe([
+      prefix,
+      " was changed from ",
+      value(from),
+      connector,
+      value(to),
+      ".",
+    ]);
   }
 
-  throw new Error(`No activity description template for ${activity.parent}: ${focus}.`);
+  throw new Error(
+    `No activity description template for ${activity.parent}: ${focus}.`,
+  );
 }
 
 export function createActivityDescription(

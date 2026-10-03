@@ -213,7 +213,7 @@ test("axis label and arrow settings retain their appearance and visibility", asy
   await expect(page.locator("canvas")).toHaveCount(1);
   await ensureExpanded(page, "view-panel-content");
   await page
-    .locator('input[name="ghost-stickers-visibility"][value="hidden-behind-cube"]')
+    .locator('input[name="transparent-stickers-visibility"][value="hidden-behind-cube"]')
     .check();
   await page
     .locator('input[name="peek-stickers-visibility"][value="hidden-behind-cube"]')
@@ -271,7 +271,7 @@ test("axis label and arrow settings retain their appearance and visibility", asy
   const exported = await exportSetup(page);
 
   assert.equal(
-    exported.setup.view.ghostStickersVisibility,
+    exported.setup.view.transparentStickersVisibility,
     "hidden-behind-cube",
   );
   assert.equal(

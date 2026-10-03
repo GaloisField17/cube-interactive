@@ -77,6 +77,7 @@ export function validateImportedDocument(document) {
       [
         "cameraPosition",
         "target",
+        "transparentStickersVisibility",
         "ghostStickersVisibility",
         "peekStickersVisibility",
         "peekStickersDepth",
@@ -96,7 +97,11 @@ export function validateImportedDocument(document) {
         }
       }
     }
-    for (const key of ["ghostStickersVisibility", "peekStickersVisibility"]) {
+    for (const key of [
+      "transparentStickersVisibility",
+      "ghostStickersVisibility",
+      "peekStickersVisibility",
+    ]) {
       if (
         view[key] !== undefined &&
         ![ALWAYS_VISIBLE, HIDDEN_BEHIND_CUBE].includes(view[key])
@@ -349,6 +354,29 @@ export function validateImportedDocument(document) {
         }
       }
     }
+  }
+
+  if (
+    view?.transparentStickersVisibility !== undefined &&
+    view.ghostStickersVisibility !== undefined &&
+    view.transparentStickersVisibility !== view.ghostStickersVisibility
+  ) {
+    throw new Error(
+      "setup.view.transparentStickersVisibility conflicts with legacy setup.view.ghostStickersVisibility.",
+    );
+  }
+
+  if (view?.ghostStickersVisibility !== undefined) {
+    const normalizedView = { ...view };
+
+    normalizedView.transparentStickersVisibility ??=
+      normalizedView.ghostStickersVisibility;
+    delete normalizedView.ghostStickersVisibility;
+
+    return {
+      ...document.setup,
+      view: normalizedView,
+    };
   }
 
   return document.setup;

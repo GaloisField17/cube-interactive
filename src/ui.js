@@ -358,8 +358,8 @@ export function createUI({
 
     if (activity.parent === "View") {
       const settingByFocus = {
-        "Ghost Sticker Visibility": "ghostStickersVisibility",
-        "Peek Sticker Visibility": "peekStickersVisibility",
+        "Transparent Stickers": "transparentStickersVisibility",
+        "Peek Stickers": "peekStickersVisibility",
         "Peek Hide Color": "peekStickersHideWhenColor",
         "Peek Sticker Depth": "peekStickersDepth",
       };
@@ -5390,7 +5390,8 @@ export function createUI({
     resetEverythingInterface();
 
     viewController.setSettings({
-      ghostStickersVisibility: importedSetup.view.ghostStickersVisibility,
+      transparentStickersVisibility:
+        importedSetup.view.transparentStickersVisibility,
       peekStickersVisibility: importedSetup.view.peekStickersVisibility,
       peekStickersDepth: importedSetup.view.peekStickersDepth,
       peekStickersHideWhenColor: importedSetup.view.peekStickersHideWhenColor,

@@ -60,6 +60,83 @@ test("Filter is enabled only when multiple Parent-Focus groups are available", a
   );
 });
 
+test("Filter menu stays within the Activity Log after filtering and resizing", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const duration = page.locator("#rotation-panel input[type='text']").first();
+
+  await duration.fill("1.5");
+  await duration.press("Tab");
+  await page.locator('[aria-controls="colors-panel-content"]').click({
+    force: true,
+  });
+  const outerFaceletColor = page
+    .locator("#colors-panel-content input[type='text']")
+    .first();
+
+  await outerFaceletColor.fill("#123456");
+  await outerFaceletColor.press("Tab");
+  await page.locator('[aria-controls="view-panel-content"]').click({
+    force: true,
+  });
+  await page
+    .locator(
+      'input[name="transparent-stickers-visibility"][value="hidden-behind-cube"]',
+    )
+    .check();
+  await page.locator('[aria-controls="labels-panel-content"]').click({
+    force: true,
+  });
+  await page.getByLabel("Show Facelet Labels").check();
+  await page.setViewportSize({ width: 640, height: 420 });
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const filterButton = dialog.getByRole("button", { name: "Filter" });
+  const filterMenu = dialog.getByRole("group", {
+    name: "Filter activities",
+  });
+
+  await filterButton.click();
+  await expect(filterMenu).toBeVisible();
+
+  async function expectFilterMenuContained() {
+    const bounds = await filterMenu.evaluate((menu) => {
+      const menuRect = menu.getBoundingClientRect();
+      const dialogRect = menu.closest('[role="dialog"]').getBoundingClientRect();
+
+      return {
+        menuTop: menuRect.top,
+        menuBottom: menuRect.bottom,
+        dialogTop: dialogRect.top,
+        dialogBottom: dialogRect.bottom,
+        maxHeight: Number.parseFloat(getComputedStyle(menu).maxHeight),
+        clientHeight: menu.clientHeight,
+        scrollHeight: menu.scrollHeight,
+      };
+    });
+
+    expect(bounds.menuTop).toBeGreaterThanOrEqual(bounds.dialogTop);
+    expect(bounds.menuBottom).toBeLessThanOrEqual(bounds.dialogBottom);
+    expect(bounds.clientHeight).toBeLessThanOrEqual(bounds.maxHeight + 1);
+    await expect(filterMenu).toHaveCSS("overflow-y", "auto");
+
+    return bounds;
+  }
+
+  let bounds = await expectFilterMenuContained();
+
+  expect(bounds.scrollHeight).toBeGreaterThan(bounds.clientHeight);
+  await filterMenu.getByRole("checkbox", { name: "View", exact: true }).check();
+  bounds = await expectFilterMenuContained();
+  expect(bounds.menuBottom - bounds.menuTop).toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 640, height: 340 });
+  await expectFilterMenuContained();
+});
+
 test("setting changes create Activity Log entries with before and after values", async ({
   page,
 }) => {
@@ -81,7 +158,12 @@ test("setting changes create Activity Log entries with before and after values",
   await outerFaceletColor.press("Tab");
   await page.locator('[aria-controls="view-panel-content"]').click();
   await page
-    .locator('input[name="ghost-stickers-visibility"][value="hidden-behind-cube"]')
+    .locator('input[name="transparent-stickers-visibility"][value="hidden-behind-cube"]')
+    .check();
+  await page
+    .locator(
+      'input[name="peek-stickers-visibility"][value="hidden-behind-cube"]',
+    )
     .check();
   await page.locator('[aria-controls="labels-panel-content"]').click();
   await page.getByLabel("Show Facelet Labels").check();
@@ -160,18 +242,65 @@ test("setting changes create Activity Log entries with before and after values",
       )
       .toEqual({ radius: "50%", precedingSpace: " " });
   }
+  const transparentVisibility = dialog.getByRole("button", {
+    name: "View: Transparent Stickers",
+  });
+
+  await expect(transparentVisibility).toBeVisible();
+  const transparentVisibilityActivity = transparentVisibility.locator("..");
+
+  await expect(transparentVisibilityActivity).toContainText(
+    "Transparent stickers setting was changed from disabled to enabled.",
+  );
+  await expect(transparentVisibilityActivity.locator("code")).toHaveText([
+    "disabled",
+    "enabled",
+  ]);
+  const peekVisibility = dialog.getByRole("button", {
+    name: "View: Peek Stickers",
+  });
+
+  await expect(peekVisibility).toBeVisible();
+  const peekVisibilityActivity = peekVisibility.locator("..");
+
+  await expect(peekVisibilityActivity).toContainText(
+    "Peek stickers setting was changed from disabled to enabled.",
+  );
+  await expect(peekVisibilityActivity.locator("code")).toHaveText([
+    "disabled",
+    "enabled",
+  ]);
+  await expect(dialog.locator("button[aria-pressed]").first()).toHaveAttribute(
+    "aria-label",
+    "Camera: Orbit",
+  );
+  await peekVisibility.click();
+  await dialog.getByRole("button", { name: "Revert" }).click();
+  await expect(
+    page.locator(
+      'input[name="peek-stickers-visibility"][value="always-visible"]',
+    ),
+  ).toBeChecked();
   await expect(
     dialog.getByText(
-      "Sticker ghost visibility was changed from shown through the cube to hidden behind the cube.",
+      "Peek stickers setting was changed from enabled back to disabled.",
+    ),
+  ).toBeVisible();
+  await transparentVisibility.click();
+  await dialog.getByRole("button", { name: "Revert" }).click();
+  await expect(
+    page.locator(
+      'input[name="transparent-stickers-visibility"][value="always-visible"]',
+    ),
+  ).toBeChecked();
+  await expect(
+    dialog.getByText(
+      "Transparent stickers setting was changed from enabled back to disabled.",
     ),
   ).toBeVisible();
   await expect(
     dialog.getByText("Facelet labels were changed from disabled to enabled."),
   ).toBeVisible();
-  await expect(dialog.locator("button[aria-pressed]").first()).toHaveAttribute(
-    "aria-label",
-    "Camera: Orbit",
-  );
 });
 
 test("grouped face color changes update individual color activity baselines", async ({
@@ -256,6 +385,150 @@ test("mixed color activity values are capitalized and have no swatch", async ({
   await expect(activity.locator('[role="img"]')).toHaveAttribute(
     "aria-label",
     "Color #123456",
+  );
+});
+
+test("individual color undo restores the previous color and logs the reversal", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator('[aria-controls="colors-panel-content"]').click({
+    force: true,
+  });
+
+  const faceletRow = page
+    .locator("#outer-facelets-panel-content")
+    .getByText("FUL:", { exact: true })
+    .locator("..");
+  const faceletColor = faceletRow.locator('input[type="text"]').first();
+
+  await expect(faceletColor).toHaveValue("red");
+  await faceletColor.fill("blue");
+  await faceletColor.press("Tab");
+  const undoButton = faceletRow.getByRole("button", {
+    name: "Undo Color Change",
+  });
+
+  await expect(undoButton).toBeVisible();
+  await undoButton.click();
+  await expect(faceletColor).toHaveValue("red");
+  await expect(undoButton).toBeHidden();
+
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const faceletEntries = dialog.getByRole("button", {
+    name: "Colors: Outer Facelet (FUL)",
+  });
+
+  await expect(faceletEntries).toHaveCount(2);
+  await expect(faceletEntries.nth(0).locator("..")).toContainText(
+    /Color of FUL facelet was changed from\s+blue\s+to\s+red\s+\./,
+  );
+  await expect(faceletEntries.nth(1).locator("..")).toContainText(
+    /Color of FUL facelet was changed from\s+red\s+to\s+blue\s+\./,
+  );
+});
+
+test("grouped color undo restores the exact mixed colors and logs the reversal", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator('[aria-controls="colors-panel-content"]').click({
+    force: true,
+  });
+
+  const faceInputs = page.locator(
+    "#outer-facelets-panel-content input[type='text']",
+  );
+  const originalColorControls = await faceInputs.evaluateAll((inputs) =>
+    inputs.map((input) => ({
+      value: input.value,
+      placeholder: input.placeholder,
+    })),
+  );
+  const allOuterFacelets = page
+    .locator("#colors-panel-content input[type='text']")
+    .first();
+
+  await expect(allOuterFacelets).toHaveAttribute("placeholder", "Mixed");
+  await allOuterFacelets.fill("#123456");
+  await allOuterFacelets.press("Tab");
+  const undoButton = page
+    .locator('#colors-panel-content button[aria-label="Undo Color Change"]:visible')
+    .first();
+
+  await expect(undoButton).toBeVisible();
+  await undoButton.click();
+  await expect
+    .poll(() =>
+      faceInputs.evaluateAll((inputs) =>
+        inputs.map((input) => ({
+          value: input.value,
+          placeholder: input.placeholder,
+        })),
+      ),
+    )
+    .toEqual(originalColorControls);
+  await expect(allOuterFacelets).toHaveAttribute("placeholder", "Mixed");
+
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const groupedEntries = dialog.getByRole("button", {
+    name: "Colors: Outer Facelet (All)",
+  });
+
+  await expect(groupedEntries).toHaveCount(2);
+  await expect(groupedEntries.nth(0).locator("..")).toContainText(
+    /Color of all outer facelets was changed from\s+#123456\s+to\s+Mixed\s*\./,
+  );
+  await expect(groupedEntries.nth(1).locator("..")).toContainText(
+    /Color of all outer facelets was changed from\s+Mixed\s+to\s+#123456\s+\./,
+  );
+});
+
+test("view color undo restores and logs the previous color", async ({ page }) => {
+  await page.goto("/");
+  const viewHeader = page.locator('[aria-controls="view-panel-content"]');
+
+  if ((await viewHeader.getAttribute("aria-expanded")) !== "true") {
+    await viewHeader.click();
+  }
+  await expect(viewHeader).toHaveAttribute("aria-expanded", "true");
+  await page
+    .locator(
+      'input[name="peek-stickers-visibility"][value="hidden-behind-cube"]',
+    )
+    .check();
+
+  const peekColor = page.locator("#view-panel-content input[type='text']").first();
+  await expect(peekColor).toBeVisible();
+  const originalColor = await peekColor.inputValue();
+
+  await peekColor.fill("#123456");
+  await peekColor.press("Tab");
+  const undoButton = page
+    .locator('#view-panel-content button[aria-label="Undo Color Change"]:visible')
+    .first();
+
+  await expect(undoButton).toBeVisible();
+  await undoButton.click();
+  await expect(peekColor).toHaveValue(originalColor);
+  await expect(undoButton).toBeHidden();
+
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const entries = page
+    .locator('[role="dialog"][aria-label="Activity Log"]')
+    .getByRole("button", { name: "View: Peek Hide Color" });
+
+  await expect(entries).toHaveCount(2);
+  await expect(entries.nth(0).locator("..")).toContainText(
+    /Peek hide color was changed from\s+#123456\s+to\s+none\s*\./iu,
+  );
+  await expect(entries.nth(1).locator("..")).toContainText(
+    /Peek hide color was changed from\s+none\s+to\s+#123456\s*\./iu,
   );
 });
 

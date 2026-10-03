@@ -7,7 +7,7 @@
 - `src/ui/*Panel.js` modules own their panel DOM, local controls, and panel-local state. The Colors and Labels panels use scene-controller APIs for effects that span panels.
 - `src/ui/faceletLabelController.js` owns facelet-label sprites and their rendering, transforms, depth, and visibility.
 - `src/ui/axisSceneController.js` owns axis labels and arrows, rotation-arrow geometry, and their visual state.
-- `src/ui/viewController.js` owns Ghost/Peek settings and hidden-sticker scene effects; `src/ui/viewPanel.js` owns the corresponding controls.
+- `src/ui/viewController.js` owns Transparent/Peek settings and hidden-sticker scene effects; `src/ui/viewPanel.js` owns the corresponding controls.
 - `src/ui/fixedMoveControls.js`, `src/ui/customMoveControls.js`, `src/ui/colorPicker.js`, and the other focused UI modules encapsulate reusable or specialized control surfaces.
 - `src/sceneSetup.js` owns scene and camera setup, including the shared default camera view.
 - `src/setupDefaults.js`, `src/setupDocument.js`, and `src/jsonExport.js` own fresh setup defaults, import validation/default merging, and versioned setup export.
@@ -24,7 +24,8 @@
 
 - Preserve existing user-visible behavior, defaults, control interactions, scene effects, and reset/import/export semantics unless a behavior change is explicitly requested.
 - Reset and import share the `applySetup()` workflow. Fresh defaults come from `src/setupDefaults.js`; the default camera view is shared with startup through `getDefaultCameraView()` in `src/sceneSetup.js`.
-- Version-1 setup documents may omit optional fields; import merges them with defaults. Ghost/Peek visibility, peek depth, and hidden color are stored in `setup.view`.
+- Setup documents may omit optional fields; import merges them with defaults. Transparent/Peek visibility, peek depth, and hidden color are stored in `setup.view`.
+- The `setup.view.ghostStickersVisibility` field is accepted as a legacy alias and normalized to `transparentStickersVisibility` on import.
 - Before changing behavior or moving ownership, trace its call sites and tests. Prefer a bounded change with focused regression coverage; reconsider the boundary if preserving behavior requires broad callbacks or duplicated state.
 
 ## Verification

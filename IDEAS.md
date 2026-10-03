@@ -60,8 +60,8 @@ Grouped controls create one activity for the exact group changed.
 | Camera | Orbit | Completed orbit; describe azimuth/elevation changes in degrees. |
 | Camera | Pan | Completed pan; describe camera-relative horizontal/vertical changes. |
 | Camera | Zoom | Completed zoom; describe zoom level as a percentage of default distance. |
-| View | Ghost Sticker Visibility | Whether stickers behind the cube use the ghost effect. |
-| View | Peek Sticker Visibility | Whether hidden stickers use the peek effect. |
+| View | Transparent Stickers | Whether stickers hidden behind the cube are shown with a dimmed, transparent effect. |
+| View | Peek Stickers | Whether hidden stickers use the peek effect. |
 | View | Peek Sticker Depth | Depth of the peek effect. |
 | View | Peek Hide Color | Color used to hide stickers from the peek effect. |
 | Colors | Outer Facelet (position) | Color of one facelet. |
@@ -173,8 +173,8 @@ stand for the previous value, new value, and affected item/group.
 | Camera — Orbit | `Camera was orbited to azimuth {azimuth}° and elevation {elevation}°.` |
 | Camera — Pan | `Camera was panned {horizontal} horizontally and {vertical} vertically.` |
 | Camera — Zoom | `Camera zoom was changed to {to}%.` |
-| View — Ghost Sticker Visibility | `Sticker ghost visibility was changed from {from} to {to}.` |
-| View — Peek Sticker Visibility | `Peek sticker visibility was changed from {from} to {to}.` |
+| View — Transparent Stickers | `Transparent stickers setting was changed from {disabled|enabled} to {disabled|enabled}.` |
+| View — Peek Stickers | `Peek stickers setting was changed from {from} to {to}.` |
 | View — Peek Sticker Depth | `Peek sticker depth was changed from {from} to {to}.` |
 | View — Peek Hide Color | `Peek hide color was changed to {to}.` |
 | Colors — Outer Facelet (position) | `Color of {target} facelet was changed from {from} to {to}.` |
