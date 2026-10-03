@@ -281,7 +281,10 @@ export function createColorsPanel({
       flexShrink: "0",
     });
 
-    function sync(resetActivityBaseline = false) {
+    function sync(
+      resetActivityBaseline = false,
+      exceptActivityCommitter = null,
+    ) {
       const color = getColor();
 
       if (color === null || color === undefined) {
@@ -294,7 +297,10 @@ export function createColorsPanel({
         setPreviewColor(preview, color);
       }
 
-      if (resetActivityBaseline) {
+      if (
+        resetActivityBaseline &&
+        activityCommitter !== exceptActivityCommitter
+      ) {
         activityCommitter?.reset();
       }
     }
@@ -309,7 +315,7 @@ export function createColorsPanel({
         return;
       }
 
-      applyColor(value);
+      applyColor(value, activityCommitter);
       sync();
     }
 
@@ -397,7 +403,11 @@ export function createColorsPanel({
   const axisLabelColorControls = new Map();
   const rotationArrowColorControls = new Map();
 
-  function syncFaceColor(face, resetActivityBaseline = false) {
+  function syncFaceColor(
+    face,
+    resetActivityBaseline = false,
+    exceptActivityCommitter = null,
+  ) {
     const control = faceColorControls.get(face);
 
     if (!control) {
@@ -427,12 +437,18 @@ export function createColorsPanel({
       setMixedPreview(control.preview);
     }
 
-    if (resetActivityBaseline) {
+    if (
+      resetActivityBaseline &&
+      control.activityCommitter !== exceptActivityCommitter
+    ) {
       control.activityCommitter?.reset();
     }
   }
 
-  function syncOuterFacelets(resetActivityBaseline = false) {
+  function syncOuterFacelets(
+    resetActivityBaseline = false,
+    exceptActivityCommitter = null,
+  ) {
     const values = facelets.map(getFaceletColor);
     const first = values[0];
 
@@ -448,21 +464,27 @@ export function createColorsPanel({
       setMixedPreview(outerColor.preview);
     }
 
-    if (resetActivityBaseline) {
+    if (
+      resetActivityBaseline &&
+      outerColor.activityCommitter !== exceptActivityCommitter
+    ) {
       outerColor.activityCommitter?.reset();
     }
   }
 
-  function syncFaceletColorControls(resetActivityBaseline = false) {
+  function syncFaceletColorControls(
+    resetActivityBaseline = false,
+    exceptActivityCommitter = null,
+  ) {
     for (const facelet of facelets) {
       faceletColorControls
         .get(getFaceletData(facelet))
-        ?.sync(resetActivityBaseline);
+        ?.sync(resetActivityBaseline, exceptActivityCommitter);
     }
     for (const [face] of FACE_SECTIONS) {
-      syncFaceColor(face, resetActivityBaseline);
+      syncFaceColor(face, resetActivityBaseline, exceptActivityCommitter);
     }
-    syncOuterFacelets(resetActivityBaseline);
+    syncOuterFacelets(resetActivityBaseline, exceptActivityCommitter);
   }
 
   function createFaceletColorRow(facelet) {
@@ -492,10 +514,9 @@ export function createColorsPanel({
         focus: `Outer Facelet (${getFaceletPositionName(facelet)})`,
         filterFocus: "Outer Facelet",
       },
-      applyColor: (color) => {
+      applyColor: (color, activityCommitter) => {
         setFaceletColor(facelet, color);
-        syncFaceColor(getFaceletSection(facelet));
-        syncOuterFacelets();
+        syncFaceletColorControls(true, activityCommitter);
       },
       row: true,
       width: "auto",
@@ -523,19 +544,17 @@ export function createColorsPanel({
         focus: `Outer Facelet (${face})`,
         filterFocus: "Outer Facelet",
       },
-      applyColor: (color) => {
+      applyColor: (color, activityCommitter) => {
         for (const facelet of faceletsForFace) {
           setFaceletColor(facelet, color);
-          faceletColorControls.get(getFaceletData(facelet))?.sync();
         }
-        syncFaceColor(face);
-        syncOuterFacelets();
+        syncFaceletColorControls(true, activityCommitter);
       },
       restoreValues: (snapshot) => {
         snapshot.forEach((color, index) =>
           setFaceletColor(faceletsForFace[index], color),
         );
-        syncFaceletColorControls();
+        syncFaceletColorControls(true);
       },
     });
 
@@ -552,15 +571,15 @@ export function createColorsPanel({
       focus: "Outer Facelet (All)",
       filterFocus: "Outer Facelet",
     },
-    applyColor: (color) => {
+    applyColor: (color, activityCommitter) => {
       facelets.forEach((facelet) => setFaceletColor(facelet, color));
-      syncFaceletColorControls();
+      syncFaceletColorControls(true, activityCommitter);
     },
     restoreValues: (snapshot) => {
       snapshot.forEach((color, index) =>
         setFaceletColor(facelets[index], color),
       );
-      syncFaceletColorControls();
+      syncFaceletColorControls(true);
     },
   });
   const outerColor = outerFacelets;

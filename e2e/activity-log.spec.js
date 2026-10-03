@@ -174,6 +174,91 @@ test("setting changes create Activity Log entries with before and after values",
   );
 });
 
+test("grouped face color changes update individual color activity baselines", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator('[aria-controls="colors-panel-content"]').click({
+    force: true,
+  });
+
+  const colorsPanel = page.locator("#colors-panel-content");
+  const faceColor = colorsPanel
+    .getByText("F - Front", { exact: true })
+    .locator("..")
+    .locator('input[type="text"]')
+    .first();
+  const faceletColor = page
+    .locator("#outer-facelets-panel-content")
+    .getByText("FUL:", { exact: true })
+    .locator("..")
+    .locator('input[type="text"]')
+    .first();
+
+  await faceColor.fill("blue");
+  await faceColor.press("Tab");
+  await expect(faceletColor).toHaveValue("blue");
+  await faceletColor.fill("orange");
+  await faceletColor.press("Tab");
+
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const faceActivity = dialog
+    .getByRole("button", { name: "Colors: Outer Facelet (F)" })
+    .locator("..");
+  const faceletActivity = dialog
+    .getByRole("button", { name: "Colors: Outer Facelet (FUL)" })
+    .locator("..");
+
+  await expect(faceActivity.locator("code")).toHaveText(["red", "blue"]);
+  await expect(faceletActivity.locator("code")).toHaveText([
+    "blue",
+    "orange",
+  ]);
+  const faceletSwatches = faceletActivity.locator('[role="img"]');
+
+  await expect(faceletSwatches).toHaveCount(2);
+  await expect(faceletSwatches.nth(0)).toHaveAttribute(
+    "aria-label",
+    "Color blue",
+  );
+  await expect(faceletSwatches.nth(1)).toHaveAttribute(
+    "aria-label",
+    "Color orange",
+  );
+});
+
+test("mixed color activity values are capitalized and have no swatch", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator('[aria-controls="colors-panel-content"]').click({
+    force: true,
+  });
+
+  const allOuterFacelets = page
+    .locator("#colors-panel-content input[type='text']")
+    .first();
+
+  await expect(allOuterFacelets).toHaveAttribute("placeholder", "Mixed");
+  await allOuterFacelets.fill("#123456");
+  await allOuterFacelets.press("Tab");
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const activity = page
+    .locator('[role="dialog"][aria-label="Activity Log"]')
+    .getByRole("button", { name: "Colors: Outer Facelet (All)" })
+    .locator("..");
+
+  await expect(activity.locator("code")).toHaveText(["Mixed", "#123456"]);
+  await expect(activity.locator('[role="img"]')).toHaveCount(1);
+  await expect(activity.locator('[role="img"]')).toHaveAttribute(
+    "aria-label",
+    "Color #123456",
+  );
+});
+
 test("Reset Rotation records Rotation and Camera entries with the same time", async ({
   page,
 }) => {

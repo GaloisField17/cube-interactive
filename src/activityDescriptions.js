@@ -55,9 +55,10 @@ function code(value) {
 
 function colorCode(value) {
   const color = getUniformColorValue(value);
+  const formattedValue = formatValue(value);
 
   return {
-    code: formatValue(value),
+    code: formattedValue === "mixed" ? "Mixed" : formattedValue,
     ...(color === null ? {} : { colorSwatch: color }),
   };
 }
