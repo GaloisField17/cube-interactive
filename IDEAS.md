@@ -161,6 +161,41 @@ Reset and import entries describe the operation as specified above rather
 than listing every changed field. Jump and Revert behavior for these
 summarized entries will be specified further as needed.
 
+## Implementation Roadmap
+
+1. **Resolve open decisions** — Decide whether the log persists across reloads
+   and whether it has a maximum size. Define Revert guardrails for reset/import
+   summaries and for entries whose original values no longer match the current
+   state. Confirm whether snapshots include camera state; Jump should otherwise
+   follow the setup-import behavior.
+2. **Define the activity and snapshot data** — Specify the activity record
+   (timestamp, Parent, Focus, description, and operation data) and use the
+   app's setup representation for immutable after-activity snapshots. Define
+   stable filter categories for targeted activities such as per-face and
+   per-cubie changes.
+3. **Implement and test activity state management** — Create a UI-independent
+   module to record entries, order them newest-first, manage selection, and
+   derive sorted filter options. Test ordering, filtering, Parent selection,
+   and selection clearing.
+4. **Build the Activity Log window** — Implement the window in
+   `src/ui/activityLogWindow.js`. Keep it responsible for display, menus,
+   filters, selection, and enabled states; use callbacks for application
+   actions rather than changing cube state directly.
+5. **Integrate Jump** — Capture an immutable after-state snapshot for each
+   activity and restore it using the existing setup-application flow. Record
+   Jump as a new activity without recursively recording all changes caused by
+   restoration. Verify restoration of all specified setup state.
+6. **Record catalog activities** — Wire recording to accepted setting changes
+   at their source callbacks. Group continuous interactions, skip invalid,
+   intermediate, and no-op values, and represent resets/imports as their
+   specified summaries. Verify every catalog activity has a recording path
+   and a readable description.
+7. **Implement Revert and verify end to end** — Apply the inverse of eligible
+   entries to the current state and record each reversal as a new activity.
+   Safely handle or disable Revert for activity types whose inverse behavior
+   has not been defined. Run focused tests, the existing test/build checks,
+   and browser tests for ordering, filters, Jump, Revert, and selection.
+
 ## Explicitly excluded
 
 - Starting, pausing, or stopping animation.
