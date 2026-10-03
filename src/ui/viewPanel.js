@@ -1,6 +1,7 @@
 import invalidColorIcon from "../assets/cross-transparent.png";
 import resetIcon from "../assets/reset.png";
 import { attachColorPicker } from "./colorPicker.js";
+import { createActivityCommitter } from "./activityRecorder.js";
 
 const ALWAYS_VISIBLE = "always-visible";
 const HIDDEN_BEHIND_CUBE = "hidden-behind-cube";
@@ -18,10 +19,35 @@ export function createViewPanel({
   onLayoutChange,
   onReset,
   onViewChange,
+  onActivity = () => {},
   onPeekColorPicked,
   getColorPreviewValue,
 }) {
   let expanded = false;
+  const currentSettings = { ...initialSettings };
+  const activityCommitters = new Map();
+
+  function createSettingCommitter(setting, focus) {
+    const committer = createActivityCommitter(
+      () => currentSettings[setting],
+      (from, to) =>
+        onActivity({
+          parent: "View",
+          focus,
+          filterFocus: focus,
+          from,
+          to,
+        }),
+    );
+
+    activityCommitters.set(setting, committer);
+    return committer;
+  }
+
+  function setViewSetting(setting, value) {
+    currentSettings[setting] = value;
+    onViewChange(setting, value);
+  }
 
   const root = document.createElement("div");
 
@@ -111,6 +137,7 @@ export function createViewPanel({
     groupName,
     initialValue,
     onChange,
+    activityCommitter,
   ) {
     const control = document.createElement("div");
 
@@ -150,6 +177,7 @@ export function createViewPanel({
       radio.addEventListener("change", () => {
         if (radio.checked) {
           onChange(value);
+          activityCommitter.commit();
         }
       });
 
@@ -177,7 +205,11 @@ export function createViewPanel({
     "Transparent Stickers",
     "ghost-stickers-visibility",
     initialSettings.ghostStickersVisibility,
-    (value) => onViewChange("ghostStickersVisibility", value),
+    (value) => setViewSetting("ghostStickersVisibility", value),
+    createSettingCommitter(
+      "ghostStickersVisibility",
+      "Ghost Sticker Visibility",
+    ),
   );
   const peekVisibilityControl = createVisibilityControl(
     "Peek Stickers",
@@ -185,8 +217,9 @@ export function createViewPanel({
     initialSettings.peekStickersVisibility,
     (value) => {
       syncPeekDepthVisibility(value);
-      onViewChange("peekStickersVisibility", value);
+      setViewSetting("peekStickersVisibility", value);
     },
+    createSettingCommitter("peekStickersVisibility", "Peek Sticker Visibility"),
   );
 
   const peekHideWhenControl = document.createElement("div");
@@ -257,13 +290,25 @@ export function createViewPanel({
     peekHideWhenPreview.style.backgroundColor = previewValue;
   }
 
+  const peekColorActivity = createSettingCommitter(
+    "peekStickersHideWhenColor",
+    "Peek Hide Color",
+  );
+
   function updatePeekColor() {
-    onViewChange("peekStickersHideWhenColor", peekHideWhenInput.value.trim());
+    setViewSetting("peekStickersHideWhenColor", peekHideWhenInput.value.trim());
     syncPeekColorPreview();
   }
 
   peekHideWhenInput.addEventListener("input", updatePeekColor);
-  peekHideWhenInput.addEventListener("change", updatePeekColor);
+  peekHideWhenInput.addEventListener("change", () => {
+    updatePeekColor();
+    const value = peekHideWhenInput.value.trim();
+
+    if (!value || getColorPreviewValue(value) !== null) {
+      peekColorActivity.commit();
+    }
+  });
   attachColorPicker({
     preview: peekHideWhenPreview,
     input: peekHideWhenInput,
@@ -271,6 +316,7 @@ export function createViewPanel({
       updatePeekColor();
       onPeekColorPicked();
     },
+    onColorCommit: () => peekColorActivity.commit(),
     getInitialColor: () => "#000000",
   });
 
@@ -315,6 +361,11 @@ export function createViewPanel({
   peekDepthRow.style.alignItems = "center";
   peekDepthRow.style.gap = "8px";
 
+  const peekDepthActivity = createSettingCommitter(
+    "peekStickersDepth",
+    "Peek Sticker Depth",
+  );
+
   function syncPeekDepthValue(nextValue) {
     const normalizedValue = Number.isFinite(nextValue)
       ? Math.max(0, Number(nextValue))
@@ -334,17 +385,19 @@ export function createViewPanel({
       peekDepthValue.value = String(acceptedValue);
     }
 
-    onViewChange("peekStickersDepth", acceptedValue);
+    setViewSetting("peekStickersDepth", acceptedValue);
     peekDepthValue.value = String(acceptedValue);
   }
 
   peekDepthSlider.addEventListener("input", () => {
     peekDepthValue.value = peekDepthSlider.value;
-    onViewChange("peekStickersDepth", Number(peekDepthValue.value));
+    setViewSetting("peekStickersDepth", Number(peekDepthValue.value));
   });
+  peekDepthSlider.addEventListener("change", () => peekDepthActivity.commit());
 
   peekDepthValue.addEventListener("change", (event) => {
     syncPeekDepthValue(Number(event.target.value));
+    peekDepthActivity.commit();
   });
 
   peekDepthRow.appendChild(peekDepthSlider);
@@ -369,6 +422,7 @@ export function createViewPanel({
   }
 
   function setSettings(settings) {
+    Object.assign(currentSettings, settings);
     ghostVisibilityControl.setValue(settings.ghostStickersVisibility);
     peekVisibilityControl.setValue(settings.peekStickersVisibility);
     peekDepthSlider.value = String(settings.peekStickersDepth);
@@ -376,6 +430,7 @@ export function createViewPanel({
     peekHideWhenInput.value = settings.peekStickersHideWhenColor;
     syncPeekColorPreview();
     syncPeekDepthVisibility(settings.peekStickersVisibility);
+    activityCommitters.forEach((committer) => committer.reset());
   }
 
   function setExpanded(nextExpanded) {

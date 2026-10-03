@@ -17,6 +17,7 @@ export function attachColorPicker({
   preview,
   input,
   onColorChange,
+  onColorCommit,
   getInitialColor,
   undo,
 }) {
@@ -62,6 +63,7 @@ export function attachColorPicker({
     pickerOpen = false;
     input.value = getNamedColorOrHex(picker.value);
     onColorChange();
+    onColorCommit?.();
   }
 
   function restoreCancelledColor() {
@@ -150,6 +152,7 @@ export function attachColorPicker({
       pickerSelectionCommitted = false;
       pickerCancellationRequested = true;
       undo.restoreSnapshot(initialUndoState);
+      onColorCommit?.();
       undoButton.style.display = "none";
     });
     preview.style.position = "relative";

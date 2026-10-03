@@ -2,6 +2,7 @@ import { Color } from "three";
 import invalidColorIcon from "../assets/cross-transparent.png";
 import mixedColorIcon from "../assets/cross-transparent.png";
 import { attachColorPicker } from "./colorPicker.js";
+import { createActivityCommitter } from "./activityRecorder.js";
 
 const FACE_SECTIONS = [
   ["F", "F - Front"],
@@ -66,6 +67,7 @@ export function createColorsPanel({
   fontFamily,
   fontSize,
   onReset,
+  onActivity,
   onExpand,
   onLayoutChange,
 }) {
@@ -248,6 +250,8 @@ export function createColorsPanel({
     applyColor,
     getSnapshot,
     restoreSnapshot,
+    getActivityValue = getSnapshot ?? getColor,
+    activity,
     width = "70px",
     row = false,
   }) {
@@ -263,6 +267,12 @@ export function createColorsPanel({
       input.style.minWidth = "0";
     }
 
+    const activityCommitter = activity
+      ? createActivityCommitter(getActivityValue, (from, to) =>
+          onActivity({ ...activity, from, to }),
+        )
+      : null;
+
     Object.assign(preview.style, {
       width: "18px",
       height: "18px",
@@ -271,7 +281,7 @@ export function createColorsPanel({
       flexShrink: "0",
     });
 
-    function sync() {
+    function sync(resetActivityBaseline = false) {
       const color = getColor();
 
       if (color === null || color === undefined) {
@@ -282,6 +292,10 @@ export function createColorsPanel({
         input.value = color;
         input.placeholder = "";
         setPreviewColor(preview, color);
+      }
+
+      if (resetActivityBaseline) {
+        activityCommitter?.reset();
       }
     }
 
@@ -300,11 +314,15 @@ export function createColorsPanel({
     }
 
     input.addEventListener("input", update);
-    input.addEventListener("change", update);
+    input.addEventListener("change", () => {
+      update();
+      activityCommitter?.commit();
+    });
     attachColorPicker({
       preview,
       input,
       onColorChange: update,
+      onColorCommit: () => activityCommitter?.commit(),
       getInitialColor: () => getColor() ?? "#111",
       ...(getSnapshot
         ? {
@@ -318,7 +336,7 @@ export function createColorsPanel({
     });
     sync();
 
-    return { input, preview, sync };
+    return { input, preview, sync, activityCommitter };
   }
 
   function normalizeColor(value) {
@@ -328,10 +346,24 @@ export function createColorsPanel({
     return color.getHex();
   }
 
+  function getMappedActivityValues(items, getId, getValue) {
+    return Object.fromEntries(items.map((item) => [getId(item), getValue(item)]));
+  }
+
+  function getCubieActivityId(cubie) {
+    return JSON.stringify(cubie.userData.originalPieceKey);
+  }
+
+  function getFaceletActivityId(facelet) {
+    return getFaceletData(facelet).id;
+  }
+
   function createGroupedColorInput({
     getValues,
+    getActivityValues = getValues,
     applyColor,
     restoreValues,
+    activity,
     width = "70px",
   }) {
     const values = () => getValues();
@@ -348,8 +380,10 @@ export function createColorsPanel({
 
     return createColorInput({
       getColor,
+      getActivityValue: getActivityValues,
       applyColor,
       width,
+      activity,
       getSnapshot: values,
       restoreSnapshot: restoreValues,
     });
@@ -363,7 +397,7 @@ export function createColorsPanel({
   const axisLabelColorControls = new Map();
   const rotationArrowColorControls = new Map();
 
-  function syncFaceColor(face) {
+  function syncFaceColor(face, resetActivityBaseline = false) {
     const control = faceColorControls.get(face);
 
     if (!control) {
@@ -392,9 +426,13 @@ export function createColorsPanel({
       control.input.placeholder = "Mixed";
       setMixedPreview(control.preview);
     }
+
+    if (resetActivityBaseline) {
+      control.activityCommitter?.reset();
+    }
   }
 
-  function syncOuterFacelets() {
+  function syncOuterFacelets(resetActivityBaseline = false) {
     const values = facelets.map(getFaceletColor);
     const first = values[0];
 
@@ -409,16 +447,22 @@ export function createColorsPanel({
       outerColor.input.placeholder = "Mixed";
       setMixedPreview(outerColor.preview);
     }
+
+    if (resetActivityBaseline) {
+      outerColor.activityCommitter?.reset();
+    }
   }
 
-  function syncFaceletColorControls() {
+  function syncFaceletColorControls(resetActivityBaseline = false) {
     for (const facelet of facelets) {
-      faceletColorControls.get(getFaceletData(facelet))?.sync();
+      faceletColorControls
+        .get(getFaceletData(facelet))
+        ?.sync(resetActivityBaseline);
     }
     for (const [face] of FACE_SECTIONS) {
-      syncFaceColor(face);
+      syncFaceColor(face, resetActivityBaseline);
     }
-    syncOuterFacelets();
+    syncOuterFacelets(resetActivityBaseline);
   }
 
   function createFaceletColorRow(facelet) {
@@ -440,6 +484,14 @@ export function createColorsPanel({
 
     const control = createColorInput({
       getColor: () => getFaceletColor(facelet),
+      getActivityValue: () => ({
+        [getFaceletActivityId(facelet)]: getFaceletColor(facelet),
+      }),
+      activity: {
+        parent: "Colors",
+        focus: `Outer Facelet (${getFaceletPositionName(facelet)})`,
+        filterFocus: "Outer Facelet",
+      },
       applyColor: (color) => {
         setFaceletColor(facelet, color);
         syncFaceColor(getFaceletSection(facelet));
@@ -460,6 +512,17 @@ export function createColorsPanel({
     );
     const control = createGroupedColorInput({
       getValues: () => faceletsForFace.map(getFaceletColor),
+      getActivityValues: () =>
+        getMappedActivityValues(
+          faceletsForFace,
+          getFaceletActivityId,
+          getFaceletColor,
+        ),
+      activity: {
+        parent: "Colors",
+        focus: `Outer Facelet (${face})`,
+        filterFocus: "Outer Facelet",
+      },
       applyColor: (color) => {
         for (const facelet of faceletsForFace) {
           setFaceletColor(facelet, color);
@@ -482,6 +545,13 @@ export function createColorsPanel({
 
   const outerFacelets = createGroupedColorInput({
     getValues: () => facelets.map(getFaceletColor),
+    getActivityValues: () =>
+      getMappedActivityValues(facelets, getFaceletActivityId, getFaceletColor),
+    activity: {
+      parent: "Colors",
+      focus: "Outer Facelet (All)",
+      filterFocus: "Outer Facelet",
+    },
     applyColor: (color) => {
       facelets.forEach((facelet) => setFaceletColor(facelet, color));
       syncFaceletColorControls();
@@ -530,6 +600,13 @@ export function createColorsPanel({
 
   const innerInput = createGroupedColorInput({
     getValues: () => cubies.map(getInnerColor),
+    getActivityValues: () =>
+      getMappedActivityValues(cubies, getCubieActivityId, getInnerColor),
+    activity: {
+      parent: "Colors",
+      focus: "Inner Cubie (All)",
+      filterFocus: "Inner Cubie",
+    },
     applyColor: (color) => {
       cubies.forEach((cubie) => setInnerColor(cubie, color));
       syncInnerColorControls();
@@ -580,6 +657,14 @@ export function createColorsPanel({
     name.style.fontFamily = "monospace";
     const control = createColorInput({
       getColor: () => getInnerColor(cubie),
+      getActivityValue: () => ({
+        [getCubieActivityId(cubie)]: getInnerColor(cubie),
+      }),
+      activity: {
+        parent: "Colors",
+        focus: `Inner Cubie (${getCubiePositionName(cubie)})`,
+        filterFocus: "Inner Cubie",
+      },
       applyColor: (color) => {
         setInnerColor(cubie, color);
         syncInnerColorControls();
@@ -614,13 +699,24 @@ export function createColorsPanel({
     innerSection.content.appendChild(createInnerColorRow(cubie));
   }
 
-  function syncInnerColorControls() {
-    innerColorControls.forEach((control) => control.sync());
-    innerInput.sync();
+  function syncInnerColorControls(resetActivityBaseline = false) {
+    innerColorControls.forEach((control) => control.sync(resetActivityBaseline));
+    innerInput.sync(resetActivityBaseline);
   }
 
   const faceletLabelInput = createGroupedColorInput({
     getValues: () => facelets.map((facelet) => faceletLabelController.getColor(facelet)),
+    getActivityValues: () =>
+      getMappedActivityValues(
+        facelets,
+        getFaceletActivityId,
+        (facelet) => faceletLabelController.getColor(facelet),
+      ),
+    activity: {
+      parent: "Colors",
+      focus: "Facelet Label (All)",
+      filterFocus: "Facelet Label",
+    },
     applyColor: (color) => {
       facelets.forEach((facelet) => faceletLabelController.setColor(facelet, color));
       syncFaceletLabelControls();
@@ -639,16 +735,16 @@ export function createColorsPanel({
   });
   content.appendChild(faceletLabelSection.section);
 
-  function syncFaceletLabelControls() {
+  function syncFaceletLabelControls(resetActivityBaseline = false) {
     for (const facelet of facelets) {
       faceletLabelColorControls
         .get(getFaceletData(facelet))
-        ?.sync();
+        ?.sync(resetActivityBaseline);
     }
     for (const [face] of FACE_SECTIONS) {
-      faceLabelColorControls.get(face)?.sync();
+      faceLabelColorControls.get(face)?.sync(resetActivityBaseline);
     }
-    faceletLabelInput.sync();
+    faceletLabelInput.sync(resetActivityBaseline);
   }
 
   function createFaceletLabelColorRow(facelet, faceTitle) {
@@ -669,6 +765,15 @@ export function createColorsPanel({
     name.style.fontFamily = "monospace";
     const control = createColorInput({
       getColor: () => faceletLabelController.getColor(facelet),
+      getActivityValue: () => ({
+        [getFaceletActivityId(facelet)]:
+          faceletLabelController.getColor(facelet),
+      }),
+      activity: {
+        parent: "Colors",
+        focus: `Facelet Label (${getFaceletPositionName(facelet)})`,
+        filterFocus: "Facelet Label",
+      },
       applyColor: (color) => {
         faceletLabelController.setColor(facelet, color);
         faceLabelColorControls.get(faceTitle)?.sync();
@@ -705,6 +810,17 @@ export function createColorsPanel({
     const color = createGroupedColorInput({
       getValues: () =>
         sectionFacelets.map((facelet) => faceletLabelController.getColor(facelet)),
+      getActivityValues: () =>
+        getMappedActivityValues(
+          sectionFacelets,
+          getFaceletActivityId,
+          (facelet) => faceletLabelController.getColor(facelet),
+        ),
+      activity: {
+        parent: "Colors",
+        focus: `Facelet Label (${face})`,
+        filterFocus: "Facelet Label",
+      },
       applyColor: (nextColor) => {
         sectionFacelets.forEach((facelet) =>
           faceletLabelController.setColor(facelet, nextColor),
@@ -729,11 +845,20 @@ export function createColorsPanel({
     }
   }
 
-  function createUniformSceneColorControl(title, getValues, setColor, restore) {
+  function createUniformSceneColorControl(
+    title,
+    getValues,
+    setColor,
+    restore,
+    activity,
+    getActivityValues = getValues,
+  ) {
     const control = createGroupedColorInput({
       getValues,
+      getActivityValues,
       applyColor: setColor,
       restoreValues: restore,
+      activity,
     });
     const row = document.createElement("div");
 
@@ -771,6 +896,18 @@ export function createColorsPanel({
       );
       syncSceneColorControls();
     },
+    {
+      parent: "Colors",
+      focus: "Axis Label (All)",
+      filterFocus: "Axis Label",
+    },
+    () =>
+      Object.fromEntries(
+        axisDefinitions.map((definition, index) => [
+          definition.label.face,
+          axisSceneController.getAxisLabelColor(index),
+        ]),
+      ),
   );
   const axisLabelSection = createSection({
     title: "Axis Labels",
@@ -797,6 +934,18 @@ export function createColorsPanel({
       );
       syncSceneColorControls();
     },
+    {
+      parent: "Colors",
+      focus: "Rotation Arrow (All)",
+      filterFocus: "Rotation Arrow",
+    },
+    () =>
+      Object.fromEntries(
+        axisDefinitions.map((definition, index) => [
+          definition.label.face,
+          axisSceneController.getRotationArrowColor(index),
+        ]),
+      ),
   );
   const rotationArrowSection = createSection({
     title: "Arrows",
@@ -822,12 +971,24 @@ export function createColorsPanel({
       () => [axisSceneController.getAxisLabelColor(index)],
       (color) => axisSceneController.setAxisLabelColor(index, color),
       ([color]) => axisSceneController.setAxisLabelColor(index, color),
+      {
+        parent: "Colors",
+        focus: `Axis Label (${face})`,
+        filterFocus: "Axis Label",
+      },
+      () => ({ [face]: axisSceneController.getAxisLabelColor(index) }),
     );
     const rotationArrow = createUniformSceneColorControl(
       `Arrow ${face}`,
       () => [axisSceneController.getRotationArrowColor(index)],
       (color) => axisSceneController.setRotationArrowColor(index, color),
       ([color]) => axisSceneController.setRotationArrowColor(index, color),
+      {
+        parent: "Colors",
+        focus: `Rotation Arrow (${face})`,
+        filterFocus: "Rotation Arrow",
+      },
+      () => ({ [face]: axisSceneController.getRotationArrowColor(index) }),
     );
 
     axisLabelControls.set(index, axisLabel.control);
@@ -836,22 +997,24 @@ export function createColorsPanel({
     rotationArrowSection.content.appendChild(rotationArrow.row);
   }
 
-  function syncSceneColorControls() {
-    axisLabelAll.control.sync();
-    rotationArrowAll.control.sync();
-    axisLabelControls.forEach((control) => control.sync());
-    rotationArrowControls.forEach((control) => control.sync());
+  function syncSceneColorControls(resetActivityBaseline = false) {
+    axisLabelAll.control.sync(resetActivityBaseline);
+    rotationArrowAll.control.sync(resetActivityBaseline);
+    axisLabelControls.forEach((control) => control.sync(resetActivityBaseline));
+    rotationArrowControls.forEach((control) =>
+      control.sync(resetActivityBaseline),
+    );
   }
 
-  function syncCubeControls() {
-    syncFaceletColorControls();
-    syncInnerColorControls();
+  function syncCubeControls(resetActivityBaseline = false) {
+    syncFaceletColorControls(resetActivityBaseline);
+    syncInnerColorControls(resetActivityBaseline);
   }
 
-  function syncAll() {
-    syncCubeControls();
-    syncFaceletLabelControls();
-    syncSceneColorControls();
+  function syncAll(resetActivityBaseline = false) {
+    syncCubeControls(resetActivityBaseline);
+    syncFaceletLabelControls(resetActivityBaseline);
+    syncSceneColorControls(resetActivityBaseline);
   }
 
   return {

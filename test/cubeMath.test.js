@@ -62,7 +62,7 @@ test("JSON export keeps intentional falsy changes and UTC seconds", () => {
     depth: 0,
     label: "",
   });
-  assert.equal(exported.version, 1);
+  assert.equal(exported.version, 2);
   assert.equal(exported.exportedAt, "2026-09-23T12:34:56Z");
 });
 

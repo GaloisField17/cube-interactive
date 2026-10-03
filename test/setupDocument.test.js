@@ -116,6 +116,8 @@ test("valid document accepts all supported setup sections", () => {
         solved: {
           position: { x: 1, y: 0, z: -1 },
           innerColor: "#333",
+          size: 1.25,
+          gap: 0.02,
           facelets: { F: { normal: { x: 0, y: 0, z: 1 }, color: "blue" } },
         },
       },
@@ -154,6 +156,19 @@ test("valid document accepts all supported setup sections", () => {
       rotationArrowDirection: "counter-clockwise",
       rotationArrowsByFace: { R: { visible: true } },
       labelDepth: 0.4,
+    },
+  };
+
+  assert.deepEqual(
+    validateImportedDocument(makeDocument(setup, { version: 2 })),
+    setup,
+  );
+});
+
+test("version 1 documents remain valid without per-cubie dimensions", () => {
+  const setup = {
+    cube: {
+      cubies: { solved: { position: { x: 1 }, innerColor: "#333" } },
     },
   };
 
@@ -211,6 +226,25 @@ test("export retains changed Ghost and Peek settings", () => {
   });
 });
 
+test("export retains per-cubie dimension overrides", () => {
+  const setup = structuredClone(DEFAULT_SETUP);
+
+  setup.cube.cubies.solved.size = 1.25;
+  setup.cube.cubies.solved.gap = 0.02;
+
+  const exported = createJsonExport(
+    setup,
+    DEFAULT_SETUP,
+    new Date("2026-09-23T12:34:56.000Z"),
+  );
+
+  assert.equal(exported.version, 2);
+  assert.deepEqual(exported.setup.cube.cubies.solved, {
+    size: 1.25,
+    gap: 0.02,
+  });
+});
+
 test("date-only timestamps and arbitrary entity IDs remain accepted", () => {
   const setup = {
     cube: { cubies: { "custom-id": { position: { x: 0 } } } },
@@ -231,7 +265,7 @@ test("invalid documents and malformed values retain validation errors", () => {
   const invalidDocuments = [
     [[], "The imported value must be a JSON object."],
     [{ ...makeDocument(), extra: true }, "document.extra is not supported."],
-    [makeDocument({}, { version: 2 }), "Unsupported setup version: 2."],
+    [makeDocument({}, { version: 3 }), "Unsupported setup version: 3."],
     [
       makeDocument({}, { exportedAt: "not a date" }),
       "exportedAt must be a valid UTC timestamp.",
@@ -258,6 +292,13 @@ test("invalid documents and malformed values retain validation errors", () => {
       "setup.view.target.x must be a valid number.",
     ],
     [makeDocument({ cube: { size: -1 } }), "cube.size must be a valid number."],
+    [
+      makeDocument(
+        { cube: { cubies: { piece: { size: -1 } } } },
+        { version: 2 },
+      ),
+      "cube.cubies.piece.size must be a valid number.",
+    ],
     [
       makeDocument({ cube: { cubies: { piece: null } } }),
       "cube.cubies.piece must be an object.",

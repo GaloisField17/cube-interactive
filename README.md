@@ -41,7 +41,7 @@ top-level shape:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-09-23T12:34:56Z",
   "setup": {}
 }
@@ -53,8 +53,11 @@ and orbit target), `rotations` (move labels, rotation text, and duration in
 seconds), `colors` (facelet-label and arrow colors), and `labels`
 (visibility, labels, depths, thickness, direction, and per-face arrow state).
 Cube facelet and inner colors live in the sparse cube state. Stable cubie and
-facelet IDs make the document suitable for a future importer.
+facelet IDs let the importer apply sparse changes to the right cube elements.
 Explicit `false`, `0`, and empty-string changes are retained.
+Version 2 adds optional per-cubie `size` and `gap` overrides to `cube.cubies`.
+Version 1 documents remain importable; cubies without overrides use the
+top-level cube dimensions.
 
 `Export URL` uses the same document, gzip-compresses its UTF-8 JSON, encodes
 the bytes as unpadded URL-safe Base64, and stores the result in the `setup`

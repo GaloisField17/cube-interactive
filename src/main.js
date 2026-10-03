@@ -875,28 +875,35 @@ function getCubeState() {
     cubies: Object.fromEntries(
       cubies.map((cubie) => {
         const id = JSON.stringify(cubie.userData.originalPieceKey);
-
-        return [
-          id,
-          {
-            position: {
-              x: cubie.userData.x,
-              y: cubie.userData.y,
-              z: cubie.userData.z,
-            },
-            innerColor:
-              cubie.userData.currentInnerColor ?? cubie.userData.innerColor,
-            facelets: Object.fromEntries(
-              cubie.userData.facelets.map((facelet) => [
-                facelet.id,
-                {
-                  normal: { ...facelet.normal },
-                  color: facelet.currentColor ?? facelet.color,
-                },
-              ]),
-            ),
+        const currentSize = cubie.userData.currentSize ?? size;
+        const currentGap = cubie.userData.currentGap ?? gap;
+        const cubieState = {
+          position: {
+            x: cubie.userData.x,
+            y: cubie.userData.y,
+            z: cubie.userData.z,
           },
-        ];
+          innerColor:
+            cubie.userData.currentInnerColor ?? cubie.userData.innerColor,
+          facelets: Object.fromEntries(
+            cubie.userData.facelets.map((facelet) => [
+              facelet.id,
+              {
+                normal: { ...facelet.normal },
+                color: facelet.currentColor ?? facelet.color,
+              },
+            ]),
+          ),
+        };
+
+        if (currentSize !== size) {
+          cubieState.size = currentSize;
+        }
+        if (currentGap !== gap) {
+          cubieState.gap = currentGap;
+        }
+
+        return [id, cubieState];
       }),
     ),
   };
@@ -907,7 +914,24 @@ function applyCubeState(state) {
     return false;
   }
 
-  updateCubeDimensions(state.size, state.gap);
+  const nextSize = state.size ?? size;
+  const nextGap = state.gap ?? gap;
+  const dimensions = new Map(
+    cubies.map((cubie) => {
+      const id = JSON.stringify(cubie.userData.originalPieceKey);
+      const importedCubie = state.cubies?.[id];
+
+      return [
+        cubie,
+        {
+          size: importedCubie?.size ?? nextSize,
+          gap: importedCubie?.gap ?? nextGap,
+        },
+      ];
+    }),
+  );
+
+  updateCubeDimensions(nextSize, nextGap, dimensions);
 
   for (const cubie of cubies) {
     const id = JSON.stringify(cubie.userData.originalPieceKey);

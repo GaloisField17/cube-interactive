@@ -46,7 +46,7 @@ export function validateImportedDocument(document) {
 
   validateKeys(document, ["version", "exportedAt", "setup"], "document");
 
-  if (document.version !== 1) {
+  if (![1, 2].includes(document.version)) {
     throw new Error(`Unsupported setup version: ${document.version}.`);
   }
 
@@ -129,9 +129,16 @@ export function validateImportedDocument(document) {
       for (const [id, cubie] of Object.entries(cube.cubies)) {
         validateKeys(
           cubie,
-          ["position", "innerColor", "facelets"],
+          document.version >= 2
+            ? ["position", "innerColor", "facelets", "size", "gap"]
+            : ["position", "innerColor", "facelets"],
           `cube.cubies.${id}`,
         );
+        for (const key of ["size", "gap"]) {
+          if (cubie[key] !== undefined) {
+            validateFiniteNumber(cubie[key], `cube.cubies.${id}.${key}`, 0);
+          }
+        }
         if (cubie.position !== undefined) {
           validateKeys(
             cubie.position,

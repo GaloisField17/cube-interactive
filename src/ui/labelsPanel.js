@@ -1,3 +1,5 @@
+import { createActivityCommitter } from "./activityRecorder.js";
+
 const FACE_ORDER = ["F", "B", "R", "L", "U", "D"];
 const ALWAYS_VISIBLE = "always-visible";
 const HIDDEN_BEHIND_CUBE = "hidden-behind-cube";
@@ -37,6 +39,7 @@ export function createLabelsPanel({
   fontSize,
   createResetButton,
   styleUiTitle,
+  onActivity = () => {},
   onExpand,
   onLayoutChange,
 }) {
@@ -51,6 +54,26 @@ export function createLabelsPanel({
   let rotationArrowThickness = defaultRotationArrowThickness;
   let rotationArrowRadius = defaultRotationArrowRadius;
   let rotationArrowDirection = "clockwise";
+  const activityCommitters = [];
+
+  function createActivityRecorder(focus, filterFocus, getValue) {
+    const committer = createActivityCommitter(getValue, (from, to) =>
+      onActivity({
+        parent: "Labels",
+        focus,
+        filterFocus,
+        from,
+        to,
+      }),
+    );
+
+    activityCommitters.push(committer);
+    return committer;
+  }
+
+  function resetActivityBaselines() {
+    activityCommitters.forEach((committer) => committer.reset());
+  }
 
   const root = document.createElement("div");
 
@@ -144,7 +167,13 @@ export function createLabelsPanel({
     toggleExpanded();
   });
 
-  function createVisibilityControl(title, groupName, initialValue, onChange) {
+  function createVisibilityControl(
+    title,
+    groupName,
+    initialValue,
+    onChange,
+    activityCommitter,
+  ) {
     const control = document.createElement("div");
 
     Object.assign(control.style, {
@@ -191,6 +220,7 @@ export function createLabelsPanel({
       radio.addEventListener("change", () => {
         if (radio.checked) {
           onChange(value);
+          activityCommitter?.commit();
         }
       });
 
@@ -223,6 +253,7 @@ export function createLabelsPanel({
     blurFallback,
     blurMinimum,
     onChange,
+    activityCommitter,
   }) {
     const control = document.createElement("div");
 
@@ -268,6 +299,7 @@ export function createLabelsPanel({
     slider.addEventListener("input", () => {
       onChange(syncEditValueFromSlider(slider, value));
     });
+    slider.addEventListener("change", () => activityCommitter?.commit());
     value.addEventListener("input", () => {
       const raw = value.value;
 
@@ -310,7 +342,9 @@ export function createLabelsPanel({
       }
       onChange(syncSliderFromEditValue(slider, value, nextValue));
       value.value = String(nextValue);
+      activityCommitter?.commit();
     });
+    value.addEventListener("change", () => activityCommitter?.commit());
 
     return {
       control,
@@ -319,17 +353,24 @@ export function createLabelsPanel({
       setValue(nextValue) {
         slider.value = String(nextValue);
         value.value = String(nextValue);
+        activityCommitter?.reset();
       },
     };
   }
 
-  function createFaceVisibilityControls(noun, onChange) {
+  function createFaceVisibilityControls(
+    noun,
+    onChange,
+    focusPrefix,
+    filterFocus,
+  ) {
     const container = document.createElement("div");
 
     container.style.display = "none";
     container.style.marginTop = "8px";
     container.style.marginLeft = "22px";
     const checkboxes = new Map();
+    const committers = [];
 
     for (const face of FACE_ORDER) {
       const label = document.createElement("label");
@@ -353,10 +394,26 @@ export function createLabelsPanel({
       label.append(checkbox, text);
       container.appendChild(label);
       checkboxes.set(face, checkbox);
-      checkbox.addEventListener("change", () => onChange(face, checkbox.checked));
+      const activityCommitter = createActivityRecorder(
+        `${focusPrefix} (${face}) Visibility`,
+        filterFocus,
+        () => checkbox.checked,
+      );
+      committers.push(activityCommitter);
+
+      checkbox.addEventListener("change", () => {
+        onChange(face, checkbox.checked);
+        activityCommitter.commit();
+      });
     }
 
-    return { container, checkboxes };
+    return {
+      container,
+      checkboxes,
+      resetActivityBaselines() {
+        committers.forEach((committer) => committer.reset());
+      },
+    };
   }
 
   function createMainToggle(text) {
@@ -424,6 +481,11 @@ export function createLabelsPanel({
     initialValue: faceletLabelController.getDepth(),
     inputMinimum: 0,
     blurFallback: defaultLabelDepth,
+    activityCommitter: createActivityRecorder(
+      "Facelet Label Depth",
+      "Facelet Label Depth",
+      () => faceletLabelController.getDepth(),
+    ),
     onChange: (value) => faceletLabelController.setDepth(value),
   });
   const faceletVisibilityControl = createVisibilityControl(
@@ -434,13 +496,29 @@ export function createLabelsPanel({
       faceletLabelsVisibility = value;
       updateFaceletLabelsVisibility();
     },
+    createActivityRecorder(
+      "Facelet Label Visibility",
+      "Facelet Label Visibility",
+      () => faceletLabelsVisibility,
+    ),
   );
-  showFaceletLabels.checkbox.addEventListener(
-    "change",
-    updateFaceletLabelsVisibility,
+  const faceletLabelsActivity = createActivityRecorder(
+    "Facelet Labels",
+    "Facelet Labels",
+    () => showFaceletLabels.checkbox.checked,
   );
+  showFaceletLabels.checkbox.addEventListener("change", () => {
+    updateFaceletLabelsVisibility();
+    faceletLabelsActivity.commit();
+  });
 
   const showAxisLabels = createMainToggle("Show Axis Labels");
+  const axisLabelsActivity = createActivityRecorder(
+    "Axis Labels",
+    "Axis Labels",
+    () => showAxisLabels.checkbox.checked,
+  );
+  const axisLabelVisibilityCommitters = [];
   const axisLabelVisibility = {
     container: document.createElement("div"),
     checkboxes: new Map(),
@@ -520,6 +598,11 @@ export function createLabelsPanel({
   faceText.textContent = "Face";
   faceLabel.append(faceInput, faceText);
   axisLabelModeContainer.append(faceLabel, coordinateLabel, customLabel);
+  const axisLabelModeActivity = createActivityRecorder(
+    "Axis Label Format",
+    "Axis Label Format",
+    () => axisLabelMode,
+  );
 
   const axisCustomInputs = new Map();
   const axisCustomMarkers = new Map();
@@ -565,16 +648,37 @@ export function createLabelsPanel({
         updateAxisLabelText();
       }
     });
+    const activityCommitter = createActivityRecorder(
+      `Axis Label Text (${face})`,
+      "Axis Label Text",
+      () => custom.value,
+    );
+
+    custom.addEventListener("change", () => {
+      if (axisLabelMode === "custom") {
+        activityCommitter.commit();
+      } else {
+        activityCommitter.reset();
+      }
+    });
     row.append(checkbox, text, asText, custom);
     axisLabelVisibility.checkboxes.set(face, checkbox);
     axisLabelVisibility.container.appendChild(row);
     axisCustomInputs.set(face, custom);
     axisCustomMarkers.set(face, asText);
+    const visibilityActivityCommitter = createActivityRecorder(
+      `Axis Label (${face}) Visibility`,
+      "Axis Label Visibility",
+      () => checkbox.checked,
+    );
+
+    axisLabelVisibilityCommitters.push(visibilityActivityCommitter);
     checkbox.addEventListener("change", () => {
       const index = axisDefinitions.findIndex(
         (definition) => definition.label.face === face,
       );
       axisSceneController.setAxisLabelVisible(index, checkbox.checked);
+      visibilityActivityCommitter.commit();
     });
   }
 
@@ -588,6 +692,11 @@ export function createLabelsPanel({
     initialValue: axisLabelDepth,
     inputMinimum: 0,
     blurFallback: defaultLabelDepth,
+    activityCommitter: createActivityRecorder(
+      "Axis Label Depth",
+      "Axis Label Depth",
+      () => axisLabelDepth,
+    ),
     onChange: (value) => {
       axisLabelDepth = value;
       axisSceneController.setAxisLabelDepth(value);
@@ -601,6 +710,11 @@ export function createLabelsPanel({
       axisLabelsVisibility = value;
       updateAxisLabelsVisibilityMode();
     },
+    createActivityRecorder(
+      "Axis Label Visibility",
+      "Axis Label Visibility",
+      () => axisLabelsVisibility,
+    ),
   );
 
   function updateAxisLabelText() {
@@ -630,20 +744,28 @@ export function createLabelsPanel({
   customInput.addEventListener("change", () => {
     if (customInput.checked) {
       selectAxisLabelMode("custom");
+      axisLabelModeActivity.commit();
     }
   });
   coordinateInput.addEventListener("change", () => {
     if (coordinateInput.checked) {
       selectAxisLabelMode("coordinate");
+      axisLabelModeActivity.commit();
     }
   });
   faceInput.addEventListener("change", () => {
     if (faceInput.checked) {
       selectAxisLabelMode("face");
+      axisLabelModeActivity.commit();
     }
   });
 
   const showAxisArrows = createMainToggle("Show Axis Arrows");
+  const axisArrowsActivity = createActivityRecorder(
+    "Axis Arrows",
+    "Axis Arrows",
+    () => showAxisArrows.checkbox.checked,
+  );
   const axisArrowVisibility = createFaceVisibilityControls(
     "Axis",
     (face, visible) => {
@@ -652,6 +774,8 @@ export function createLabelsPanel({
       );
       axisSceneController.setAxisArrowVisible(index, visible);
     },
+    "Axis Arrow",
+    "Axis Arrow Visibility",
   );
   const axisDepthControl = createNumericControl({
     title: "Axis Arrow Depth",
@@ -662,6 +786,11 @@ export function createLabelsPanel({
     step: 0.001,
     initialValue: axisDepth,
     blurFallback: 0,
+    activityCommitter: createActivityRecorder(
+      "Axis Arrow Depth",
+      "Axis Arrow Depth",
+      () => axisDepth,
+    ),
     onChange: (value) => {
       axisDepth = value;
       axisSceneController.setAxisDepth(value);
@@ -675,9 +804,19 @@ export function createLabelsPanel({
       axisArrowsVisibility = value;
       updateAxisArrowsVisibilityMode();
     },
+    createActivityRecorder(
+      "Axis Arrow Visibility",
+      "Axis Arrow Visibility",
+      () => axisArrowsVisibility,
+    ),
   );
 
   const showRotationArrows = createMainToggle("Show Rotation Arrows");
+  const rotationArrowsActivity = createActivityRecorder(
+    "Rotation Arrows",
+    "Rotation Arrows",
+    () => showRotationArrows.checkbox.checked,
+  );
   const rotationArrowVisibility = createFaceVisibilityControls(
     "Arrow",
     (face, visible) => {
@@ -686,6 +825,8 @@ export function createLabelsPanel({
       );
       axisSceneController.setRotationArrowVisible(index, visible);
     },
+    "Rotation Arrow",
+    "Rotation Arrow Visibility",
   );
   const rotationArrowDepthControl = createNumericControl({
     title: "Rotation Arrow Depth",
@@ -697,6 +838,11 @@ export function createLabelsPanel({
     initialValue: rotationArrowDepth,
     allowNegative: true,
     blurFallback: defaultRotationArrowDepth,
+    activityCommitter: createActivityRecorder(
+      "Rotation Arrow Depth",
+      "Rotation Arrow Depth",
+      () => rotationArrowDepth,
+    ),
     onChange: (value) => {
       rotationArrowDepth = value;
       axisSceneController.setRotationArrowDepth(value);
@@ -713,6 +859,11 @@ export function createLabelsPanel({
     inputMinimum: -1,
     blurFallback: defaultRotationArrowThickness,
     blurMinimum: 0.001,
+    activityCommitter: createActivityRecorder(
+      "Rotation Arrow Thickness",
+      "Rotation Arrow Thickness",
+      () => rotationArrowThickness,
+    ),
     onChange: (value) => {
       rotationArrowThickness = value;
       axisSceneController.setRotationArrowThickness(value);
@@ -729,6 +880,11 @@ export function createLabelsPanel({
     inputMinimum: 0.099,
     blurFallback: defaultRotationArrowRadius,
     blurMinimum: 0.1,
+    activityCommitter: createActivityRecorder(
+      "Rotation Arrow Radius",
+      "Rotation Arrow Radius",
+      () => rotationArrowRadius,
+    ),
     onChange: (value) => {
       rotationArrowRadius = value;
       axisSceneController.setRotationArrowRadius(value);
@@ -760,6 +916,11 @@ export function createLabelsPanel({
     rotationArrowDirectionSelect.appendChild(option);
   }
   rotationArrowDirectionSelect.value = rotationArrowDirection;
+  const rotationArrowDirectionActivity = createActivityRecorder(
+    "Rotation Arrow Direction",
+    "Rotation Arrow Direction",
+    () => rotationArrowDirection,
+  );
   rotationArrowDirectionLabel.htmlFor = rotationArrowDirectionSelect.id;
   rotationArrowDirectionControl.append(
     rotationArrowDirectionLabel,
@@ -768,6 +929,7 @@ export function createLabelsPanel({
   rotationArrowDirectionSelect.addEventListener("change", () => {
     rotationArrowDirection = rotationArrowDirectionSelect.value;
     axisSceneController.setRotationArrowDirection(rotationArrowDirection);
+    rotationArrowDirectionActivity.commit();
   });
   const rotationArrowsVisibilityControl = createVisibilityControl(
     "Rotation Arrows Visibility",
@@ -777,6 +939,11 @@ export function createLabelsPanel({
       rotationArrowsVisibility = value;
       updateRotationArrowsVisibilityMode();
     },
+    createActivityRecorder(
+      "Rotation Arrow Visibility",
+      "Rotation Arrow Visibility",
+      () => rotationArrowsVisibility,
+    ),
   );
 
   content.append(
@@ -834,6 +1001,7 @@ export function createLabelsPanel({
       ? "block"
       : "none";
     onLayoutChange();
+    axisLabelsActivity.commit();
   });
   showAxisArrows.checkbox.addEventListener("change", () => {
     updateAxisGroupVisibility();
@@ -847,6 +1015,7 @@ export function createLabelsPanel({
       ? "block"
       : "none";
     onLayoutChange();
+    axisArrowsActivity.commit();
   });
   showRotationArrows.checkbox.addEventListener("change", () => {
     axisSceneController.setRotationArrowGroupVisible(
@@ -868,6 +1037,7 @@ export function createLabelsPanel({
     rotationArrowsVisibilityControl.style.display =
       showRotationArrows.checkbox.checked ? "block" : "none";
     onLayoutChange();
+    rotationArrowsActivity.commit();
   });
 
   function setAllAxisLabelVisibility(visible) {
@@ -878,6 +1048,7 @@ export function createLabelsPanel({
       );
       axisSceneController.setAxisLabelVisible(index, visible);
     }
+    axisLabelVisibilityCommitters.forEach((committer) => committer.reset());
   }
 
   function setAllAxisArrowVisibility(visible) {
@@ -888,6 +1059,7 @@ export function createLabelsPanel({
       );
       axisSceneController.setAxisArrowVisible(index, visible);
     }
+    axisArrowVisibility.resetActivityBaselines();
   }
 
   function setAllRotationArrowVisibility(visible) {
@@ -898,6 +1070,7 @@ export function createLabelsPanel({
       );
       axisSceneController.setRotationArrowVisible(index, visible);
     }
+    rotationArrowVisibility.resetActivityBaselines();
   }
 
   function reset() {
@@ -966,6 +1139,7 @@ export function createLabelsPanel({
     updateAxisLabelsVisibilityMode();
     updateAxisArrowsVisibilityMode();
     updateRotationArrowsVisibilityMode();
+    resetActivityBaselines();
   }
 
   function getSetupState() {
@@ -1076,6 +1250,7 @@ export function createLabelsPanel({
     rotationArrowsVisibility = settings.rotationArrowVisibility;
     rotationArrowsVisibilityControl.setVisibilityMode(rotationArrowsVisibility);
     updateRotationArrowsVisibilityMode();
+    resetActivityBaselines();
     for (const [face, arrow] of Object.entries(settings.rotationArrowsByFace)) {
       const checkbox = rotationArrowVisibility.checkboxes.get(face);
       if (checkbox) {
@@ -1098,6 +1273,7 @@ export function createLabelsPanel({
     axisSceneController.setRotationArrowDirection(rotationArrowDirection);
     faceletLabelController.setDepth(settings.labelDepth);
     labelDepthControl.setValue(faceletLabelController.getDepth());
+    resetActivityBaselines();
   }
 
   return {

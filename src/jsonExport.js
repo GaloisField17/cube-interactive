@@ -1,4 +1,4 @@
-export const JSON_EXPORT_VERSION = 1;
+export const JSON_EXPORT_VERSION = 2;
 
 function isObject(value) {
   return value !== null && typeof value === "object";

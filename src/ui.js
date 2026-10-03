@@ -34,6 +34,8 @@ import {
 import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel } from "./faceDefinitions.js";
 import { createJsonExport } from "./jsonExport.js";
+import { createActivityLogState } from "./activityLogState.js";
+import { createActivityCommitter } from "./ui/activityRecorder.js";
 import {
   getCubeViewportDisplayHeight,
   getCubeViewportDisplayHeightBounds,
@@ -45,6 +47,8 @@ import {
 } from "./setupDefaults.js";
 import { createSvgArchive } from "./svgExport.js";
 import { createAxisSceneController } from "./ui/axisSceneController.js";
+import { createActivityLogWindow } from "./ui/activityLogWindow.js";
+import { syncButtonDisabledAppearance } from "./ui/buttonDisabledAppearance.js";
 import { createColorsPanel } from "./ui/colorsPanel.js";
 import { createCubePanel } from "./ui/cubePanel.js";
 import { createCustomMoveControls } from "./ui/customMoveControls.js";
@@ -171,9 +175,12 @@ export function createUI({
   let viewPanel = null;
   let viewPanelController = null;
   let setupPanel = null;
+  let activityLogWindow = null;
+  let isRestoringActivity = false;
   let syncRightPanelChevron = () => {};
   let updateFaceletLabelTransforms = () => {};
   let updateAxisHelperScale = () => {};
+  const activityLogState = createActivityLogState();
   const viewController = createViewController({
     scene,
     camera,
@@ -184,6 +191,388 @@ export function createUI({
 
   function markSetupChanged() {
     viewController.refresh();
+  }
+
+  function recordActivity(activity) {
+    if (isRestoringActivity) {
+      return null;
+    }
+
+    const recordedActivity = activityLogState.addActivity(activity);
+
+    activityLogWindow?.refresh();
+
+    return recordedActivity;
+  }
+
+  function recordSettingActivity({
+    parent,
+    focus,
+    filterFocus = focus,
+    from,
+    to,
+    description,
+    descriptionParts,
+  }) {
+    if (JSON.stringify(from) === JSON.stringify(to)) {
+      return null;
+    }
+
+    return recordActivity({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      kind: "change",
+      parent,
+      focus,
+      filterFocus,
+      description,
+      ...(descriptionParts ? { descriptionParts } : {}),
+      from,
+      to,
+      snapshot: getJsonExportSetup(),
+    });
+  }
+
+  function recordSummaryActivity({
+    kind,
+    parent,
+    focus,
+    description,
+    timestamp = new Date().toISOString(),
+  }) {
+    return recordActivity({
+      id: crypto.randomUUID(),
+      timestamp,
+      kind,
+      parent,
+      focus,
+      filterFocus: focus,
+      description,
+      snapshot: getJsonExportSetup(),
+    });
+  }
+
+  function formatActivityValue(value) {
+    if (Array.isArray(value)) {
+      if (!value.length) {
+        return "empty sequence";
+      }
+      if (value.every((item) => typeof item === "string")) {
+        return value.join(" ") || "empty sequence";
+      }
+      if (value.every((item) => JSON.stringify(item) === JSON.stringify(value[0]))) {
+        return formatActivityValue(value[0]);
+      }
+      return "mixed";
+    }
+
+    if (value && typeof value === "object") {
+      if (Object.hasOwn(value, "cameraPosition") && Object.hasOwn(value, "target")) {
+        return "camera pose";
+      }
+      const values = Object.values(value);
+
+      if (!values.length) {
+        return "none";
+      }
+      if (values.every((item) => JSON.stringify(item) === JSON.stringify(values[0]))) {
+        return formatActivityValue(values[0]);
+      }
+      return "mixed";
+    }
+
+    if (typeof value === "boolean") {
+      return value ? "shown" : "hidden";
+    }
+
+    if (typeof value === "number") {
+      return Number(value.toFixed(3)).toString();
+    }
+
+    const labels = {
+      "always-visible": "shown through the cube",
+      "hidden-behind-cube": "hidden behind the cube",
+      clockwise: "clockwise",
+      "counter-clockwise": "counter-clockwise",
+      coordinate: "Cartesian coordinates",
+      custom: "custom text",
+      face: "face names",
+    };
+
+    return labels[value] ?? String(value);
+  }
+
+  function applyMappedActivityValues(values, getTarget, applyValue) {
+    if (!values || typeof values !== "object" || Array.isArray(values)) {
+      throw new TypeError("The activity does not contain a valid value map.");
+    }
+
+    for (const [id, value] of Object.entries(values)) {
+      const item = getTarget(id);
+
+      if (!item) {
+        throw new Error(`The activity refers to an unavailable setting "${id}".`);
+      }
+      applyValue(item, value);
+    }
+  }
+
+  function applyActivityValueToSetup(setup, activity, value) {
+    if (activity.parent === "Rotation") {
+      if (activity.focus === "Duration") {
+        setup.rotations.durationSeconds = value;
+        return;
+      }
+      if (["Insert", "Remove", "Edit"].includes(activity.focus)) {
+        setup.rotations.moves = [...value];
+        setup.rotations.text = value.join(" ");
+        return;
+      }
+    }
+
+    if (activity.parent === "Cube") {
+      const property = activity.focus.startsWith("Size") ? "size" : "gap";
+
+      if (typeof value === "number") {
+        setup.cube[property] = value;
+        for (const cubie of Object.values(setup.cube.cubies)) {
+          cubie[property] = value;
+        }
+        return;
+      }
+      applyMappedActivityValues(
+        value,
+        (id) => setup.cube.cubies[id],
+        (cubie, dimension) => {
+          cubie[property] = dimension;
+        },
+      );
+      return;
+    }
+
+    if (activity.parent === "Colors") {
+      if (activity.focus.startsWith("Outer Facelet")) {
+        applyMappedActivityValues(
+          value,
+          (id) =>
+            Object.values(setup.cube.cubies)
+              .find((cubie) => Object.hasOwn(cubie.facelets, id))
+              ?.facelets[id],
+          (facelet, color) => {
+            facelet.color = color;
+          },
+        );
+        return;
+      }
+      if (activity.focus.startsWith("Inner Cubie")) {
+        applyMappedActivityValues(
+          value,
+          (id) => setup.cube.cubies[id],
+          (cubie, color) => {
+            cubie.innerColor = color;
+          },
+        );
+        return;
+      }
+
+      const colorsTarget =
+        activity.focus.startsWith("Facelet Label")
+          ? setup.colors.faceletLabels
+          : activity.focus.startsWith("Axis Label")
+            ? setup.colors.axisLabels
+            : activity.focus.startsWith("Rotation Arrow")
+              ? setup.colors.rotationArrows
+              : null;
+
+      if (colorsTarget) {
+        applyMappedActivityValues(
+          value,
+          (id) => (Object.hasOwn(colorsTarget, id) ? id : null),
+          (id, color) => {
+            colorsTarget[id] = color;
+          },
+        );
+        return;
+      }
+    }
+
+    if (activity.parent === "Camera") {
+      setup.view.cameraPosition = { ...value.cameraPosition };
+      setup.view.target = { ...value.target };
+      return;
+    }
+
+    if (activity.parent === "View") {
+      const settingByFocus = {
+        "Ghost Sticker Visibility": "ghostStickersVisibility",
+        "Peek Sticker Visibility": "peekStickersVisibility",
+        "Peek Hide Color": "peekStickersHideWhenColor",
+        "Peek Sticker Depth": "peekStickersDepth",
+      };
+      const setting = settingByFocus[activity.focus];
+
+      if (setting) {
+        setup.view[setting] = value;
+        return;
+      }
+    }
+
+    if (activity.parent === "Labels") {
+      const simpleSettingByFocus = {
+        "Facelet Labels": "facelets",
+        "Facelet Label Visibility": "faceletVisibility",
+        "Facelet Label Depth": "labelDepth",
+        "Axis Labels": "axisLabels",
+        "Axis Label Format": "axisLabelMode",
+        "Axis Label Depth": "axisLabelDepth",
+        "Axis Label Visibility": "axisLabelVisibility",
+        "Axis Arrows": "axisArrows",
+        "Axis Arrow Visibility": "axisArrowVisibility",
+        "Axis Arrow Depth": "axisDepth",
+        "Rotation Arrows": "rotationArrows",
+        "Rotation Arrow Visibility": "rotationArrowVisibility",
+        "Rotation Arrow Depth": "rotationArrowDepth",
+        "Rotation Arrow Thickness": "rotationArrowThickness",
+        "Rotation Arrow Radius": "rotationArrowRadius",
+        "Rotation Arrow Direction": "rotationArrowDirection",
+      };
+      const setting = simpleSettingByFocus[activity.focus];
+
+      if (setting) {
+        setup.labels[setting] = value;
+        return;
+      }
+
+      const axisLabelText = activity.focus.match(/^Axis Label Text \((.+)\)$/u);
+      const faceVisibility = activity.focus.match(
+        /^(Axis Label|Axis Arrow|Rotation Arrow) \((.+)\) Visibility$/u,
+      );
+
+      if (axisLabelText) {
+        setup.labels.axisLabelsByFace[axisLabelText[1]].customText = value;
+        return;
+      }
+      if (faceVisibility) {
+        const [, type, face] = faceVisibility;
+        const entryByType = {
+          "Axis Label": setup.labels.axisLabelsByFace,
+          "Axis Arrow": setup.labels.axisArrowsByFace,
+          "Rotation Arrow": setup.labels.rotationArrowsByFace,
+        };
+        const entry = entryByType[type][face];
+
+        if (!entry) {
+          throw new Error(`The activity refers to an unavailable face "${face}".`);
+        }
+        entry.visible = value;
+        return;
+      }
+    }
+
+    if (activity.parent === "Jump") {
+      throw new Error("Jump activities must restore their complete saved setup.");
+    }
+
+    throw new Error(
+      `Revert is not supported for ${activity.parent}: ${activity.focus}.`,
+    );
+  }
+
+  async function revertActivity(activity) {
+    await stopRotationAndWait({ force: true });
+
+    const previousSetup = getJsonExportSetup();
+    const targetSetup =
+      activity.parent === "Jump"
+        ? structuredClone(activity.from)
+        : structuredClone(previousSetup);
+    const previousSuppressionState = isRestoringActivity;
+
+    isRestoringActivity = true;
+    try {
+      if (activity.parent !== "Jump") {
+        applyActivityValueToSetup(targetSetup, activity, activity.from);
+      }
+      applySetup(targetSetup);
+      markSetupChanged();
+    } finally {
+      isRestoringActivity = previousSuppressionState;
+    }
+
+    const snapshot = getJsonExportSetup();
+    const unit =
+      activity.parent === "Rotation" && activity.focus === "Duration"
+        ? "s"
+        : "";
+    let description;
+
+    if (activity.parent === "Camera") {
+      description = `Camera: ${activity.focus} was reverted to the earlier camera pose.`;
+    } else if (activity.parent === "Jump") {
+      description = "Jump: Restored the setup that preceded the selected jump.";
+    } else {
+      description = `${activity.parent}: ${activity.focus} was changed from ${formatActivityValue(activity.to)}${unit} to ${formatActivityValue(activity.from)}${unit} by Revert.`;
+    }
+
+    const descriptionParts =
+      activity.parent !== "Camera" && activity.parent !== "Jump"
+        ? [
+            `${activity.parent}: ${activity.focus} was changed from `,
+            { code: `${formatActivityValue(activity.to)}${unit}` },
+            " to ",
+            { code: `${formatActivityValue(activity.from)}${unit}` },
+            " by Revert.",
+          ]
+        : undefined;
+
+    recordActivity({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      kind: "revert",
+      parent: activity.parent,
+      focus: activity.focus,
+      filterFocus: activity.filterFocus,
+      description,
+      ...(descriptionParts ? { descriptionParts } : {}),
+      from: activity.to,
+      to: activity.from,
+      snapshot,
+    });
+  }
+
+  function recordControlActivity({ parent, focus, filterFocus, from, to }) {
+    const unit = parent === "Rotation" && focus === "Duration" ? "s" : "";
+
+    recordSettingActivity({
+      parent,
+      focus,
+      filterFocus,
+      from,
+      to,
+      description: `${parent}: ${focus} was changed from ${formatActivityValue(from)}${unit} to ${formatActivityValue(to)}${unit}.`,
+      descriptionParts: [
+        `${parent}: ${focus} was changed from `,
+        { code: `${formatActivityValue(from)}${unit}` },
+        " to ",
+        { code: `${formatActivityValue(to)}${unit}` },
+        ".",
+      ],
+    });
+  }
+
+  function runResetActivity(parent, focus, action) {
+    const previousSetup = getJsonExportSetup();
+
+    action();
+
+    if (JSON.stringify(previousSetup) !== JSON.stringify(getJsonExportSetup())) {
+      recordSummaryActivity({
+        kind: "reset",
+        parent,
+        focus,
+        description: `${parent}: ${focus} were reset using the individual reset button.`,
+      });
+    }
   }
 
   function updateCubeDimensions(...args) {
@@ -218,6 +607,114 @@ export function createUI({
   document.addEventListener("input", markSetupChanged, true);
   document.addEventListener("change", markSetupChanged, true);
   controls.addEventListener("change", markSetupChanged);
+  let cameraGestureStart = null;
+
+  function getCameraGestureState() {
+    return {
+      cameraPosition: {
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z,
+      },
+      target: {
+        x: controls.target.x,
+        y: controls.target.y,
+        z: controls.target.z,
+      },
+    };
+  }
+
+  function getCameraGestureMetrics(state) {
+    const dx = state.cameraPosition.x - state.target.x;
+    const dy = state.cameraPosition.y - state.target.y;
+    const dz = state.cameraPosition.z - state.target.z;
+    const distance = Math.hypot(dx, dy, dz);
+    const defaultView = getDefaultCameraView();
+    const defaultDistance = Math.hypot(
+      defaultView.cameraPosition.x - defaultView.target.x,
+      defaultView.cameraPosition.y - defaultView.target.y,
+      defaultView.cameraPosition.z - defaultView.target.z,
+    );
+
+    return {
+      distance,
+      azimuth: (Math.atan2(dx, dz) * 180) / Math.PI,
+      elevation: (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI,
+      zoomPercent: (defaultDistance / distance) * 100,
+    };
+  }
+
+  function formatCameraNumber(value) {
+    return `${Number(value.toFixed(1))}`;
+  }
+
+  function recordCameraGesture() {
+    if (!cameraGestureStart) {
+      return;
+    }
+
+    const from = cameraGestureStart;
+    const to = getCameraGestureState();
+
+    cameraGestureStart = null;
+
+    if (JSON.stringify(from) === JSON.stringify(to)) {
+      return;
+    }
+
+    const fromMetrics = getCameraGestureMetrics(from);
+    const toMetrics = getCameraGestureMetrics(to);
+    const targetDelta = new Vector3(
+      to.target.x - from.target.x,
+      to.target.y - from.target.y,
+      to.target.z - from.target.z,
+    );
+    const movedTarget = targetDelta.length() > 1e-5;
+    const changedZoom = Math.abs(
+      fromMetrics.distance - toMetrics.distance,
+    ) > 1e-5;
+    const focus = movedTarget ? "Pan" : changedZoom ? "Zoom" : "Orbit";
+    let detail;
+
+    if (focus === "Orbit") {
+      detail = `azimuth ${formatCameraNumber(fromMetrics.azimuth)}° to ${formatCameraNumber(toMetrics.azimuth)}°, elevation ${formatCameraNumber(fromMetrics.elevation)}° to ${formatCameraNumber(toMetrics.elevation)}°`;
+    } else if (focus === "Zoom") {
+      detail = `${formatCameraNumber(fromMetrics.zoomPercent)}% to ${formatCameraNumber(toMetrics.zoomPercent)}%`;
+    } else {
+      const direction = new Vector3(
+        from.cameraPosition.x - from.target.x,
+        from.cameraPosition.y - from.target.y,
+        from.cameraPosition.z - from.target.z,
+      ).normalize();
+      const right = new Vector3(0, 1, 0).cross(direction).normalize();
+      const up = direction.clone().cross(right).normalize();
+      const horizontal = targetDelta.dot(right);
+      const vertical = targetDelta.dot(up);
+
+      detail = `horizontal ${formatCameraNumber(horizontal)} and vertical ${formatCameraNumber(vertical)} units`;
+      if (changedZoom) {
+        detail += `, zoom ${formatCameraNumber(fromMetrics.zoomPercent)}% to ${formatCameraNumber(toMetrics.zoomPercent)}%`;
+      }
+    }
+
+    recordActivity({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      kind: "change",
+      parent: "Camera",
+      focus,
+      filterFocus: focus,
+      description: `Camera: ${focus} was changed (${detail}).`,
+      from,
+      to,
+      snapshot: getJsonExportSetup(),
+    });
+  }
+
+  controls.addEventListener("start", () => {
+    cameraGestureStart = getCameraGestureState();
+  });
+  controls.addEventListener("end", recordCameraGesture);
 
   // ============================================================
   // Rotation panel
@@ -685,7 +1182,7 @@ export function createUI({
   });
 
   const resetRotationButton = createResetButton("Reset Rotation", () =>
-    resetRotationInterface(),
+    resetRotationWithActivity(),
   );
 
   rotationTitleRow.appendChild(resetRotationButton);
@@ -1791,6 +2288,7 @@ export function createUI({
 
   const rotationActions = [];
   const pendingRotationEntries = [];
+  let rotationEditorBaseline = null;
   let queuedRotationActions = [];
   let cursorRotationEntry = null;
   let rotationPlaybackState = "idle";
@@ -1806,6 +2304,51 @@ export function createUI({
   let rotationStopRequested = false;
   let stopRotationPromise = null;
   const rotationStopWaiters = [];
+
+  function includesSequenceWithOneInsertion(shorter, longer) {
+    if (longer.length !== shorter.length + 1) {
+      return false;
+    }
+
+    let shorterIndex = 0;
+
+    for (const item of longer) {
+      if (item === shorter[shorterIndex]) {
+        shorterIndex += 1;
+      }
+    }
+
+    return shorterIndex === shorter.length;
+  }
+
+  function recordRotationSequenceChange(from, to) {
+    if (JSON.stringify(from) === JSON.stringify(to)) {
+      return;
+    }
+
+    const focus = includesSequenceWithOneInsertion(from, to)
+      ? "Insert"
+      : includesSequenceWithOneInsertion(to, from)
+        ? "Remove"
+        : "Edit";
+    const formatSequence = (moves) => moves.join(" ") || "empty sequence";
+
+    recordSettingActivity({
+      parent: "Rotation",
+      focus,
+      filterFocus: focus,
+      from,
+      to,
+      description: `Rotation: ${focus} was changed from ${formatSequence(from)} to ${formatSequence(to)}.`,
+      descriptionParts: [
+        `Rotation: ${focus} was changed from `,
+        { code: formatSequence(from) },
+        " to ",
+        { code: formatSequence(to) },
+        ".",
+      ],
+    });
+  }
 
   function setRotationTimelinePosition(
     position,
@@ -2081,8 +2624,7 @@ export function createUI({
       nextRotationButton,
       toEndButton,
     ]) {
-      button.style.opacity = button.disabled ? "0.5" : "1";
-      button.style.cursor = button.disabled ? "not-allowed" : "pointer";
+      syncButtonDisabledAppearance(button);
     }
   }
 
@@ -2677,6 +3219,13 @@ export function createUI({
     highlightActiveRotation();
     updateRotationMediaControlState();
     syncRotationBlockLayout();
+    if (rotationEditorBaseline) {
+      recordRotationSequenceChange(
+        rotationEditorBaseline,
+        rotationActions.map((action) => action.label),
+      );
+      rotationEditorBaseline = null;
+    }
 
     window.setTimeout(() => {
       if (
@@ -2762,6 +3311,9 @@ export function createUI({
   });
 
   rotationText.addEventListener("focus", () => {
+    if (canEditRotationSequence() && !rotationEditorBaseline) {
+      rotationEditorBaseline = rotationActions.map((action) => action.label);
+    }
     highlightActiveRotation();
   });
 
@@ -2823,6 +3375,10 @@ export function createUI({
       timelineEndBoundary = null,
     } = {},
   ) {
+    const previousSequence = record
+      ? rotationActions.map((rotationAction) => rotationAction.label)
+      : null;
+
     if (record) {
       markSetupChanged();
       if (pendingRotationEntries.length === 0) {
@@ -2838,6 +3394,10 @@ export function createUI({
     if (record) {
       action.entry = rotationEntry;
       rotationActions.push(action);
+      recordRotationSequenceChange(
+        previousSequence,
+        rotationActions.map((rotationAction) => rotationAction.label),
+      );
     }
 
     if (record && pendingRotationEntries.length > 0) {
@@ -3601,6 +4161,7 @@ export function createUI({
       return;
     }
 
+    const previousSequence = rotationActions.map((action) => action.label);
     latestEntry.dataset.undoPending = "true";
 
     await queueRotationAction(latestAction.inverse, {
@@ -3615,6 +4176,10 @@ export function createUI({
     latestEntry.dataset.undoPending = "false";
     removeRotationEntry(latestEntry);
     cursorRotationEntry = previousEntry;
+    recordRotationSequenceChange(
+      previousSequence,
+      rotationActions.map((action) => action.label),
+    );
 
     rotationBlock.text.style.display = "block";
 
@@ -3680,10 +4245,23 @@ export function createUI({
     }
   }
 
+  const durationActivity = createActivityCommitter(
+    () => durationState.value / 1000,
+    (from, to) =>
+      recordControlActivity({
+        parent: "Rotation",
+        focus: "Duration",
+        filterFocus: "Duration",
+        from,
+        to,
+      }),
+  );
+
   durationSlider.addEventListener("input", () => {
     syncEditValueFromSlider(durationSlider, durationValue);
     updateDurationState();
   });
+  durationSlider.addEventListener("change", () => durationActivity.commit());
 
   durationValue.addEventListener("input", () => {
     const raw = durationValue.value;
@@ -3713,6 +4291,7 @@ export function createUI({
     syncSliderFromEditValue(durationSlider, durationValue, Number(normalized));
     updateDurationState();
   });
+  durationValue.addEventListener("change", () => durationActivity.commit());
 
   durationValue.addEventListener("blur", () => {
     const raw = Number(durationValue.value);
@@ -3725,6 +4304,7 @@ export function createUI({
     );
     durationValue.value = String(acceptedDuration);
     updateDurationState();
+    durationActivity.commit();
   });
 
   durationContainer.appendChild(durationSlider);
@@ -4542,10 +5122,13 @@ export function createUI({
     onExpand: () => collapseOtherPanels("view"),
     onLayoutChange: scheduleCubePanelPositionUpdate,
     onReset: () => {
-      resetViewState();
-      markSetupChanged();
+      runResetActivity("View", "Settings", () => {
+        resetViewState();
+        markSetupChanged();
+      });
     },
     onViewChange: (setting, value) => viewController.setSetting(setting, value),
+    onActivity: recordControlActivity,
     onPeekColorPicked: viewController.refresh,
     getColorPreviewValue: (value) => {
       const color = new Color();
@@ -4684,7 +5267,6 @@ export function createUI({
     setInnerColor: setCubieInnerColor,
     faceletLabelController,
     axisSceneController,
-    createResetButton,
     styleUiTitle,
     panelBackground: UI_PANEL_BACKGROUND,
     panelBorderRadius: UI_PANEL_BORDER_RADIUS,
@@ -4692,6 +5274,11 @@ export function createUI({
     fontFamily: UI_FONT_FAMILY,
     fontSize: UI_FONT_SIZE,
     onReset: resetColorsInterface,
+    onActivity: recordControlActivity,
+    createResetButton: (label, onClick) =>
+      createResetButton(label, () =>
+        runResetActivity("Colors", "Settings", onClick),
+      ),
     onExpand: () => collapseOtherPanels("colors"),
     onLayoutChange: updateCubePanelPosition,
   });
@@ -4715,8 +5302,12 @@ export function createUI({
     panelBoxShadow: UI_PANEL_BOX_SHADOW,
     fontFamily: UI_FONT_FAMILY,
     fontSize: UI_FONT_SIZE,
-    createResetButton,
     styleUiTitle,
+    onActivity: recordControlActivity,
+    createResetButton: (label, onClick) =>
+      createResetButton(label, () =>
+        runResetActivity("Labels", "Settings", onClick),
+      ),
     onExpand: () => collapseOtherPanels("labels"),
     onLayoutChange: updateCubePanelPosition,
   });
@@ -4742,7 +5333,7 @@ export function createUI({
       axisSceneController.setAxisLabelColor(index, axisDefinition.color);
       axisSceneController.setRotationArrowColor(index, axisDefinition.color);
     });
-    colorsPanelController.syncAll();
+    colorsPanelController.syncAll(true);
   }
 
   function getJsonExportSetup() {
@@ -4838,8 +5429,8 @@ export function createUI({
       }
     }
 
-    colorsPanelController.syncFaceletLabelControls();
-    colorsPanelController.syncSceneColorControls();
+    colorsPanelController.syncFaceletLabelControls(true);
+    colorsPanelController.syncSceneColorControls(true);
   }
 
   function applyImportedLabels(importedLabels) {
@@ -4878,7 +5469,27 @@ export function createUI({
   }
 
   function applySetup(importedSetup) {
+    const previousSuppressionState = isRestoringActivity;
+
+    isRestoringActivity = true;
+
+    try {
+      applySetupValues(importedSetup);
+    } finally {
+      isRestoringActivity = previousSuppressionState;
+    }
+  }
+
+  function applySetupValues(importedSetup) {
     resetEverythingInterface();
+
+    viewController.setSettings({
+      ghostStickersVisibility: importedSetup.view.ghostStickersVisibility,
+      peekStickersVisibility: importedSetup.view.peekStickersVisibility,
+      peekStickersDepth: importedSetup.view.peekStickersDepth,
+      peekStickersHideWhenColor: importedSetup.view.peekStickersHideWhenColor,
+    });
+    viewPanelController.setSettings(getViewSettings());
 
     camera.position.set(
       importedSetup.view.cameraPosition.x,
@@ -4892,12 +5503,28 @@ export function createUI({
     );
     controls.update();
 
+    const importedDimensions = new Map(
+      cubies.map((cubie) => {
+        const id = JSON.stringify(cubie.userData.originalPieceKey);
+        const importedCubie = importedSetup.cube.cubies?.[id];
+
+        return [
+          cubie,
+          {
+            size: importedCubie?.size ?? importedSetup.cube.size,
+            gap: importedCubie?.gap ?? importedSetup.cube.gap,
+          },
+        ];
+      }),
+    );
+
     cubeDimensionPanel.applyDimensions(
       importedSetup.cube.size,
       importedSetup.cube.gap,
+      importedDimensions,
     );
     applyCubeState(importedSetup.cube);
-    colorsPanelController.syncCubeControls();
+    colorsPanelController.syncCubeControls(true);
     applyImportedColors(importedSetup.colors);
     applyImportedLabels(importedSetup.labels);
 
@@ -4906,15 +5533,57 @@ export function createUI({
     durationSlider.value = String(
       Math.min(importedSetup.rotations.durationSeconds, 5),
     );
+    durationActivity.reset();
     restoreImportedRotations(importedSetup.rotations);
+  }
+
+  async function jumpToActivity(activity) {
+    await stopRotationAndWait({ force: true });
+
+    const from = getJsonExportSetup();
+    const previousSuppressionState = isRestoringActivity;
+
+    isRestoringActivity = true;
+
+    try {
+      applySetup(activity.snapshot);
+      markSetupChanged();
+    } finally {
+      isRestoringActivity = previousSuppressionState;
+    }
+
+    const to = getJsonExportSetup();
+
+    recordActivity({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      kind: "jump",
+      parent: "Jump",
+      focus: "Past State",
+      filterFocus: "Past State",
+      description: `Jump: Restored setup to the state after "${activity.description}".`,
+      from,
+      to,
+      snapshot: to,
+    });
   }
 
   function openImportDialog() {
     openSetupImportDialog({
       getDefaultSetup: getDefaultJsonExportSetup,
       onImport: (importedSetup) => {
+        const previousSetup = getJsonExportSetup();
+
         applySetup(importedSetup);
         markSetupChanged();
+        if (JSON.stringify(previousSetup) !== JSON.stringify(getJsonExportSetup())) {
+          recordSummaryActivity({
+            kind: "import",
+            parent: "Import",
+            focus: "Settings",
+            description: "Import: Settings were changed via import.",
+          });
+        }
       },
       dialogStyle: {
         borderRadius: UI_PANEL_BORDER_RADIUS,
@@ -5170,6 +5839,7 @@ export function createUI({
     createLabel,
     styleUiTitle,
     panelBackground: UI_PANEL_BACKGROUND,
+    onActivity: recordControlActivity,
     onDimensionsChange: (nextSize, nextGap, customDimensions) => {
       updateCubeDimensions(nextSize, nextGap, customDimensions);
     },
@@ -5272,6 +5942,22 @@ export function createUI({
   // Reset
   // ============================================================
 
+  function resetRotationWithActivity() {
+    resetRotationInterface();
+
+    const timestamp = new Date().toISOString();
+
+    for (const parent of ["Rotation", "Camera"]) {
+      recordSummaryActivity({
+        kind: "reset",
+        parent,
+        focus: "Settings",
+        description: `${parent}: ${parent} were reset using the individual reset button.`,
+        timestamp,
+      });
+    }
+  }
+
   function resetRotationInterface() {
     resetCubeOrientation();
     resetCameraView();
@@ -5281,6 +5967,7 @@ export function createUI({
     durationSlider.value = "1";
     durationValue.value = "1";
     updateDurationState();
+    durationActivity.reset();
 
     clearRotationEntries();
     rotationActions.length = 0;
@@ -5368,8 +6055,18 @@ export function createUI({
 
     try {
       await stopRotationAndWait({ force: true });
+      const previousSetup = getJsonExportSetup();
+
       applySetup(getDefaultJsonExportSetup());
       markSetupChanged();
+      if (JSON.stringify(previousSetup) !== JSON.stringify(getJsonExportSetup())) {
+        recordSummaryActivity({
+          kind: "reset",
+          parent: "Setup",
+          focus: "Reset to Defaults",
+          description: "Setup: Settings were reset to defaults.",
+        });
+      }
     } finally {
       resetToDefaultsButton.disabled = false;
     }
@@ -5390,6 +6087,13 @@ export function createUI({
   historyButton.style.padding = "8px";
   historyButton.style.cursor = "pointer";
   historyButton.style.boxSizing = "border-box";
+
+  activityLogWindow = createActivityLogWindow({
+    activityLogState,
+    onRevert: revertActivity,
+    onJump: jumpToActivity,
+  });
+  historyButton.addEventListener("click", activityLogWindow.open);
 
   controlsRoot.appendChild(historyButton);
 

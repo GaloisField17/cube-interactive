@@ -142,11 +142,84 @@ test("color and label settings export, import, and reset to defaults", async ({
   assert.deepEqual(resetSetup.setup, {});
 });
 
+test("per-cubie dimensions export and restore through setup import", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator("canvas")).toHaveCount(1);
+  await ensureExpanded(page, "cube-panel-content");
+  await page.locator('input[name="cubeGapMode"][value="custom"]').check();
+
+  const cornerSize = page
+    .getByText("Corners", { exact: true })
+    .locator("xpath=..")
+    .locator("input")
+    .first();
+
+  await cornerSize.fill("1.25");
+  await cornerSize.press("Tab");
+  await ensureExpanded(page, "setup-panel-content");
+
+  const exported = await exportSetup(page);
+  const cubiesWithCustomSize = Object.values(exported.setup.cube.cubies).filter(
+    (cubie) => cubie.size === 1.25,
+  );
+
+  assert.ok(cubiesWithCustomSize.length > 0);
+  assert.ok(cubiesWithCustomSize.length < 26);
+
+  await page.getByRole("button", { name: "History" }).click();
+  const activityDialog = page.locator(
+    '[role="dialog"][aria-label="Activity Log"]',
+  );
+
+  await expect(
+    activityDialog.getByRole("button", {
+      name: "Cube: Size (Corners)",
+    }),
+  ).toBeVisible();
+  await activityDialog
+    .getByRole("button", { name: "Close Activity Log" })
+    .click();
+
+  await ensureExpanded(page, "cube-panel-content");
+  await expect(cornerSize).toHaveValue("1.25");
+  await cornerSize.fill("1.5");
+  await cornerSize.press("Tab");
+
+  await ensureExpanded(page, "setup-panel-content");
+  await page.getByRole("button", { name: "Import JSON" }).click();
+  await page
+    .getByPlaceholder("Paste exported JSON here")
+    .fill(JSON.stringify(exported));
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+
+  await ensureExpanded(page, "cube-panel-content");
+  await expect(
+    page.locator('input[name="cubeGapMode"][value="custom"]'),
+  ).toBeChecked();
+  await expect(cornerSize).toHaveValue("1.25");
+
+  await ensureExpanded(page, "setup-panel-content");
+  const restored = await exportSetup(page);
+
+  assert.deepEqual(restored.setup.cube, exported.setup.cube);
+});
+
 test("axis label and arrow settings retain their appearance and visibility", async ({
   page,
 }) => {
   await page.goto("/");
   await expect(page.locator("canvas")).toHaveCount(1);
+  await ensureExpanded(page, "view-panel-content");
+  await page
+    .locator('input[name="ghost-stickers-visibility"][value="hidden-behind-cube"]')
+    .check();
+  await page
+    .locator('input[name="peek-stickers-visibility"][value="hidden-behind-cube"]')
+    .check();
+  await page.getByLabel("Peek Stickers Depth Value").fill("0.75");
+  await page.getByLabel("Peek Stickers Depth Value").press("Tab");
   await ensureExpanded(page, "labels-panel-content");
 
   await page.getByLabel("Show Axis Labels").check();
@@ -197,6 +270,15 @@ test("axis label and arrow settings retain their appearance and visibility", asy
   await ensureExpanded(page, "setup-panel-content");
   const exported = await exportSetup(page);
 
+  assert.equal(
+    exported.setup.view.ghostStickersVisibility,
+    "hidden-behind-cube",
+  );
+  assert.equal(
+    exported.setup.view.peekStickersVisibility,
+    "hidden-behind-cube",
+  );
+  assert.equal(exported.setup.view.peekStickersDepth, 0.75);
   assert.equal(exported.setup.labels.axisLabelsByFace.R.customText, "Right");
   assert.equal(exported.setup.labels.axisLabelsByFace.R.visible, true);
   assert.equal(exported.setup.labels.axisLabelMode, "custom");

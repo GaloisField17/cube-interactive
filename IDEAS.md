@@ -2,203 +2,240 @@
 
 - Activity Log
 
-# Activity Log
+## Activity Log
 
-## Summary
+### Purpose
 
-The Activity Log is a window opened from the History button. It shows
-meaningful changes to the cube setup, ordered from newest to oldest, with a
-timestamp and a clear description of each change. Its purpose is to make it
-easy to review how the current setup was created.
+The History button opens a session-only log of meaningful setup changes,
+ordered newest first. Each activity shows its Parent, Focus, description, and
+completion time. The log holds up to 1,000 activities and is cleared when the
+app starts fresh.
 
-The log will let users restore a past state, apply the inverse of an entry, and
-filter entries.
+### Controls and behavior
 
-## Functions
+- **Filter** — Multi-select Parent and Parent–Focus options, sorted by Parent
+  and then Focus, with Parents listed first. Selecting a Parent includes all
+  its Focuses. Filter is disabled for an empty log or when only one distinct
+  Parent–Focus group exists.
+- **Revert** — Apply the selected activity's inverse to the current setup and
+  add a new activity; do not change or remove the original. Available only
+  when both `from` and `to` contain valid, applicable values. Do not require
+  the current value to match `to`. Reset and Import activities cannot be
+  reverted.
+- **Jump** — Restore the setup snapshot from immediately after the selected
+  activity and record the Jump as a new activity.
 
-The Activity Log window has three menus at the top:
+All three controls are disabled when unavailable. Revert and Jump require a
+selection; Reset and Import selections disable Revert. At most one activity
+can be selected. Using Filter, Revert, or Jump clears the selection. Activity
+rows have button-like hover behavior. Dedicated keyboard navigation is out of
+scope for now.
 
-- **Filter** — Filter activities by Parent, Focus, or both. Show Parent
-  options first, followed by Parent–Focus options.
-- **Revert** — Apply the inverse of the selected activity to the current
-  setup. For example, an entry saying “Setting A changed from X to Y” can be
-  inverted to change it from Y back to X. This creates a new activity
-  timestamped when the inverse is applied; it does not rewrite or remove the
-  original entry. Guardrails for keeping inverse operations consistent will
-  be defined later.
-- **Jump** — Restore the setup to the state immediately after the selected
-  activity. Jumping creates a new activity entry; it does not rewind, delete,
-  or reorder existing entries.
-
-Activities are ordered newest to oldest. At most one activity can be selected
-at a time. Activities have button-like hover behavior; selecting another
-activity moves the selection. Revert and Jump are disabled until an activity
-is selected. Using Filter, Revert, or Jump clears the selected activity.
-
-Filter supports multi-selection and is disabled when the log is empty or has
-only one distinct Parent–Focus type. Its options are the distinct Parents and
-Parent–Focus pairs present in the log, sorted alphabetically by Parent and
-then Focus. Parent options appear before their Parent–Focus options. Selecting
-a Parent includes all of its Focuses; users can also select multiple
-individual Parent–Focus options, including Focuses from different Parents.
-Filter Focus names omit per-item, group, and scope qualifiers from the
-catalog: for example, `Cube - Size` covers both `Size (Global)` and
-`Size (UFR)` activities. The full activity descriptions retain the target.
-For example, activities with `Rotation: Duration`, `Rotation: Insert`, and
-`Cube: Size (Global)` produce these options in order: `Cube`, `Cube - Size`,
-`Rotation`, `Rotation - Duration`, `Rotation - Insert`.
-
-Dedicated keyboard navigation for activity rows is not required for the
-initial implementation.
-
-## Scope
+Filter options use canonical Focus groups without target qualifiers. For
+example, activities `Rotation: Duration`, `Rotation: Insert`, and
+`Cube: Size (Global)` produce `Cube`, `Cube - Size`, `Rotation`,
+`Rotation - Duration`, and `Rotation - Insert`.
 
 ### Activity catalog
 
-This catalog defines which changes create Activity Log entries and the names
-used to describe them. Each entry has:
-
-- **Parent**: the broad setting category shown first.
-- **Focus**: the specific setting changed, shown after the parent.
-- **Description**: a concise statement of the change, including its previous
-  and new values when available.
-
-Use the message shape `Parent: Focus was changed from <old> to <new>`. For
-example: `Rotation: Duration was changed from 2s to 1s`. Format values so
-people can understand them (for example, show duration in seconds, colors as
-color values, visibility as `shown`/`hidden`, and dimensions with consistent
-precision). For a setting that has no meaningful scalar value, describe the
-change in plain language. Camera changes use the concise description
-`Camera: View was changed`; do not include numeric camera coordinates or
-start/end points in the visible description.
-
-The target in parentheses is part of the Focus name. Use the app's stable,
-human-readable facelet or cubie position name for per-piece changes (for
-example, `UFR`); use `All`, a face name, or a cubie group name (`Centers`,
-`Edges`, `Corners`, or `Core`) for grouped changes. One grouped control action
-creates one entry for the exact group the user changed, not separate entries
-for every affected item.
+Each activity has a **Parent** (broad category), **Focus** (setting changed),
+and a concise, natural-English description. Draft description templates for
+every activity are listed under Pending Improvements for review. Distinguish
+displayed values with inline code styling. Format values readably: durations
+in seconds, colors as color values, visibility as shown/hidden, and dimensions
+with consistent precision. Use human-readable facelet/cubie position names
+(such as `UFR`) and group names (`Centers`, `Edges`, `Corners`, `Core`).
+Grouped controls create one activity for the exact group changed.
 
 | Parent | Focus | Changes to log |
 | --- | --- | --- |
 | Rotation | Duration | Rotation animation duration. |
 | Rotation | Insert | A rotation is inserted into the sequence. |
 | Rotation | Remove | A rotation is removed from the sequence. |
-| Rotation | Edit | The rotation sequence is edited or a rotation is replaced. |
-| Cube | Size (Global) | Size changed for all cubies through the global size control. |
-| Cube | Gap (Global) | Gap changed for all cubies through the global gap control. |
-| Cube | Size (<cubie position or group>) | Size changed for one cubie or a grouped set of cubies. |
-| Cube | Gap (<cubie position or group>) | Gap changed for one cubie or a grouped set of cubies. |
-| Camera | View | A completed orbit, zoom, or pan gesture changes the camera view. Group each continuous gesture into one activity. |
+| Rotation | Edit | The sequence is edited or a rotation is replaced. |
+| Cube | Size (Global) | Global size change. |
+| Cube | Gap (Global) | Global gap change. |
+| Cube | Size (position or group) | Size change for one cubie or a group. |
+| Cube | Gap (position or group) | Gap change for one cubie or a group. |
+| Camera | Orbit | Completed orbit; describe azimuth/elevation changes in degrees. |
+| Camera | Pan | Completed pan; describe camera-relative horizontal/vertical changes. |
+| Camera | Zoom | Completed zoom; describe zoom level as a percentage of default distance. |
 | View | Ghost Sticker Visibility | Whether stickers behind the cube use the ghost effect. |
-| View | Peek Sticker Visibility | Whether hidden stickers are shown with the peek effect. |
-| View | Peek Sticker Depth | The depth of the peek sticker effect. |
-| View | Peek Hide Color | The color used to determine which stickers are hidden from the peek effect. |
-| Colors | Outer Facelet (<facelet position>) | The color of one facelet. |
-| Colors | Outer Facelet (<face>) | The color of all outer facelets on one face. |
-| Colors | Outer Facelet (All) | The color applied to all outer facelets. |
-| Colors | Inner Cubie (<cubie position>) | The inner color of one cubie. |
-| Colors | Inner Cubie (All) | The color applied to all cubies' inner surfaces. |
-| Colors | Facelet Label (<facelet position>) | The color of one facelet label. |
-| Colors | Facelet Label (<face>) | The color applied to facelet labels on one face. |
-| Colors | Facelet Label (All) | The color applied to all facelet labels. |
-| Colors | Axis Label (<face>) | The color of one axis label. |
-| Colors | Axis Label (All) | The color applied to all axis labels. |
-| Colors | Rotation Arrow (<face>) | The color of one face's rotation arrow. |
-| Colors | Rotation Arrow (All) | The color applied to all rotation arrows. |
+| View | Peek Sticker Visibility | Whether hidden stickers use the peek effect. |
+| View | Peek Sticker Depth | Depth of the peek effect. |
+| View | Peek Hide Color | Color used to hide stickers from the peek effect. |
+| Colors | Outer Facelet (position) | Color of one facelet. |
+| Colors | Outer Facelet (face) | Color of all outer facelets on one face. |
+| Colors | Outer Facelet (All) | Color of all outer facelets. |
+| Colors | Inner Cubie (position) | Inner color of one cubie. |
+| Colors | Inner Cubie (All) | Inner color of all cubies. |
+| Colors | Facelet Label (position) | Color of one facelet label. |
+| Colors | Facelet Label (face) | Color of facelet labels on one face. |
+| Colors | Facelet Label (All) | Color of all facelet labels. |
+| Colors | Axis Label (face) | Color of one axis label. |
+| Colors | Axis Label (All) | Color of all axis labels. |
+| Colors | Rotation Arrow (face) | Color of one rotation arrow. |
+| Colors | Rotation Arrow (All) | Color of all rotation arrows. |
 | Labels | Facelet Labels | Whether facelet labels are shown. |
-| Labels | Facelet Label Visibility | Whether facelet labels are always visible or hidden behind the cube. |
-| Labels | Facelet Label Depth | The depth of facelet labels. |
+| Labels | Facelet Label Visibility | Always visible or hidden behind the cube. |
+| Labels | Facelet Label Depth | Depth of facelet labels. |
 | Labels | Axis Labels | Whether axis labels are shown. |
-| Labels | Axis Label Visibility | Whether axis labels are always visible or hidden behind the cube. |
-| Labels | Axis Label Format | Whether axis labels use custom text, Cartesian coordinates, or face names. |
-| Labels | Axis Label Text (<face>) | The custom text for one face's axis label. Log only when custom format is active. |
-| Labels | Axis Label Depth | The depth of axis labels. |
+| Labels | Axis Label (face) Visibility | Whether one face's axis label is shown. |
+| Labels | Axis Label Visibility | Always visible or hidden behind the cube. |
+| Labels | Axis Label Format | Custom text, Cartesian coordinates, or face names. |
+| Labels | Axis Label Text (face) | Custom text for one face; log only in custom format. |
+| Labels | Axis Label Depth | Depth of axis labels. |
 | Labels | Axis Arrows | Whether axis arrows are shown. |
-| Labels | Axis Arrow (<face>) Visibility | Whether the axis arrow for one face is shown. |
-| Labels | Axis Arrow Visibility | Whether axis arrows are always visible or hidden behind the cube. |
-| Labels | Axis Arrow Depth | The depth of axis arrows. |
+| Labels | Axis Arrow (face) Visibility | Whether one face's axis arrow is shown. |
+| Labels | Axis Arrow Visibility | Always visible or hidden behind the cube. |
+| Labels | Axis Arrow Depth | Depth of axis arrows. |
 | Labels | Rotation Arrows | Whether rotation arrows are shown. |
-| Labels | Rotation Arrow (<face>) Visibility | Whether the rotation arrow for one face is shown. |
-| Labels | Rotation Arrow Visibility | Whether rotation arrows are always visible or hidden behind the cube. |
-| Labels | Rotation Arrow Depth | The depth of rotation arrows. |
-| Labels | Rotation Arrow Thickness | The thickness of rotation arrows. |
-| Labels | Rotation Arrow Radius | The radius of rotation arrows. |
-| Labels | Rotation Arrow Direction | Whether rotation arrows point clockwise or counter-clockwise. |
+| Labels | Rotation Arrow (face) Visibility | Whether one face's rotation arrow is shown. |
+| Labels | Rotation Arrow Visibility | Always visible or hidden behind the cube. |
+| Labels | Rotation Arrow Depth | Depth of rotation arrows. |
+| Labels | Rotation Arrow Thickness | Thickness of rotation arrows. |
+| Labels | Rotation Arrow Radius | Radius of rotation arrows. |
+| Labels | Rotation Arrow Direction | Clockwise or counter-clockwise direction. |
+
+Settings added to the app must be added to this catalog when they should be
+logged. Do not silently omit an in-scope change.
 
 ### Composite activities
 
-Resets create one summarized entry, not one entry per changed field. The entry
-identifies the Parent and, when applicable, Focus that was reset, and whether
-the reset used an individual reset button or the global Reset to Defaults
-button.
+Accepted changes only are recorded: no intermediate typing, invalid inputs,
+or no-ops. Continuous edits and camera gestures create one activity when the
+interaction ends. Programmatic camera changes made by Import, Reset, Jump, or
+Revert are included in that operation and do not create separate camera
+activities.
 
-| Parent | Focus | Action |
-| --- | --- | --- |
-| <reset Parent> | <reset Focus, if applicable> | A reset button resets the identified Parent/Focus. State that it was reset using the individual reset button. |
-| Setup | Reset to Defaults | The user activates the global Reset to Defaults button. |
-| Import | Settings | A setup is imported. Use the description `Import: Settings were changed via import.` |
-| Jump | Past State | The setup is restored to the state immediately after a past activity. The Jump action creates this new activity entry. |
+Resets create one summary activity rather than one per changed field. Use the
+reset Parent and Focus; describe an individual reset as
+`Parent: Focus were reset using the individual reset button.` Reset to Defaults
+creates `Setup: Settings were reset to defaults.` Import creates
+`Import: Settings were changed via import.` These summaries are not
+revertible.
 
-Changes to a setting not yet represented in this catalog should not be silently
-omitted: add its parent/focus pair and an example description here as part of
-defining the feature.
+Reset Rotation creates two activities at the same timestamp: one for
+`Rotation: Settings` and one for `Camera: Settings`. Both use
+`Settings were reset using the individual reset button.`
 
-### Grouping and continuous changes
+Jump creates `Jump: Past State` with a snapshot of the restored state.
+Reverting a Jump restores the full setup from before that Jump.
 
-Record accepted changes only: do not log intermediate typing, invalid input,
-or no-op values. Group continuous interactions (such as dragging a slider or
-editing a text value) into one entry when the interaction ends. Camera
-gestures are also grouped into one `Camera: View` activity when the gesture
-ends.
+### Activity data
 
-Store the camera state needed for Jump and Revert with the activity, even
-though the visible description is simply `Camera: View was changed`. Camera
-changes caused programmatically by Import, Reset to Defaults, Jump, or Revert
-are part of that operation and must not create an additional camera activity.
+Store each activity as an immutable record containing:
 
-Reset and import entries describe the operation as specified above rather
-than listing every changed field. Jump and Revert behavior for these
-summarized entries will be specified further as needed.
+- `id`: unique identifier.
+- `timestamp`: ISO 8601 completion time, displayed locally as
+  `DD MMM YYYY at HH:mm:ss`.
+- `kind`: `change`, `reset`, `import`, `jump`, or `revert`.
+- `parent`, `focus`: catalog names, including a target qualifier when
+  applicable.
+- `filterFocus`: canonical Focus group without a target qualifier.
+- `description`: readable text shown in the log.
+- `from`, `to`: optional typed values for the affected setting; required and
+  applicable for Revert.
+- `snapshot`: immutable full setup immediately after the activity, including
+  camera state, used by Jump.
 
-## Implementation Roadmap
+Capture `from` and `to` at the same scope and data type. Omit them when an
+operation has no single applicable before/after value, such as Reset or
+Import. Camera descriptions use Orbit, Pan, or Zoom and readable values, not
+raw position/target vectors.
 
-1. **Resolve open decisions** — Decide whether the log persists across reloads
-   and whether it has a maximum size. Define Revert guardrails for reset/import
-   summaries and for entries whose original values no longer match the current
-   state. Confirm whether snapshots include camera state; Jump should otherwise
-   follow the setup-import behavior.
-2. **Define the activity and snapshot data** — Specify the activity record
-   (timestamp, Parent, Focus, description, and operation data) and use the
-   app's setup representation for immutable after-activity snapshots. Define
-   stable filter categories for targeted activities such as per-face and
-   per-cubie changes.
-3. **Implement and test activity state management** — Create a UI-independent
-   module to record entries, order them newest-first, manage selection, and
-   derive sorted filter options. Test ordering, filtering, Parent selection,
-   and selection clearing.
-4. **Build the Activity Log window** — Implement the window in
-   `src/ui/activityLogWindow.js`. Keep it responsible for display, menus,
-   filters, selection, and enabled states; use callbacks for application
-   actions rather than changing cube state directly.
-5. **Integrate Jump** — Capture an immutable after-state snapshot for each
-   activity and restore it using the existing setup-application flow. Record
-   Jump as a new activity without recursively recording all changes caused by
-   restoration. Verify restoration of all specified setup state.
-6. **Record catalog activities** — Wire recording to accepted setting changes
-   at their source callbacks. Group continuous interactions, skip invalid,
-   intermediate, and no-op values, and represent resets/imports as their
-   specified summaries. Verify every catalog activity has a recording path
-   and a readable description.
-7. **Implement Revert and verify end to end** — Apply the inverse of eligible
-   entries to the current state and record each reversal as a new activity.
-   Safely handle or disable Revert for activity types whose inverse behavior
-   has not been defined. Run focused tests, the existing test/build checks,
-   and browser tests for ordering, filters, Jump, Revert, and selection.
+### Exclusions
 
-## Explicitly excluded
-
-- Starting, pausing, or stopping animation.
-- Playback navigation: next, previous, go to start, or go to end.
-- Scrolling the rotation text or selecting a particular rotation instance.
+- Starting, pausing, stopping, or navigating animation (Next, Previous, Go to
+  Start, Go to End).
+- Scrolling rotation text or selecting an individual rotation instance.
 - Expanding or collapsing UI panels or boxes.
+- Camera changes other than completed Orbit, Pan, and Zoom gestures.
+
+### Pending Improvements
+
+#### Review activity description templates
+
+Review and finalize these concise, natural-English descriptions. The Parent and
+Focus are already shown separately in each row, so descriptions need not repeat
+them. Use inline code for displayed values. `{from}`, `{to}`, and `{target}`
+stand for the previous value, new value, and affected item/group. Omit `{from}`
+only when a template allows it and it would be redundant or unwieldy; the
+specific rules for grouped colors and axis-label text are listed below.
+
+| Activity | Draft description |
+| --- | --- |
+| Rotation — Duration | `Duration was changed from {from}s to {to}s.` |
+| Rotation — Insert | `{move} was inserted. The rotation sequence is now {sequence}.` Show the entire resulting sequence. |
+| Rotation — Remove | `{move} was removed. The rotation sequence is now {sequence}.` Show the entire resulting sequence. |
+| Rotation — Edit | `After the edit, the rotation sequence is now {sequence}.` Show the entire resulting sequence. |
+| Cube — Size (Global) | `Size of all cubies was changed globally from {from} to {to}.` |
+| Cube — Gap (Global) | `Gap between all cubies was changed globally from {from} to {to}.` |
+| Cube — Size (position or group) | `Size of {target} was changed from {from} to {to}.` |
+| Cube — Gap (position or group) | `Gap of {target} was changed from {from} to {to}.` |
+| Camera — Orbit | `Camera was orbited to azimuth {azimuth}° and elevation {elevation}°.` |
+| Camera — Pan | `Camera was panned {horizontal} horizontally and {vertical} vertically.` |
+| Camera — Zoom | `Camera zoom was changed to {to}%.` |
+| View — Ghost Sticker Visibility | `Sticker ghost visibility was changed from {from} to {to}.` |
+| View — Peek Sticker Visibility | `Peek sticker visibility was changed from {from} to {to}.` |
+| View — Peek Sticker Depth | `Peek sticker depth was changed from {from} to {to}.` |
+| View — Peek Hide Color | `Peek hide color was changed to {to}.` |
+| Colors — Outer Facelet (position) | `Color of {target} facelet was changed from {from} to {to}.` |
+| Colors — Outer Facelet (face) | `Color of {target} face was changed from {from} to {to}.` |
+| Colors — Outer Facelet (All) | `Color of all outer facelets was changed from {from} to {to}.` |
+| Colors — Inner Cubie (position) | `Inner color of cubie {target} was changed from {from} to {to}.` |
+| Colors — Inner Cubie (All) | `Inner color of all cubies was changed from {from} to {to}.` |
+| Colors — Facelet Label (position) | `Label color of facelet {target} was changed from {from} to {to}.` |
+| Colors — Facelet Label (face) | `Label color on face {target} was changed from {from} to {to}.` |
+| Colors — Facelet Label (All) | `Color of all facelet labels was changed from {from} to {to}.` |
+| Colors — Axis Label (face) | `Color of the {target} axis label was changed from {from} to {to}.` |
+| Colors — Axis Label (All) | `Color of all axis labels was changed from {from} to {to}.` |
+| Colors — Rotation Arrow (face) | `Color of the {target} rotation arrow was changed from {from} to {to}.` |
+| Colors — Rotation Arrow (All) | `Color of all rotation arrows was changed from {from} to {to}.` |
+| Labels — Facelet Labels | `Facelet labels were changed from {from} to {to}.` |
+| Labels — Facelet Label Visibility | `Facelet label visibility was changed from {from} to {to}.` |
+| Labels — Facelet Label Depth | `Facelet label depth was changed from {from} to {to}.` |
+| Labels — Axis Labels | `Axis labels were changed from {from} to {to}.` |
+| Labels — Axis Label (face) Visibility | `Visibility of the {target} axis label was changed from {from} to {to}.` |
+| Labels — Axis Label Visibility | `Axis label visibility was changed from {from} to {to}.` |
+| Labels — Axis Label Format | `Axis label format was changed from {from} to {to}.` |
+| Labels — Axis Label Text (face) | `Text of the {target} axis label was changed from {from} to {to}.` Always show both texts, even when long. |
+| Labels — Axis Label Depth | `Axis label depth was changed from {from} to {to}.` |
+| Labels — Axis Arrows | `Axis arrows were changed from {from} to {to}.` |
+| Labels — Axis Arrow (face) Visibility | `Visibility of the {target} axis arrow was changed from {from} to {to}.` |
+| Labels — Axis Arrow Visibility | `Axis arrow visibility was changed from {from} to {to}.` |
+| Labels — Axis Arrow Depth | `Axis arrow depth was changed from {from} to {to}.` |
+| Labels — Rotation Arrows | `Rotation arrows were changed from {from} to {to}.` |
+| Labels — Rotation Arrow (face) Visibility | `Visibility of the {target} rotation arrow was changed from {from} to {to}.` |
+| Labels — Rotation Arrow Visibility | `Rotation arrow visibility was changed from {from} to {to}.` |
+| Labels — Rotation Arrow Depth | `Rotation arrow depth was changed from {from} to {to}.` |
+| Labels — Rotation Arrow Thickness | `Rotation arrow thickness was changed from {from} to {to}.` |
+| Labels — Rotation Arrow Radius | `Rotation arrow radius was changed from {from} to {to}.` |
+| Labels — Rotation Arrow Direction | `Rotation arrow direction was changed from {from} to {to}.` |
+| Individual reset | `Settings were reset using the individual reset button.` |
+| Reset Rotation — Rotation entry | `Settings were reset using the individual reset button.` |
+| Reset Rotation — Camera entry | `Settings were reset using the individual reset button.` |
+| Reset to Defaults | `All settings were reset to their defaults.` |
+| Import | `Imported settings.` |
+| Jump | `Jumped to previous state: [link]` |
+| Revert — value-based activity | Use the original activity template in reverse: show the original `to` as the value reverted from and the original `from` as the value restored, using `back to` instead of `to`. |
+| Revert — rotation sequence | `Rotation sequence was changed from {current sequence} back to {restored sequence}.` Show the entire restored sequence. |
+| Revert — camera Orbit | `Camera was orbited back to azimuth {azimuth}° and elevation {elevation}°.` Use the restored values. |
+| Revert — camera Pan | `Camera was panned back {horizontal} horizontally and {vertical} vertically.` Use the restored values. |
+| Revert — camera Zoom | `Camera zoom was changed back to {zoom}%.` Use the restored value. |
+| Revert — Jump | `Restored the setup from before the selected Jump.` |
+
+Use `enabled/disabled` for feature toggles (Facelet Labels, Axis Labels, Axis
+Arrows, and Rotation Arrows); use readable visibility values for visibility
+settings. Camera wording should describe the gesture in understandable terms,
+never raw position/target vectors. For grouped color changes, always show both
+`from` and `to`; use `mixed` for `from` when the group previously had multiple
+colors. The resulting `to` color is uniform and should never be `mixed`. For
+grouped cube size/gap changes with different previous values, show `mixed` for
+`from` and the uniform new value for `to`. Axis Label Text descriptions always
+show both old and new text, even when long.
+
+For Jump, `[link]` will be a pressable link to the activity whose after-state
+was restored. Pressing it will select that activity in the log and
+automatically scroll it into view. Defer implementing this link behavior; it is
+documented here as a pending improvement.

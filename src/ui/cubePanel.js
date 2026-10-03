@@ -1,3 +1,5 @@
+import { createActivityCommitter } from "./activityRecorder.js";
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -36,6 +38,7 @@ export function createCubePanel({
   createLabel,
   styleUiTitle,
   panelBackground,
+  onActivity = () => {},
   onDimensionsChange,
   onGlobalValuesChange,
   onLayoutChange,
@@ -142,6 +145,54 @@ export function createCubePanel({
   );
   const customDimensionInputs = new Map();
   const customGroupInputs = new Map();
+  const activityCommitters = [];
+
+  function createDimensionCommitter(focus, filterFocus, getValue) {
+    const committer = createActivityCommitter(getValue, (from, to) =>
+      onActivity({
+        parent: "Cube",
+        focus,
+        filterFocus,
+        from,
+        to,
+      }),
+    );
+
+    activityCommitters.push(committer);
+    return committer;
+  }
+
+  function resetActivityBaselines() {
+    activityCommitters.forEach((committer) => committer.reset());
+  }
+
+  function resetActivityBaselinesExcept(except) {
+    activityCommitters.forEach((committer) => {
+      if (committer !== except) {
+        committer.reset();
+      }
+    });
+  }
+
+  const globalSizeActivity = createDimensionCommitter(
+    "Size (Global)",
+    "Size",
+    () => size,
+  );
+  const globalGapActivity = createDimensionCommitter(
+    "Gap (Global)",
+    "Gap",
+    () => gap,
+  );
+
+  function getDimensionActivityValues(targetCubies, property) {
+    return Object.fromEntries(
+      targetCubies.map((cubie) => [
+        JSON.stringify(cubie.userData.originalPieceKey),
+        customDimensions.get(cubie)[property],
+      ]),
+    );
+  }
 
   function syncGlobalDimensionControl(property) {
     const values = [...customDimensions.values()].map(
@@ -215,6 +266,9 @@ export function createCubePanel({
     updateAllCustomDimensionValues(property, value);
     syncGlobalDimensionControl(property);
     onDimensionsChange(size, gap, customDimensions);
+    resetActivityBaselinesExcept(
+      property === "size" ? globalSizeActivity : globalGapActivity,
+    );
   }
 
   sizeControls.slider.addEventListener("input", () => {
@@ -222,6 +276,9 @@ export function createCubePanel({
 
     applyGlobalDimension("size", size);
   });
+  sizeControls.slider.addEventListener("change", () =>
+    globalSizeActivity.commit(),
+  );
 
   sizeControls.value.addEventListener("input", () => {
     const raw = sizeControls.value.value;
@@ -267,13 +324,20 @@ export function createCubePanel({
     sizeControls.value.value = String(size);
 
     applyGlobalDimension("size", size);
+    globalSizeActivity.commit();
   });
+  sizeControls.value.addEventListener("change", () =>
+    globalSizeActivity.commit(),
+  );
 
   gapControls.slider.addEventListener("input", () => {
     gap = syncEditValueFromSlider(gapControls.slider, gapControls.value);
 
     applyGlobalDimension("gap", gap);
   });
+  gapControls.slider.addEventListener("change", () =>
+    globalGapActivity.commit(),
+  );
 
   gapControls.value.addEventListener("input", () => {
     const raw = gapControls.value.value;
@@ -319,7 +383,11 @@ export function createCubePanel({
     gapControls.value.value = String(gap);
 
     applyGlobalDimension("gap", gap);
+    globalGapActivity.commit();
   });
+  gapControls.value.addEventListener("change", () =>
+    globalGapActivity.commit(),
+  );
 
   const customDimensionsContent = document.createElement("div");
 
@@ -428,6 +496,18 @@ export function createCubePanel({
     input.style.minWidth = "0";
     input.style.boxSizing = "border-box";
     input.style.textAlign = "center";
+    const focus = `${property === "size" ? "Size" : "Gap"} (${group})`;
+    const activityCommitter = createDimensionCommitter(
+      focus,
+      property === "size" ? "Size" : "Gap",
+      () =>
+        getDimensionActivityValues(
+          sortedDimensionCubies.filter(
+            (cubie) => getCubieGroup(cubie) === group,
+          ),
+          property,
+        ),
+    );
 
     function applyGroupValue() {
       const raw = input.value;
@@ -457,10 +537,14 @@ export function createCubePanel({
       onDimensionsChange(size, gap, customDimensions);
       updateGroupHeading(group);
       syncGlobalDimensionControl(property);
+      resetActivityBaselinesExcept(activityCommitter);
     }
 
     input.addEventListener("input", applyGroupValue);
-    input.addEventListener("change", applyGroupValue);
+    input.addEventListener("change", () => {
+      applyGroupValue();
+      activityCommitter.commit();
+    });
     input.addEventListener("blur", () => {
       if (input.value === "") {
         updateGroupHeading(group);
@@ -468,6 +552,7 @@ export function createCubePanel({
       }
 
       applyGroupValue();
+      activityCommitter.commit();
     });
 
     return input;
@@ -512,6 +597,11 @@ export function createCubePanel({
     input.style.minWidth = "0";
     input.style.boxSizing = "border-box";
     input.style.textAlign = "center";
+    const activityCommitter = createDimensionCommitter(
+      `${property === "size" ? "Size" : "Gap"} (${getCubePositionName(cubie)})`,
+      property === "size" ? "Size" : "Gap",
+      () => getDimensionActivityValues([cubie], property),
+    );
 
     function updateValue() {
       const raw = input.value;
@@ -534,10 +624,14 @@ export function createCubePanel({
       onDimensionsChange(size, gap, customDimensions);
       updateGroupHeading(getCubieGroup(cubie));
       syncGlobalDimensionControl(property);
+      resetActivityBaselinesExcept(activityCommitter);
     }
 
     input.addEventListener("input", updateValue);
-    input.addEventListener("change", updateValue);
+    input.addEventListener("change", () => {
+      updateValue();
+      activityCommitter.commit();
+    });
     input.addEventListener("blur", () => {
       const value = Number(input.value);
 
@@ -548,6 +642,7 @@ export function createCubePanel({
 
       input.value = String(clamp(value, min, max));
       updateValue();
+      activityCommitter.commit();
     });
 
     const inputs = customDimensionInputs.get(cubie) ?? {};
@@ -603,6 +698,7 @@ export function createCubePanel({
     syncGlobalDimensionControl("size");
     syncGlobalDimensionControl("gap");
     onDimensionsChange(size, gap, customDimensions);
+    resetActivityBaselines();
     onLayoutChange();
   });
 
@@ -656,20 +752,46 @@ export function createCubePanel({
     gapControls.setting.style.display = "block";
   }
 
-  function applyDimensions(nextSize, nextGap) {
+  function applyDimensions(nextSize, nextGap, nextDimensions = null) {
     size = nextSize;
     gap = nextGap;
-    updateAllCustomDimensionValues("size", size);
-    updateAllCustomDimensionValues("gap", gap);
+
+    for (const [cubie, dimensions] of customDimensions) {
+      const nextCubieDimensions = nextDimensions?.get(cubie);
+
+      dimensions.size = nextCubieDimensions?.size ?? size;
+      dimensions.gap = nextCubieDimensions?.gap ?? gap;
+
+      const inputs = customDimensionInputs.get(cubie);
+
+      if (inputs) {
+        inputs.size.value = String(dimensions.size);
+        inputs.gap.value = String(dimensions.gap);
+      }
+    }
+
+    for (const group of Object.keys(cubeGroupOrder)) {
+      updateGroupHeading(group);
+    }
+
     sizeControls.slider.value = size;
     sizeControls.value.value = size;
     gapControls.slider.value = gap;
     gapControls.value.value = gap;
-    syncGlobalDimensionControl("size");
-    syncGlobalDimensionControl("gap");
-    globalGapRadio.checked = true;
-    customGapRadio.checked = false;
+
+    const hasCustomDimensions = [...customDimensions.values()].some(
+      (dimensions) => dimensions.size !== size || dimensions.gap !== gap,
+    );
+
+    globalGapRadio.checked = !hasCustomDimensions;
+    customGapRadio.checked = hasCustomDimensions;
+    customDimensionsContent.style.display = hasCustomDimensions
+      ? "block"
+      : "none";
+    sizeControls.setting.style.display = hasCustomDimensions ? "none" : "block";
+    gapControls.setting.style.display = hasCustomDimensions ? "none" : "block";
     onDimensionsChange(size, gap, customDimensions);
+    resetActivityBaselines();
   }
 
   return {
