@@ -8,6 +8,7 @@ export function createSetupPanel({
   onExportJson,
   onImportJson,
   onExportSvg,
+  onAutoExportOnExitChange,
   onExpand,
   onLayoutChange,
 }) {
@@ -53,6 +54,23 @@ export function createSetupPanel({
   content.id = "setup-panel-content";
   content.style.display = "none";
   content.style.marginTop = "12px";
+
+  const autoExportOnExitLabel = document.createElement("label");
+  const autoExportOnExitCheckbox = document.createElement("input");
+
+  autoExportOnExitCheckbox.type = "checkbox";
+  autoExportOnExitCheckbox.id = "auto-export-on-exit";
+  autoExportOnExitCheckbox.addEventListener("change", () => {
+    onAutoExportOnExitChange(autoExportOnExitCheckbox.checked);
+  });
+  autoExportOnExitLabel.htmlFor = autoExportOnExitCheckbox.id;
+  autoExportOnExitLabel.style.display = "flex";
+  autoExportOnExitLabel.style.alignItems = "center";
+  autoExportOnExitLabel.style.gap = "6px";
+  autoExportOnExitLabel.style.marginBottom = "12px";
+  autoExportOnExitLabel.appendChild(autoExportOnExitCheckbox);
+  autoExportOnExitLabel.append("Automatically export on exit");
+  content.appendChild(autoExportOnExitLabel);
 
   const buttonRow = document.createElement("div");
 

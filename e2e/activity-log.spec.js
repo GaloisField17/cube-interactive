@@ -27,6 +27,40 @@ test("Activity Log opens and closes the empty window", async ({
   await expect(dialog).toBeHidden();
 });
 
+test("Automatically export on exit starts disabled and logs both setting changes", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator('[aria-controls="setup-panel-content"]').click();
+
+  const autoExportOnExit = page.getByRole("checkbox", {
+    name: "Automatically export on exit",
+  });
+
+  await expect(autoExportOnExit).not.toBeChecked();
+  await autoExportOnExit.check();
+  await autoExportOnExit.uncheck();
+  await page.getByRole("button", { name: "Activity Log" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const disabledActivity = dialog.getByRole("button", {
+    name: "Export / Import: Automatically export on exit",
+  }).first();
+  const enabledActivity = dialog.getByRole("button", {
+    name: "Export / Import: Automatically export on exit",
+  }).nth(1);
+
+  await expect(enabledActivity.locator("..")).toContainText(
+    "Automatically export on exit setting was changed from disabled to enabled.",
+  );
+  await expect(disabledActivity.locator("..")).toContainText(
+    "Automatically export on exit setting was changed from enabled to disabled.",
+  );
+
+  await enabledActivity.click();
+  await expect(dialog.getByRole("button", { name: "Revert" })).toBeDisabled();
+});
+
 test("Filter is enabled only when multiple Parent-Focus groups are available", async ({
   page,
 }) => {
@@ -904,9 +938,11 @@ test("import and Reset to Defaults create composite summary entries", async ({
 
   await page.getByRole("button", { name: "Activity Log" }).click();
   await expect(
-    dialog.getByText("Imported settings."),
+    dialog.getByText("Settings were manually imported as JSON."),
   ).toBeVisible();
-  await dialog.getByRole("button", { name: "Import: Settings" }).click();
+  await dialog
+    .getByRole("button", { name: "Export / Import: Imported Settings" })
+    .click();
   await expect(dialog.getByRole("button", { name: "Revert" })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "Jump" })).toBeEnabled();
   await expect(

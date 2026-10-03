@@ -303,6 +303,7 @@ export function createActivityLogState() {
 
     return Boolean(
       activity &&
+        activity.revertible !== false &&
         !isResetOrImport(activity) &&
         hasRevertValues(activity),
     );

@@ -266,6 +266,21 @@ function describeValueChange(activity, reverting) {
   const target = targetFromFocus(focus);
   let prefix;
 
+  if (
+    activity.parent === "Export / Import" &&
+    focus === "Automatically export on exit"
+  ) {
+    const enabled = (item) => code(item ? "enabled" : "disabled");
+
+    return describe([
+      "Automatically export on exit setting was changed from ",
+      enabled(from),
+      connector,
+      enabled(to),
+      ".",
+    ]);
+  }
+
   if (activity.parent === "Rotation" && focus === "Duration") {
     prefix = "Duration was changed";
     return describe([

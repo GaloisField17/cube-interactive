@@ -212,6 +212,7 @@ export function createUI({
     filterFocus = focus,
     from,
     to,
+    revertible = true,
   }) {
     if (JSON.stringify(from) === JSON.stringify(to)) {
       return null;
@@ -233,6 +234,7 @@ export function createUI({
       descriptionParts,
       from,
       to,
+      ...(revertible ? {} : { revertible: false }),
       snapshot: getJsonExportSetup(),
     });
   }
@@ -5492,9 +5494,9 @@ export function createUI({
         if (JSON.stringify(previousSetup) !== JSON.stringify(getJsonExportSetup())) {
           recordSummaryActivity({
             kind: "import",
-            parent: "Import",
-            focus: "Settings",
-            description: "Imported settings.",
+            parent: "Export / Import",
+            focus: "Imported Settings",
+            description: "Settings were manually imported as JSON.",
           });
         }
       },
@@ -5528,6 +5530,8 @@ export function createUI({
   // Setup panel
   // ============================================================
 
+  let autoExportOnExitEnabled = false;
+
   setupPanel = createSetupPanel({
     panelBackground: UI_PANEL_BACKGROUND,
     panelBorder: UI_PANEL_BORDER,
@@ -5538,6 +5542,18 @@ export function createUI({
     onExportJson: downloadJsonExport,
     onImportJson: openImportDialog,
     onExportSvg: exportSvgArchive,
+    onAutoExportOnExitChange: (enabled) => {
+      const from = autoExportOnExitEnabled;
+
+      autoExportOnExitEnabled = enabled;
+      recordSettingActivity({
+        parent: "Export / Import",
+        focus: "Automatically export on exit",
+        from,
+        to: enabled,
+        revertible: false,
+      });
+    },
     onExpand: () => collapseOtherPanels("setup"),
     onLayoutChange: scheduleCubePanelPositionUpdate,
   });

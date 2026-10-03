@@ -47,55 +47,56 @@ with consistent precision. Use human-readable facelet/cubie position names
 (such as `UFR`) and group names (`Centers`, `Edges`, `Corners`, `Core`).
 Grouped controls create one activity for the exact group changed.
 
-| Parent | Focus | Changes to log |
-| --- | --- | --- |
-| Rotation | Duration | Rotation animation duration. |
-| Rotation | Insert | A rotation is inserted into the sequence. |
-| Rotation | Remove | A rotation is removed from the sequence. |
-| Rotation | Edit | The sequence is edited or a rotation is replaced. |
-| Cube | Size (Global) | Global size change. |
-| Cube | Gap (Global) | Global gap change. |
-| Cube | Size (position or group) | Size change for one cubie or a group. |
-| Cube | Gap (position or group) | Gap change for one cubie or a group. |
-| Camera | Orbit | Completed orbit; describe azimuth/elevation changes in degrees. |
-| Camera | Pan | Completed pan; describe camera-relative horizontal/vertical changes. |
-| Camera | Zoom | Completed zoom; describe zoom level as a percentage of default distance. |
-| View | Transparent Stickers | Whether stickers hidden behind the cube are shown with a dimmed, transparent effect. |
-| View | Peek Stickers | Whether hidden stickers use the peek effect. |
-| View | Peek Sticker Depth | Depth of the peek effect. |
-| View | Peek Hide Color | Color used to hide stickers from the peek effect. |
-| Colors | Outer Facelet (position) | Color of one facelet. |
-| Colors | Outer Facelet (face) | Color of all outer facelets on one face. |
-| Colors | Outer Facelet (All) | Color of all outer facelets. |
-| Colors | Inner Cubie (position) | Inner color of one cubie. |
-| Colors | Inner Cubie (All) | Inner color of all cubies. |
-| Colors | Facelet Label (position) | Color of one facelet label. |
-| Colors | Facelet Label (face) | Color of facelet labels on one face. |
-| Colors | Facelet Label (All) | Color of all facelet labels. |
-| Colors | Axis Label (face) | Color of one axis label. |
-| Colors | Axis Label (All) | Color of all axis labels. |
-| Colors | Rotation Arrow (face) | Color of one rotation arrow. |
-| Colors | Rotation Arrow (All) | Color of all rotation arrows. |
-| Labels | Facelet Labels | Whether facelet labels are shown. |
-| Labels | Facelet Label Visibility | Always visible or hidden behind the cube. |
-| Labels | Facelet Label Depth | Depth of facelet labels. |
-| Labels | Axis Labels | Whether axis labels are shown. |
-| Labels | Axis Label (face) Visibility | Whether one face's axis label is shown. |
-| Labels | Axis Label Visibility | Always visible or hidden behind the cube. |
-| Labels | Axis Label Format | Custom text, Cartesian coordinates, or face names. |
-| Labels | Axis Label Text (face) | Custom text for one face; log only in custom format. |
-| Labels | Axis Label Depth | Depth of axis labels. |
-| Labels | Axis Arrows | Whether axis arrows are shown. |
-| Labels | Axis Arrow (face) Visibility | Whether one face's axis arrow is shown. |
-| Labels | Axis Arrow Visibility | Always visible or hidden behind the cube. |
-| Labels | Axis Arrow Depth | Depth of axis arrows. |
-| Labels | Rotation Arrows | Whether rotation arrows are shown. |
-| Labels | Rotation Arrow (face) Visibility | Whether one face's rotation arrow is shown. |
-| Labels | Rotation Arrow Visibility | Always visible or hidden behind the cube. |
-| Labels | Rotation Arrow Depth | Depth of rotation arrows. |
-| Labels | Rotation Arrow Thickness | Thickness of rotation arrows. |
-| Labels | Rotation Arrow Radius | Radius of rotation arrows. |
-| Labels | Rotation Arrow Direction | Clockwise or counter-clockwise direction. |
+| Parent          | Focus                            | Changes to log                                                                       |
+| --------------- | -------------------------------- | ------------------------------------------------------------------------------------ |
+| Rotation        | Duration                         | Rotation animation duration.                                                         |
+| Rotation        | Insert                           | A rotation is inserted into the sequence.                                            |
+| Rotation        | Remove                           | A rotation is removed from the sequence.                                             |
+| Rotation        | Edit                             | The sequence is edited or a rotation is replaced.                                    |
+| Cube            | Size (Global)                    | Global size change.                                                                  |
+| Cube            | Gap (Global)                     | Global gap change.                                                                   |
+| Cube            | Size (position or group)         | Size change for one cubie or a group.                                                |
+| Cube            | Gap (position or group)          | Gap change for one cubie or a group.                                                 |
+| Camera          | Orbit                            | Completed orbit; describe azimuth/elevation changes in degrees.                      |
+| Camera          | Pan                              | Completed pan; describe camera-relative horizontal/vertical changes.                 |
+| Camera          | Zoom                             | Completed zoom; describe zoom level as a percentage of default distance.             |
+| View            | Transparent Stickers             | Whether stickers hidden behind the cube are shown with a dimmed, transparent effect. |
+| View            | Peek Stickers                    | Whether hidden stickers use the peek effect.                                         |
+| View            | Peek Sticker Depth               | Depth of the peek effect.                                                            |
+| View            | Peek Hide Color                  | Color used to hide stickers from the peek effect.                                    |
+| Colors          | Outer Facelet (position)         | Color of one facelet.                                                                |
+| Colors          | Outer Facelet (face)             | Color of all outer facelets on one face.                                             |
+| Colors          | Outer Facelet (All)              | Color of all outer facelets.                                                         |
+| Colors          | Inner Cubie (position)           | Inner color of one cubie.                                                            |
+| Colors          | Inner Cubie (All)                | Inner color of all cubies.                                                           |
+| Colors          | Facelet Label (position)         | Color of one facelet label.                                                          |
+| Colors          | Facelet Label (face)             | Color of facelet labels on one face.                                                 |
+| Colors          | Facelet Label (All)              | Color of all facelet labels.                                                         |
+| Colors          | Axis Label (face)                | Color of one axis label.                                                             |
+| Colors          | Axis Label (All)                 | Color of all axis labels.                                                            |
+| Colors          | Rotation Arrow (face)            | Color of one rotation arrow.                                                         |
+| Colors          | Rotation Arrow (All)             | Color of all rotation arrows.                                                        |
+| Labels          | Facelet Labels                   | Whether facelet labels are shown.                                                    |
+| Labels          | Facelet Label Visibility         | Always visible or hidden behind the cube.                                            |
+| Labels          | Facelet Label Depth              | Depth of facelet labels.                                                             |
+| Labels          | Axis Labels                      | Whether axis labels are shown.                                                       |
+| Labels          | Axis Label (face) Visibility     | Whether one face's axis label is shown.                                              |
+| Labels          | Axis Label Visibility            | Always visible or hidden behind the cube.                                            |
+| Labels          | Axis Label Format                | Custom text, Cartesian coordinates, or face names.                                   |
+| Labels          | Axis Label Text (face)           | Custom text for one face; log only in custom format.                                 |
+| Labels          | Axis Label Depth                 | Depth of axis labels.                                                                |
+| Labels          | Axis Arrows                      | Whether axis arrows are shown.                                                       |
+| Labels          | Axis Arrow (face) Visibility     | Whether one face's axis arrow is shown.                                              |
+| Labels          | Axis Arrow Visibility            | Always visible or hidden behind the cube.                                            |
+| Labels          | Axis Arrow Depth                 | Depth of axis arrows.                                                                |
+| Labels          | Rotation Arrows                  | Whether rotation arrows are shown.                                                   |
+| Labels          | Rotation Arrow (face) Visibility | Whether one face's rotation arrow is shown.                                          |
+| Labels          | Rotation Arrow Visibility        | Always visible or hidden behind the cube.                                            |
+| Labels          | Rotation Arrow Depth             | Depth of rotation arrows.                                                            |
+| Labels          | Rotation Arrow Thickness         | Thickness of rotation arrows.                                                        |
+| Labels          | Rotation Arrow Radius            | Radius of rotation arrows.                                                           |
+| Labels          | Rotation Arrow Direction         | Clockwise or counter-clockwise direction.                                            |
+| Export / Import | Automatically export on exit     | Whether the current setup should be automatically exported when leaving the app.     |
 
 Settings added to the app must be added to this catalog when they should be
 logged. Do not silently omit an in-scope change.
@@ -112,7 +113,8 @@ Resets create one summary activity rather than one per changed field. Use the
 reset Parent and Focus; describe an individual reset as
 `Parent: Focus were reset using the individual reset button.` Reset to Defaults
 creates `Setup: Settings were reset to defaults.` Import creates
-`Import: Settings were changed via import.` These summaries are not
+`Export / Import: Imported Settings` with the description
+`Settings were manually imported as JSON.` These summaries are not
 revertible.
 
 Reset Rotation creates two activities at the same timestamp: one for
@@ -160,67 +162,68 @@ Implemented description reference. The Parent and Focus are shown separately
 from the descriptions. Values use inline code. `{from}`, `{to}`, and `{target}`
 stand for the previous value, new value, and affected item/group.
 
-| Activity | Draft description |
-| --- | --- |
-| Rotation — Duration | `Duration was changed from {from}s to {to}s.` |
-| Rotation — Insert | `{move} was inserted. The rotation sequence is now {sequence}.` Show the entire resulting sequence. |
-| Rotation — Remove | `{move} was removed. The rotation sequence is now {sequence}.` Show the entire resulting sequence. |
-| Rotation — Edit | `After the edit, the rotation sequence is now {sequence}.` Show the entire resulting sequence. |
-| Cube — Size (Global) | `Size of all cubies was changed globally from {from} to {to}.` |
-| Cube — Gap (Global) | `Gap between all cubies was changed globally from {from} to {to}.` |
-| Cube — Size (position or group) | `Size of {target} was changed from {from} to {to}.` |
-| Cube — Gap (position or group) | `Gap of {target} was changed from {from} to {to}.` |
-| Camera — Orbit | `Camera was orbited to azimuth {azimuth}° and elevation {elevation}°.` |
-| Camera — Pan | `Camera was panned {horizontal} horizontally and {vertical} vertically.` |
-| Camera — Zoom | `Camera zoom was changed to {to}%.` |
-| View — Transparent Stickers | `Transparent stickers setting was changed from {disabled|enabled} to {disabled|enabled}.` |
-| View — Peek Stickers | `Peek stickers setting was changed from {from} to {to}.` |
-| View — Peek Sticker Depth | `Peek sticker depth was changed from {from} to {to}.` |
-| View — Peek Hide Color | `Peek hide color was changed to {to}.` |
-| Colors — Outer Facelet (position) | `Color of {target} facelet was changed from {from} to {to}.` |
-| Colors — Outer Facelet (face) | `Color of {target} face was changed from {from} to {to}.` |
-| Colors — Outer Facelet (All) | `Color of all outer facelets was changed from {from} to {to}.` |
-| Colors — Inner Cubie (position) | `Inner color of cubie {target} was changed from {from} to {to}.` |
-| Colors — Inner Cubie (All) | `Inner color of all cubies was changed from {from} to {to}.` |
-| Colors — Facelet Label (position) | `Label color of facelet {target} was changed from {from} to {to}.` |
-| Colors — Facelet Label (face) | `Label color on face {target} was changed from {from} to {to}.` |
-| Colors — Facelet Label (All) | `Color of all facelet labels was changed from {from} to {to}.` |
-| Colors — Axis Label (face) | `Color of the {target} axis label was changed from {from} to {to}.` |
-| Colors — Axis Label (All) | `Color of all axis labels was changed from {from} to {to}.` |
-| Colors — Rotation Arrow (face) | `Color of the {target} rotation arrow was changed from {from} to {to}.` |
-| Colors — Rotation Arrow (All) | `Color of all rotation arrows was changed from {from} to {to}.` |
-| Labels — Facelet Labels | `Facelet labels were changed from {from} to {to}.` |
-| Labels — Facelet Label Visibility | `Facelet label visibility was changed from {from} to {to}.` |
-| Labels — Facelet Label Depth | `Facelet label depth was changed from {from} to {to}.` |
-| Labels — Axis Labels | `Axis labels were changed from {from} to {to}.` |
-| Labels — Axis Label (face) Visibility | `Visibility of the {target} axis label was changed from {from} to {to}.` |
-| Labels — Axis Label Visibility | `Axis label visibility was changed from {from} to {to}.` |
-| Labels — Axis Label Format | `Axis label format was changed from {from} to {to}.` |
-| Labels — Axis Label Text (face) | `Text of the {target} axis label was changed from {from} to {to}.` Always show both texts, even when long. |
-| Labels — Axis Label Depth | `Axis label depth was changed from {from} to {to}.` |
-| Labels — Axis Arrows | `Axis arrows were changed from {from} to {to}.` |
-| Labels — Axis Arrow (face) Visibility | `Visibility of the {target} axis arrow was changed from {from} to {to}.` |
-| Labels — Axis Arrow Visibility | `Axis arrow visibility was changed from {from} to {to}.` |
-| Labels — Axis Arrow Depth | `Axis arrow depth was changed from {from} to {to}.` |
-| Labels — Rotation Arrows | `Rotation arrows were changed from {from} to {to}.` |
-| Labels — Rotation Arrow (face) Visibility | `Visibility of the {target} rotation arrow was changed from {from} to {to}.` |
-| Labels — Rotation Arrow Visibility | `Rotation arrow visibility was changed from {from} to {to}.` |
-| Labels — Rotation Arrow Depth | `Rotation arrow depth was changed from {from} to {to}.` |
-| Labels — Rotation Arrow Thickness | `Rotation arrow thickness was changed from {from} to {to}.` |
-| Labels — Rotation Arrow Radius | `Rotation arrow radius was changed from {from} to {to}.` |
-| Labels — Rotation Arrow Direction | `Rotation arrow direction was changed from {from} to {to}.` |
-| Individual reset | `Settings were reset using the individual reset button.` |
-| Reset Rotation — Rotation entry | `Settings were reset using the individual reset button.` |
-| Reset Rotation — Camera entry | `Settings were reset using the individual reset button.` |
-| Reset to Defaults | `All settings were reset to their defaults.` |
-| Import | `Imported settings.` |
-| Jump | `Jumped to previous state: [link]` |
-| Revert — value-based activity | Use the original activity template in reverse: show the original `to` as the value reverted from and the original `from` as the value restored, using `back to` instead of `to`. |
-| Revert — rotation sequence | `Rotation sequence was changed from {current sequence} back to {restored sequence}.` Show the entire restored sequence. |
-| Revert — camera Orbit | `Camera was orbited back to azimuth {azimuth}° and elevation {elevation}°.` Use the restored values. |
-| Revert — camera Pan | `Camera was panned back {horizontal} horizontally and {vertical} vertically.` Use the restored values. |
-| Revert — camera Zoom | `Camera zoom was changed back to {zoom}%.` Use the restored value. |
-| Revert — Jump | `Restored the setup from before the selected Jump.` |
+| Activity                                       | Draft description                                                                                                                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ---------- |
+| Rotation — Duration                            | `Duration was changed from {from}s to {to}s.`                                                                                                                                    |
+| Rotation — Insert                              | `{move} was inserted. The rotation sequence is now {sequence}.` Show the entire resulting sequence.                                                                              |
+| Rotation — Remove                              | `{move} was removed. The rotation sequence is now {sequence}.` Show the entire resulting sequence.                                                                               |
+| Rotation — Edit                                | `After the edit, the rotation sequence is now {sequence}.` Show the entire resulting sequence.                                                                                   |
+| Cube — Size (Global)                           | `Size of all cubies was changed globally from {from} to {to}.`                                                                                                                   |
+| Cube — Gap (Global)                            | `Gap between all cubies was changed globally from {from} to {to}.`                                                                                                               |
+| Cube — Size (position or group)                | `Size of {target} was changed from {from} to {to}.`                                                                                                                              |
+| Cube — Gap (position or group)                 | `Gap of {target} was changed from {from} to {to}.`                                                                                                                               |
+| Camera — Orbit                                 | `Camera was orbited to azimuth {azimuth}° and elevation {elevation}°.`                                                                                                           |
+| Camera — Pan                                   | `Camera was panned {horizontal} horizontally and {vertical} vertically.`                                                                                                         |
+| Camera — Zoom                                  | `Camera zoom was changed to {to}%.`                                                                                                                                              |
+| View — Transparent Stickers                    | `Transparent stickers setting was changed from {disabled                                                                                                                         | enabled} to {disabled | enabled}.` |
+| View — Peek Stickers                           | `Peek stickers setting was changed from {from} to {to}.`                                                                                                                         |
+| View — Peek Sticker Depth                      | `Peek sticker depth was changed from {from} to {to}.`                                                                                                                            |
+| View — Peek Hide Color                         | `Peek hide color was changed to {to}.`                                                                                                                                           |
+| Export / Import — Automatically export on exit | `Automatically export on exit setting was changed from {disabled                                                                                                                 | enabled} to {disabled | enabled}.` |
+| Colors — Outer Facelet (position)              | `Color of {target} facelet was changed from {from} to {to}.`                                                                                                                     |
+| Colors — Outer Facelet (face)                  | `Color of {target} face was changed from {from} to {to}.`                                                                                                                        |
+| Colors — Outer Facelet (All)                   | `Color of all outer facelets was changed from {from} to {to}.`                                                                                                                   |
+| Colors — Inner Cubie (position)                | `Inner color of cubie {target} was changed from {from} to {to}.`                                                                                                                 |
+| Colors — Inner Cubie (All)                     | `Inner color of all cubies was changed from {from} to {to}.`                                                                                                                     |
+| Colors — Facelet Label (position)              | `Label color of facelet {target} was changed from {from} to {to}.`                                                                                                               |
+| Colors — Facelet Label (face)                  | `Label color on face {target} was changed from {from} to {to}.`                                                                                                                  |
+| Colors — Facelet Label (All)                   | `Color of all facelet labels was changed from {from} to {to}.`                                                                                                                   |
+| Colors — Axis Label (face)                     | `Color of the {target} axis label was changed from {from} to {to}.`                                                                                                              |
+| Colors — Axis Label (All)                      | `Color of all axis labels was changed from {from} to {to}.`                                                                                                                      |
+| Colors — Rotation Arrow (face)                 | `Color of the {target} rotation arrow was changed from {from} to {to}.`                                                                                                          |
+| Colors — Rotation Arrow (All)                  | `Color of all rotation arrows was changed from {from} to {to}.`                                                                                                                  |
+| Labels — Facelet Labels                        | `Facelet labels were changed from {from} to {to}.`                                                                                                                               |
+| Labels — Facelet Label Visibility              | `Facelet label visibility was changed from {from} to {to}.`                                                                                                                      |
+| Labels — Facelet Label Depth                   | `Facelet label depth was changed from {from} to {to}.`                                                                                                                           |
+| Labels — Axis Labels                           | `Axis labels were changed from {from} to {to}.`                                                                                                                                  |
+| Labels — Axis Label (face) Visibility          | `Visibility of the {target} axis label was changed from {from} to {to}.`                                                                                                         |
+| Labels — Axis Label Visibility                 | `Axis label visibility was changed from {from} to {to}.`                                                                                                                         |
+| Labels — Axis Label Format                     | `Axis label format was changed from {from} to {to}.`                                                                                                                             |
+| Labels — Axis Label Text (face)                | `Text of the {target} axis label was changed from {from} to {to}.` Always show both texts, even when long.                                                                       |
+| Labels — Axis Label Depth                      | `Axis label depth was changed from {from} to {to}.`                                                                                                                              |
+| Labels — Axis Arrows                           | `Axis arrows were changed from {from} to {to}.`                                                                                                                                  |
+| Labels — Axis Arrow (face) Visibility          | `Visibility of the {target} axis arrow was changed from {from} to {to}.`                                                                                                         |
+| Labels — Axis Arrow Visibility                 | `Axis arrow visibility was changed from {from} to {to}.`                                                                                                                         |
+| Labels — Axis Arrow Depth                      | `Axis arrow depth was changed from {from} to {to}.`                                                                                                                              |
+| Labels — Rotation Arrows                       | `Rotation arrows were changed from {from} to {to}.`                                                                                                                              |
+| Labels — Rotation Arrow (face) Visibility      | `Visibility of the {target} rotation arrow was changed from {from} to {to}.`                                                                                                     |
+| Labels — Rotation Arrow Visibility             | `Rotation arrow visibility was changed from {from} to {to}.`                                                                                                                     |
+| Labels — Rotation Arrow Depth                  | `Rotation arrow depth was changed from {from} to {to}.`                                                                                                                          |
+| Labels — Rotation Arrow Thickness              | `Rotation arrow thickness was changed from {from} to {to}.`                                                                                                                      |
+| Labels — Rotation Arrow Radius                 | `Rotation arrow radius was changed from {from} to {to}.`                                                                                                                         |
+| Labels — Rotation Arrow Direction              | `Rotation arrow direction was changed from {from} to {to}.`                                                                                                                      |
+| Individual reset                               | `Settings were reset using the individual reset button.`                                                                                                                         |
+| Reset Rotation — Rotation entry                | `Settings were reset using the individual reset button.`                                                                                                                         |
+| Reset Rotation — Camera entry                  | `Settings were reset using the individual reset button.`                                                                                                                         |
+| Reset to Defaults                              | `All settings were reset to their defaults.`                                                                                                                                     |
+| Export / Import — Imported Settings            | `Settings were manually imported as JSON.`                                                                                                                                       |
+| Jump                                           | `Jumped to previous state: [link]`                                                                                                                                               |
+| Revert — value-based activity                  | Use the original activity template in reverse: show the original `to` as the value reverted from and the original `from` as the value restored, using `back to` instead of `to`. |
+| Revert — rotation sequence                     | `Rotation sequence was changed from {current sequence} back to {restored sequence}.` Show the entire restored sequence.                                                          |
+| Revert — camera Orbit                          | `Camera was orbited back to azimuth {azimuth}° and elevation {elevation}°.` Use the restored values.                                                                             |
+| Revert — camera Pan                            | `Camera was panned back {horizontal} horizontally and {vertical} vertically.` Use the restored values.                                                                           |
+| Revert — camera Zoom                           | `Camera zoom was changed back to {zoom}%.` Use the restored value.                                                                                                               |
+| Revert — Jump                                  | `Restored the setup from before the selected Jump.`                                                                                                                              |
 
 Use `enabled/disabled` for feature toggles (Facelet Labels, Axis Labels, Axis
 Arrows, and Rotation Arrows); use readable visibility values for visibility
@@ -241,3 +244,27 @@ the 1,000-entry log, show the ID as disabled inline code with an explanation.
 ### Pending Improvements
 
 - Include the Activity Log when exporting/importing settings.
+
+- Import description to include file name or just say pasted.
+
+## Export / Import
+
+### Automatically export on exit
+
+The **Automatically export on exit** checkbox is unchecked by default. For now,
+toggling it only creates an Activity Log entry; it does not export or persist
+anything. Its entries are not revertible until the option has a defined effect.
+
+Possible implementations to consider:
+
+- Trigger a JSON download while the page is closing. Browser lifecycle policies
+  may block or cancel downloads started during `beforeunload` or `pagehide`.
+- Save the latest setup in browser storage and offer a download or recovery
+  action on the next visit. Decide how to handle storage limits, private
+  browsing, multiple tabs, and stale data.
+- Ask the user to export before leaving. Custom exit prompts are restricted by
+  browsers, and native unload prompts cannot provide a reliable custom workflow.
+- Let the user choose a destination file and update it on changes with the File
+  System Access API. This requires browser support and explicit file permission.
+- Define what “exit” includes (closing a tab/window, navigating away, or
+  reloading), and decide how to avoid duplicate or unexpected exports.
