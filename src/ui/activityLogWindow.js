@@ -40,7 +40,12 @@ function formatActivityTimestamp(timestamp) {
   return `${values.day} ${values.month} ${values.year} at ${values.hour}:${values.minute}:${values.second}`;
 }
 
-function renderActivityDescription(element, activity) {
+function renderActivityDescription(
+  element,
+  activity,
+  activityLogState,
+  onActivityLink,
+) {
   if (!activity.descriptionParts) {
     element.textContent = activity.description;
     return;
@@ -57,9 +62,41 @@ function renderActivityDescription(element, activity) {
     code.textContent = part.code;
     code.style.fontFamily = "monospace";
     code.style.color = "#d7ba7d";
-    code.style.background = "#3A3A3A";
+    code.style.background = "#6A6A6A";
     code.style.padding = "1px 4px";
     code.style.borderRadius = "3px";
+
+    if (part.linkActivityId) {
+      const target = document.createElement("a");
+      const targetActivity = activityLogState.getActivity(part.linkActivityId);
+
+      target.appendChild(code);
+      if (targetActivity) {
+        target.href = "#";
+        target.setAttribute(
+          "aria-label",
+          `Show activity ${part.linkActivityId}`,
+        );
+        target.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onActivityLink(part.linkActivityId);
+        });
+      } else {
+        target.removeAttribute("href");
+        target.setAttribute("aria-disabled", "true");
+        target.title = "This activity is no longer in the log.";
+        element.append(
+          target,
+          document.createTextNode(" (no longer in the log)"),
+        );
+      }
+      if (targetActivity) {
+        element.appendChild(target);
+      }
+      continue;
+    }
+
     element.appendChild(code);
   }
 }
@@ -229,29 +266,43 @@ export function createActivityLogWindow({
         : "No activities match the selected filters.";
 
     for (const activity of activities) {
-      const row = document.createElement("button");
+      const row = document.createElement("div");
+      const rowButton = document.createElement("button");
       const rowContent = document.createElement("span");
       const rowTitle = document.createElement("span");
       const rowDescription = document.createElement("span");
       const timestamp = document.createElement("time");
       const isSelected = activity.id === selected?.id;
 
-      row.type = "button";
-      row.setAttribute("aria-pressed", String(isSelected));
-      row.setAttribute("aria-label", `${activity.parent}: ${activity.focus}`);
+      row.dataset.activityId = activity.id;
       row.style.display = "flex";
+      row.style.flexDirection = "column";
       row.style.width = "100%";
-      row.style.padding = "10px 12px";
+      row.style.padding = "6px 12px 10px";
       row.style.border = isSelected
         ? "1px solid #2563eb"
         : "1px solid rgba(0, 0, 0, 0.12)";
       row.style.borderRadius = "4px";
       row.style.background = isSelected ? "#eaf2ff" : "white";
       row.style.color = "#1f2937";
-      row.style.textAlign = "left";
       row.style.cursor = "pointer";
       row.style.transition = "background-color 120ms ease";
       row.style.boxSizing = "border-box";
+
+      rowButton.type = "button";
+      rowButton.setAttribute("aria-pressed", String(isSelected));
+      rowButton.setAttribute(
+        "aria-label",
+        `${activity.parent}: ${activity.focus}`,
+      );
+      rowButton.style.width = "100%";
+      rowButton.style.padding = "4px 0";
+      rowButton.style.border = "0";
+      rowButton.style.background = "transparent";
+      rowButton.style.color = "inherit";
+      rowButton.style.textAlign = "left";
+      rowButton.style.cursor = "pointer";
+      rowButton.style.boxSizing = "border-box";
 
       rowContent.style.display = "grid";
       rowContent.style.gridTemplateColumns = "1fr auto";
@@ -267,12 +318,18 @@ export function createActivityLogWindow({
       timestamp.style.fontSize = "12px";
       timestamp.style.textAlign = "right";
 
-      renderActivityDescription(rowDescription, activity);
-      rowDescription.style.gridColumn = "1 / -1";
       rowDescription.style.overflowWrap = "anywhere";
+      rowDescription.style.paddingTop = "2px";
 
-      rowContent.append(rowTitle, timestamp, rowDescription);
-      row.appendChild(rowContent);
+      rowContent.append(rowTitle, timestamp);
+      rowButton.appendChild(rowContent);
+      row.append(rowButton, rowDescription);
+      renderActivityDescription(
+        rowDescription,
+        activity,
+        activityLogState,
+        showLinkedActivity,
+      );
       row.addEventListener("mouseenter", () => {
         row.style.background = isSelected ? "#dbeafe" : "#f3f7fc";
       });
@@ -284,6 +341,22 @@ export function createActivityLogWindow({
         refresh();
       });
       activityList.appendChild(row);
+    }
+  }
+
+  function showLinkedActivity(activityId) {
+    if (!activityLogState.getActivity(activityId)) {
+      return;
+    }
+
+    activityLogState.setFilters([]);
+    activityLogState.selectActivity(activityId);
+    refresh();
+    for (const row of activityList.children) {
+      if (row.dataset.activityId === activityId) {
+        row.scrollIntoView({ block: "nearest" });
+        break;
+      }
     }
   }
 

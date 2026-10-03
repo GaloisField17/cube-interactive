@@ -33,6 +33,7 @@ import {
 } from "./customRotation.js";
 import { prefixWithLocalTimestamp } from "./exportFileName.js";
 import { getFaceletLabel } from "./faceDefinitions.js";
+import { createActivityDescription } from "./activityDescriptions.js";
 import { createJsonExport } from "./jsonExport.js";
 import { createActivityLogState } from "./activityLogState.js";
 import { createActivityCommitter } from "./ui/activityRecorder.js";
@@ -211,12 +212,15 @@ export function createUI({
     filterFocus = focus,
     from,
     to,
-    description,
-    descriptionParts,
   }) {
     if (JSON.stringify(from) === JSON.stringify(to)) {
       return null;
     }
+
+    const { description, descriptionParts } = createActivityDescription(
+      { parent, focus, from, to },
+      { defaultCameraView: getDefaultCameraView() },
+    );
 
     return recordActivity({
       id: crypto.randomUUID(),
@@ -226,7 +230,7 @@ export function createUI({
       focus,
       filterFocus,
       description,
-      ...(descriptionParts ? { descriptionParts } : {}),
+      descriptionParts,
       from,
       to,
       snapshot: getJsonExportSetup(),
@@ -250,56 +254,6 @@ export function createUI({
       description,
       snapshot: getJsonExportSetup(),
     });
-  }
-
-  function formatActivityValue(value) {
-    if (Array.isArray(value)) {
-      if (!value.length) {
-        return "empty sequence";
-      }
-      if (value.every((item) => typeof item === "string")) {
-        return value.join(" ") || "empty sequence";
-      }
-      if (value.every((item) => JSON.stringify(item) === JSON.stringify(value[0]))) {
-        return formatActivityValue(value[0]);
-      }
-      return "mixed";
-    }
-
-    if (value && typeof value === "object") {
-      if (Object.hasOwn(value, "cameraPosition") && Object.hasOwn(value, "target")) {
-        return "camera pose";
-      }
-      const values = Object.values(value);
-
-      if (!values.length) {
-        return "none";
-      }
-      if (values.every((item) => JSON.stringify(item) === JSON.stringify(values[0]))) {
-        return formatActivityValue(values[0]);
-      }
-      return "mixed";
-    }
-
-    if (typeof value === "boolean") {
-      return value ? "shown" : "hidden";
-    }
-
-    if (typeof value === "number") {
-      return Number(value.toFixed(3)).toString();
-    }
-
-    const labels = {
-      "always-visible": "shown through the cube",
-      "hidden-behind-cube": "hidden behind the cube",
-      clockwise: "clockwise",
-      "counter-clockwise": "counter-clockwise",
-      coordinate: "Cartesian coordinates",
-      custom: "custom text",
-      face: "face names",
-    };
-
-    return labels[value] ?? String(value);
   }
 
   function applyMappedActivityValues(values, getTarget, applyValue) {
@@ -500,30 +454,19 @@ export function createUI({
     }
 
     const snapshot = getJsonExportSetup();
-    const unit =
-      activity.parent === "Rotation" && activity.focus === "Duration"
-        ? "s"
-        : "";
-    let description;
-
-    if (activity.parent === "Camera") {
-      description = `Camera: ${activity.focus} was reverted to the earlier camera pose.`;
-    } else if (activity.parent === "Jump") {
-      description = "Jump: Restored the setup that preceded the selected jump.";
-    } else {
-      description = `${activity.parent}: ${activity.focus} was changed from ${formatActivityValue(activity.to)}${unit} to ${formatActivityValue(activity.from)}${unit} by Revert.`;
-    }
-
-    const descriptionParts =
-      activity.parent !== "Camera" && activity.parent !== "Jump"
-        ? [
-            `${activity.parent}: ${activity.focus} was changed from `,
-            { code: `${formatActivityValue(activity.to)}${unit}` },
-            " to ",
-            { code: `${formatActivityValue(activity.from)}${unit}` },
-            " by Revert.",
-          ]
-        : undefined;
+    const { description, descriptionParts } =
+      activity.parent === "Jump"
+        ? {
+            description: "Restored the setup from before the selected Jump.",
+            descriptionParts: undefined,
+          }
+        : createActivityDescription(
+            activity,
+            {
+              reverting: true,
+              defaultCameraView: getDefaultCameraView(),
+            },
+          );
 
     recordActivity({
       id: crypto.randomUUID(),
@@ -541,22 +484,12 @@ export function createUI({
   }
 
   function recordControlActivity({ parent, focus, filterFocus, from, to }) {
-    const unit = parent === "Rotation" && focus === "Duration" ? "s" : "";
-
     recordSettingActivity({
       parent,
       focus,
       filterFocus,
       from,
       to,
-      description: `${parent}: ${focus} was changed from ${formatActivityValue(from)}${unit} to ${formatActivityValue(to)}${unit}.`,
-      descriptionParts: [
-        `${parent}: ${focus} was changed from `,
-        { code: `${formatActivityValue(from)}${unit}` },
-        " to ",
-        { code: `${formatActivityValue(to)}${unit}` },
-        ".",
-      ],
     });
   }
 
@@ -570,7 +503,7 @@ export function createUI({
         kind: "reset",
         parent,
         focus,
-        description: `${parent}: ${focus} were reset using the individual reset button.`,
+        description: "Settings were reset using the individual reset button.",
       });
     }
   }
@@ -644,10 +577,6 @@ export function createUI({
     };
   }
 
-  function formatCameraNumber(value) {
-    return `${Number(value.toFixed(1))}`;
-  }
-
   function recordCameraGesture() {
     if (!cameraGestureStart) {
       return;
@@ -674,28 +603,10 @@ export function createUI({
       fromMetrics.distance - toMetrics.distance,
     ) > 1e-5;
     const focus = movedTarget ? "Pan" : changedZoom ? "Zoom" : "Orbit";
-    let detail;
-
-    if (focus === "Orbit") {
-      detail = `azimuth ${formatCameraNumber(fromMetrics.azimuth)}° to ${formatCameraNumber(toMetrics.azimuth)}°, elevation ${formatCameraNumber(fromMetrics.elevation)}° to ${formatCameraNumber(toMetrics.elevation)}°`;
-    } else if (focus === "Zoom") {
-      detail = `${formatCameraNumber(fromMetrics.zoomPercent)}% to ${formatCameraNumber(toMetrics.zoomPercent)}%`;
-    } else {
-      const direction = new Vector3(
-        from.cameraPosition.x - from.target.x,
-        from.cameraPosition.y - from.target.y,
-        from.cameraPosition.z - from.target.z,
-      ).normalize();
-      const right = new Vector3(0, 1, 0).cross(direction).normalize();
-      const up = direction.clone().cross(right).normalize();
-      const horizontal = targetDelta.dot(right);
-      const vertical = targetDelta.dot(up);
-
-      detail = `horizontal ${formatCameraNumber(horizontal)} and vertical ${formatCameraNumber(vertical)} units`;
-      if (changedZoom) {
-        detail += `, zoom ${formatCameraNumber(fromMetrics.zoomPercent)}% to ${formatCameraNumber(toMetrics.zoomPercent)}%`;
-      }
-    }
+    const { description, descriptionParts } = createActivityDescription(
+      { parent: "Camera", focus, from, to },
+      { defaultCameraView: getDefaultCameraView() },
+    );
 
     recordActivity({
       id: crypto.randomUUID(),
@@ -704,7 +615,8 @@ export function createUI({
       parent: "Camera",
       focus,
       filterFocus: focus,
-      description: `Camera: ${focus} was changed (${detail}).`,
+      description,
+      descriptionParts,
       from,
       to,
       snapshot: getJsonExportSetup(),
@@ -2331,22 +2243,12 @@ export function createUI({
       : includesSequenceWithOneInsertion(to, from)
         ? "Remove"
         : "Edit";
-    const formatSequence = (moves) => moves.join(" ") || "empty sequence";
-
     recordSettingActivity({
       parent: "Rotation",
       focus,
       filterFocus: focus,
       from,
       to,
-      description: `Rotation: ${focus} was changed from ${formatSequence(from)} to ${formatSequence(to)}.`,
-      descriptionParts: [
-        `Rotation: ${focus} was changed from `,
-        { code: formatSequence(from) },
-        " to ",
-        { code: formatSequence(to) },
-        ".",
-      ],
     });
   }
 
@@ -5451,9 +5353,13 @@ export function createUI({
         : [];
 
     for (const move of moves) {
-      const entry = appendRotationEntry(move);
-      const action = createImportedRotationAction(move);
+      const [action] = parseCustomSequence(move);
 
+      if (!action) {
+        throw new Error(`Unable to restore rotation "${move}".`);
+      }
+
+      const entry = appendRotationEntry(action.label);
       action.entry = entry;
       rotationActions.push(action);
       cursorRotationEntry = entry;
@@ -5554,6 +5460,11 @@ export function createUI({
 
     const to = getJsonExportSetup();
 
+    const descriptionParts = [
+      "Jumped to previous state: ",
+      { code: activity.id, linkActivityId: activity.id },
+    ];
+
     recordActivity({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
@@ -5561,7 +5472,8 @@ export function createUI({
       parent: "Jump",
       focus: "Past State",
       filterFocus: "Past State",
-      description: `Jump: Restored setup to the state after "${activity.description}".`,
+      description: `Jumped to previous state: ${activity.id}`,
+      descriptionParts,
       from,
       to,
       snapshot: to,
@@ -5581,7 +5493,7 @@ export function createUI({
             kind: "import",
             parent: "Import",
             focus: "Settings",
-            description: "Import: Settings were changed via import.",
+            description: "Imported settings.",
           });
         }
       },
@@ -5952,7 +5864,7 @@ export function createUI({
         kind: "reset",
         parent,
         focus: "Settings",
-        description: `${parent}: ${parent} were reset using the individual reset button.`,
+        description: "Settings were reset using the individual reset button.",
         timestamp,
       });
     }
@@ -6064,7 +5976,7 @@ export function createUI({
           kind: "reset",
           parent: "Setup",
           focus: "Reset to Defaults",
-          description: "Setup: Settings were reset to defaults.",
+          description: "All settings were reset to their defaults.",
         });
       }
     } finally {

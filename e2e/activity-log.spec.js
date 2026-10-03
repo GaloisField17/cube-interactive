@@ -103,18 +103,19 @@ test("setting changes create Activity Log entries with before and after values",
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
   await expect(
-    dialog.getByText("Rotation: Duration was changed from 1s to 1.5s."),
+    dialog.getByText("Duration was changed from 1s to 1.5s."),
   ).toBeVisible();
   const changeValues = dialog
     .getByRole("button", { name: "Rotation: Duration" })
     .first()
+    .locator("..")
     .locator("code");
 
   await expect(changeValues).toHaveText(["1s", "1.5s"]);
-  await expect(changeValues.first()).toHaveCSS("color", "rgb(180, 83, 9)");
+  await expect(changeValues.first()).toHaveCSS("color", "rgb(215, 186, 125)");
   await expect(changeValues.first()).toHaveCSS(
     "background-color",
-    "rgb(254, 243, 199)",
+    "rgb(58, 58, 58)",
   );
   await expect(dialog.locator("time").first()).toHaveText(
     /^\d{2} [A-Z][a-z]{2} \d{4} at \d{2}:\d{2}:\d{2}$/,
@@ -126,11 +127,11 @@ test("setting changes create Activity Log entries with before and after values",
   ).toBeVisible();
   await expect(
     dialog.getByText(
-      "View: Ghost Sticker Visibility was changed from shown through the cube to hidden behind the cube.",
+      "Sticker ghost visibility was changed from shown through the cube to hidden behind the cube.",
     ),
   ).toBeVisible();
   await expect(
-    dialog.getByText("Labels: Facelet Labels was changed from hidden to shown."),
+    dialog.getByText("Facelet labels were changed from disabled to enabled."),
   ).toBeVisible();
   await expect(dialog.locator("button[aria-pressed]").first()).toHaveAttribute(
     "aria-label",
@@ -173,11 +174,11 @@ test("Reset Rotation records Rotation and Camera entries with the same time", as
     name: "Camera: Settings",
   });
 
-  await expect(rotationReset).toContainText(
-    "Rotation: Rotation were reset using the individual reset button.",
+  await expect(rotationReset.locator("..")).toContainText(
+    "Settings were reset using the individual reset button.",
   );
-  await expect(cameraReset).toContainText(
-    "Camera: Camera were reset using the individual reset button.",
+  await expect(cameraReset.locator("..")).toContainText(
+    "Settings were reset using the individual reset button.",
   );
   await expect(rotationReset.locator("time")).toHaveText(
     await cameraReset.locator("time").textContent(),
@@ -196,7 +197,7 @@ test("adding a rotation to the sequence creates a Rotation activity", async ({
 
   await expect(
     dialog.getByText(
-      "Rotation: Insert was changed from empty sequence to R.",
+      "R was inserted. The rotation sequence is now R.",
     ),
   ).toBeVisible();
   await expect(
@@ -260,12 +261,13 @@ test("Revert applies a scalar setting's inverse and records the reversal", async
   await expect(duration).toHaveValue("1");
   await expect(
     dialog.getByText(
-      "Rotation: Duration was changed from 1.5s to 1s by Revert.",
+      "Duration was changed from 1.5s back to 1s.",
     ),
   ).toBeVisible();
   const revertedValues = dialog
     .getByRole("button", { name: "Rotation: Duration" })
     .first()
+    .locator("..")
     .locator("code");
 
   await expect(revertedValues).toHaveText(["1.5s", "1s"]);
@@ -298,7 +300,7 @@ test("Revert restores keyed values for a grouped color activity", async ({
 
   await expect(allOuterFacelets).toHaveValue(originalColor);
   await expect(
-    dialog.getByText(/Colors: Outer Facelet \(F\) was changed from/).first(),
+    dialog.getByText(/Color of F face was changed from/).first(),
   ).toBeVisible();
 });
 
@@ -356,7 +358,7 @@ test("Revert restores camera gestures and records a camera reversal", async ({
   await dialog.getByRole("button", { name: "Revert" }).click();
 
   await expect(
-    dialog.getByText("Camera: Orbit was reverted to the earlier camera pose."),
+    dialog.getByText(/Camera was orbited back to azimuth/),
   ).toBeVisible();
 });
 
@@ -387,8 +389,67 @@ test("Revert of a Jump restores the state from before that Jump", async ({
 
   await expect(duration).toHaveValue("2");
   await expect(
-    dialog.getByText("Jump: Restored the setup that preceded the selected jump."),
+    dialog.getByText("Restored the setup from before the selected Jump."),
   ).toBeVisible();
+});
+
+test("Jump restores a saved rotation sequence", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('input[name="moveType"][value="fixed"]').check();
+  await page.getByRole("button", { name: "R", exact: true }).click();
+  await page.getByRole("button", { name: "U", exact: true }).click();
+  await page.getByRole("button", { name: "History" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const rotationActivity = dialog.getByRole("button", {
+    name: "Rotation: Insert",
+  }).last();
+
+  await rotationActivity.click();
+  await dialog.getByRole("button", { name: "Jump" }).click();
+
+  await expect(
+    page.getByRole("listbox", { name: "Rotation Sequence" }),
+  ).toHaveText("R");
+});
+
+test("Jump description links clear filters and select the restored activity", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const duration = page.locator("#rotation-panel input[type='text']").first();
+
+  await duration.fill("1.5");
+  await duration.press("Tab");
+  await page.getByRole("button", { name: "History" }).click();
+
+  const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
+  const targetButton = dialog.getByRole("button", {
+    name: "Rotation: Duration",
+  });
+  const targetId = await targetButton.locator("..").getAttribute("data-activity-id");
+
+  await targetButton.click();
+  await dialog.getByRole("button", { name: "Jump" }).click();
+  await dialog.getByRole("button", { name: "Filter" }).click();
+  await dialog.getByRole("checkbox", { name: "Jump", exact: true }).check();
+
+  const jumpLink = dialog.getByRole("link", {
+    name: `Show activity ${targetId}`,
+  });
+
+  await expect(jumpLink).toBeVisible();
+  await jumpLink.click();
+
+  await expect(
+    dialog
+      .locator(`[data-activity-id="${targetId}"]`)
+      .getByRole("button", { name: "Rotation: Duration" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    dialog.locator('input[type="checkbox"]:checked'),
+  ).toHaveCount(0);
 });
 
 test("import and Reset to Defaults create composite summary entries", async ({
@@ -405,7 +466,7 @@ test("import and Reset to Defaults create composite summary entries", async ({
 
   await page.getByRole("button", { name: "History" }).click();
   await expect(
-    dialog.getByText("Setup: Settings were reset to defaults."),
+    dialog.getByText("All settings were reset to their defaults."),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Setup: Reset to Defaults" }).click();
   await expect(dialog.getByRole("button", { name: "Revert" })).toBeDisabled();
@@ -429,12 +490,12 @@ test("import and Reset to Defaults create composite summary entries", async ({
 
   await page.getByRole("button", { name: "History" }).click();
   await expect(
-    dialog.getByText("Import: Settings were changed via import."),
+    dialog.getByText("Imported settings."),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Import: Settings" }).click();
   await expect(dialog.getByRole("button", { name: "Revert" })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "Jump" })).toBeEnabled();
   await expect(
-    dialog.getByText("Rotation: Duration was changed from 1s to 1.5s."),
+    dialog.getByText("Duration was changed from 1s to 1.5s."),
   ).toHaveCount(0);
 });

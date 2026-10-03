@@ -39,9 +39,9 @@ example, activities `Rotation: Duration`, `Rotation: Insert`, and
 ### Activity catalog
 
 Each activity has a **Parent** (broad category), **Focus** (setting changed),
-and a concise, natural-English description. Draft description templates for
-every activity are listed under Pending Improvements for review. Distinguish
-displayed values with inline code styling. Format values readably: durations
+and a concise, natural-English description. Implemented description templates
+are listed below for reference. Distinguish displayed values with inline code
+styling. Format values readably: durations
 in seconds, colors as color values, visibility as shown/hidden, and dimensions
 with consistent precision. Use human-readable facelet/cubie position names
 (such as `UFR`) and group names (`Centers`, `Edges`, `Corners`, `Core`).
@@ -134,6 +134,8 @@ Store each activity as an immutable record containing:
   applicable.
 - `filterFocus`: canonical Focus group without a target qualifier.
 - `description`: readable text shown in the log.
+- `descriptionParts`: optional rich-text segments, including inline code and
+  links to related activities.
 - `from`, `to`: optional typed values for the affected setting; required and
   applicable for Revert.
 - `snapshot`: immutable full setup immediately after the activity, including
@@ -152,16 +154,11 @@ raw position/target vectors.
 - Expanding or collapsing UI panels or boxes.
 - Camera changes other than completed Orbit, Pan, and Zoom gestures.
 
-### Pending Improvements
+### Description templates
 
-#### Review activity description templates
-
-Review and finalize these concise, natural-English descriptions. The Parent and
-Focus are already shown separately in each row, so descriptions need not repeat
-them. Use inline code for displayed values. `{from}`, `{to}`, and `{target}`
-stand for the previous value, new value, and affected item/group. Omit `{from}`
-only when a template allows it and it would be redundant or unwieldy; the
-specific rules for grouped colors and axis-label text are listed below.
+Implemented description reference. The Parent and Focus are shown separately
+from the descriptions. Values use inline code. `{from}`, `{to}`, and `{target}`
+stand for the previous value, new value, and affected item/group.
 
 | Activity | Draft description |
 | --- | --- |
@@ -237,5 +234,10 @@ show both old and new text, even when long.
 
 For Jump, `[link]` will be a pressable link to the activity whose after-state
 was restored. Pressing it will select that activity in the log and
-automatically scroll it into view. Defer implementing this link behavior; it is
-documented here as a pending improvement.
+automatically scroll it into view, clearing filters if necessary. The link
+displays the target activity ID in inline code. If the target was evicted from
+the 1,000-entry log, show the ID as disabled inline code with an explanation.
+
+### Pending Improvements
+
+- Include the Activity Log when exporting/importing settings.
