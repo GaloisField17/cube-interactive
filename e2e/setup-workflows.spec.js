@@ -168,7 +168,7 @@ test("per-cubie dimensions export and restore through setup import", async ({
   assert.ok(cubiesWithCustomSize.length > 0);
   assert.ok(cubiesWithCustomSize.length < 26);
 
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
   const activityDialog = page.locator(
     '[role="dialog"][aria-label="Activity Log"]',
   );

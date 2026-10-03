@@ -61,8 +61,8 @@ function renderActivityDescription(
 
     code.textContent = part.code;
     code.style.fontFamily = "monospace";
-    code.style.color = "#d7ba7d";
-    code.style.background = "#6A6A6A";
+    code.style.color = "#6A6A6A";
+    code.style.background = "#F0F0F0";
     code.style.padding = "1px 4px";
     code.style.borderRadius = "3px";
 

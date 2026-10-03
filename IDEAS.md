@@ -6,7 +6,7 @@
 
 ### Purpose
 
-The History button opens a session-only log of meaningful setup changes,
+The Activity Log button opens a session-only log of meaningful setup changes,
 ordered newest first. Each activity shows its Parent, Focus, description, and
 completion time. The log holds up to 1,000 activities and is cleared when the
 app starts fresh.

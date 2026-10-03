@@ -5986,28 +5986,28 @@ export function createUI({
 
   controlsRoot.appendChild(resetToDefaultsButton);
 
-  const historyButton = document.createElement("button");
+  const activityLogButton = document.createElement("button");
 
-  historyButton.className = "history-control";
-  historyButton.type = "button";
-  historyButton.textContent = "History";
-  historyButton.style.position = "absolute";
-  historyButton.style.top = "70px";
-  historyButton.style.left = "20px";
-  historyButton.style.width = "220px";
-  historyButton.style.height = "42px";
-  historyButton.style.padding = "8px";
-  historyButton.style.cursor = "pointer";
-  historyButton.style.boxSizing = "border-box";
+  activityLogButton.className = "activity-log-control";
+  activityLogButton.type = "button";
+  activityLogButton.textContent = "Activity Log";
+  activityLogButton.style.position = "absolute";
+  activityLogButton.style.top = "70px";
+  activityLogButton.style.left = "20px";
+  activityLogButton.style.width = "220px";
+  activityLogButton.style.height = "42px";
+  activityLogButton.style.padding = "8px";
+  activityLogButton.style.cursor = "pointer";
+  activityLogButton.style.boxSizing = "border-box";
 
   activityLogWindow = createActivityLogWindow({
     activityLogState,
     onRevert: revertActivity,
     onJump: jumpToActivity,
   });
-  historyButton.addEventListener("click", activityLogWindow.open);
+  activityLogButton.addEventListener("click", activityLogWindow.open);
 
-  controlsRoot.appendChild(historyButton);
+  controlsRoot.appendChild(activityLogButton);
 
   const rightSidePanels = [
     cubePanel,

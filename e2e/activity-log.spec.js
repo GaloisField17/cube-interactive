@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("History opens and closes the empty Activity Log window", async ({
+test("Activity Log opens and closes the empty window", async ({
   page,
 }) => {
   await page.goto("/");
@@ -9,7 +9,7 @@ test("History opens and closes the empty Activity Log window", async ({
 
   await expect(dialog).toHaveCount(1);
   await expect(dialog).toBeHidden();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("No activities yet.")).toBeVisible();
@@ -38,7 +38,7 @@ test("Filter is enabled only when multiple Parent-Focus groups are available", a
   await duration.press("Tab");
   await duration.fill("2");
   await duration.press("Tab");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -51,7 +51,7 @@ test("Filter is enabled only when multiple Parent-Focus groups are available", a
   await page.getByRole("button", { name: "Close Activity Log" }).click();
   await page.locator('input[name="moveType"][value="fixed"]').check();
   await page.getByRole("button", { name: "R", exact: true }).click();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   await expect(dialog.getByRole("button", { name: "Filter" })).toBeEnabled();
   await expect(dialog.getByRole("button", { name: "Filter" })).toHaveCSS(
@@ -98,7 +98,7 @@ test("setting changes create Activity Log entries with before and after values",
     { steps: 4 },
   );
   await page.mouse.up();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -112,10 +112,10 @@ test("setting changes create Activity Log entries with before and after values",
     .locator("code");
 
   await expect(changeValues).toHaveText(["1s", "1.5s"]);
-  await expect(changeValues.first()).toHaveCSS("color", "rgb(215, 186, 125)");
+  await expect(changeValues.first()).toHaveCSS("color", "rgb(106, 106, 106)");
   await expect(changeValues.first()).toHaveCSS(
     "background-color",
-    "rgb(58, 58, 58)",
+    "rgb(240, 240, 240)",
   );
   await expect(dialog.locator("time").first()).toHaveText(
     /^\d{2} [A-Z][a-z]{2} \d{4} at \d{2}:\d{2}:\d{2}$/,
@@ -164,7 +164,7 @@ test("Reset Rotation records Rotation and Camera entries with the same time", as
   await page.mouse.up();
 
   await page.getByRole("button", { name: "Reset Rotation" }).click();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
   const rotationReset = dialog.getByRole("button", {
@@ -191,7 +191,7 @@ test("adding a rotation to the sequence creates a Rotation activity", async ({
   await page.goto("/");
   await page.locator('input[name="moveType"][value="fixed"]').check();
   await page.getByRole("button", { name: "R", exact: true }).click();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -211,7 +211,7 @@ test("Revert removes an inserted rotation from the sequence", async ({
   await page.goto("/");
   await page.locator('input[name="moveType"][value="fixed"]').check();
   await page.getByRole("button", { name: "R", exact: true }).click();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -232,7 +232,7 @@ test("Revert restores a label setting", async ({ page }) => {
   const faceletLabels = page.getByLabel("Show Facelet Labels");
 
   await faceletLabels.check();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -251,7 +251,7 @@ test("Revert applies a scalar setting's inverse and records the reversal", async
 
   await duration.fill("1.5");
   await duration.press("Tab");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -289,7 +289,7 @@ test("Revert restores keyed values for a grouped color activity", async ({
 
   await allOuterFacelets.fill("#123456");
   await allOuterFacelets.press("Tab");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -322,7 +322,7 @@ test("Revert restores keyed values for grouped cube dimensions", async ({
 
   await cornerSize.fill("1.25");
   await cornerSize.press("Tab");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -350,7 +350,7 @@ test("Revert restores camera gestures and records a camera reversal", async ({
     { steps: 4 },
   );
   await page.mouse.up();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -373,7 +373,7 @@ test("Revert of a Jump restores the state from before that Jump", async ({
   await duration.press("Tab");
   await duration.fill("2");
   await duration.press("Tab");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
@@ -398,7 +398,7 @@ test("Jump restores a saved rotation sequence", async ({ page }) => {
   await page.locator('input[name="moveType"][value="fixed"]').check();
   await page.getByRole("button", { name: "R", exact: true }).click();
   await page.getByRole("button", { name: "U", exact: true }).click();
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
   const rotationActivity = dialog.getByRole("button", {
@@ -422,7 +422,7 @@ test("Jump description links clear filters and select the restored activity", as
 
   await duration.fill("1.5");
   await duration.press("Tab");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
   const targetButton = dialog.getByRole("button", {
@@ -464,7 +464,7 @@ test("import and Reset to Defaults create composite summary entries", async ({
 
   const dialog = page.locator('[role="dialog"][aria-label="Activity Log"]');
 
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
   await expect(
     dialog.getByText("All settings were reset to their defaults."),
   ).toBeVisible();
@@ -488,7 +488,7 @@ test("import and Reset to Defaults create composite summary entries", async ({
     );
   await page.getByRole("button", { name: "Import", exact: true }).click();
 
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "Activity Log" }).click();
   await expect(
     dialog.getByText("Imported settings."),
   ).toBeVisible();
