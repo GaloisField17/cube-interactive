@@ -16,6 +16,31 @@ test("Activity Log opens and closes the empty window", async ({
   await expect(dialog.getByRole("button", { name: "Filter" })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "Revert" })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "Jump" })).toBeDisabled();
+  const clearAllButton = dialog.getByRole("button", { name: "CLEAR ALL" });
+
+  await expect(clearAllButton).toBeEnabled();
+  await expect(clearAllButton).toHaveCSS("background-color", "rgb(248, 215, 218)");
+  const marginLeft = await clearAllButton.evaluate((button) =>
+    Number.parseFloat(getComputedStyle(button).marginLeft),
+  );
+
+  expect(marginLeft).toBeGreaterThan(0);
+  for (const name of ["Filter", "Revert", "Jump"]) {
+    const button = dialog.getByRole("button", { name });
+
+    for (const property of ["height", "min-width", "padding", "font-size"]) {
+      await expect(clearAllButton).toHaveCSS(
+        property,
+        await button.evaluate(
+          (element, cssProperty) =>
+            getComputedStyle(element).getPropertyValue(cssProperty),
+          property,
+        ),
+      );
+    }
+  }
+  await clearAllButton.hover();
+  await expect(clearAllButton).toHaveCSS("background-color", "rgb(243, 199, 204)");
   for (const name of ["Filter", "Revert", "Jump"]) {
     const button = dialog.getByRole("button", { name });
 
@@ -59,6 +84,12 @@ test("Automatically export on exit starts disabled and logs both setting changes
 
   await enabledActivity.click();
   await expect(dialog.getByRole("button", { name: "Revert" })).toBeDisabled();
+  await dialog.getByRole("button", { name: "CLEAR ALL" }).click();
+  await expect(
+    dialog.getByRole("button", {
+      name: "Export / Import: Automatically export on exit",
+    }),
+  ).toHaveCount(2);
 });
 
 test("Filter is enabled only when multiple Parent-Focus groups are available", async ({

@@ -137,6 +137,7 @@ export function createActivityLogWindow({
   const filterOptions = document.createElement("div");
   const revertButton = document.createElement("button");
   const jumpButton = document.createElement("button");
+  const clearAllButton = document.createElement("button");
   const activityList = document.createElement("div");
   const emptyMessage = document.createElement("div");
   const status = document.createElement("div");
@@ -218,6 +219,18 @@ export function createActivityLogWindow({
   styleMenuButton(revertButton);
   jumpButton.textContent = "Jump";
   styleMenuButton(jumpButton);
+  clearAllButton.textContent = "CLEAR ALL";
+  styleMenuButton(clearAllButton);
+  clearAllButton.style.background = "#f8d7da";
+  clearAllButton.style.border = "1px solid #c94c59";
+  clearAllButton.style.color = "#842029";
+  clearAllButton.style.marginLeft = "auto";
+  clearAllButton.addEventListener("mouseenter", () => {
+    clearAllButton.style.background = "#f3c7cc";
+  });
+  clearAllButton.addEventListener("mouseleave", () => {
+    clearAllButton.style.background = "#f8d7da";
+  });
 
   activityList.setAttribute("aria-label", "Activities");
   activityList.style.display = "flex";
@@ -494,7 +507,7 @@ export function createActivityLogWindow({
   header.append(title, closeButton);
   filterMenu.appendChild(filterOptions);
   filterContainer.append(filterButton, filterMenu);
-  toolbar.append(filterContainer, revertButton, jumpButton);
+  toolbar.append(filterContainer, revertButton, jumpButton, clearAllButton);
   dialog.append(header, toolbar, activityList, emptyMessage, status);
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
